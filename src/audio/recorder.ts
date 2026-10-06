@@ -153,12 +153,35 @@ export class Recorder {
     return (this.inputLatency + (l ? l.totalMs / 1000 : 0)) * 1000;
   }
 
+  private snapshot: Float32Array[] | null = null;
+
   private onTap(m: { frame?: number; data?: Float32Array; level?: number }): void {
     if (m.level !== undefined) {
       this.level = m.level;
       for (const fn of this.levelListeners) fn(m.level);
     }
     if (m.data && m.frame !== undefined && this.opts) this.chunks.push({ frame: m.frame, data: m.data });
+    if (m.data && this.snapshot) this.snapshot.push(m.data);
+  }
+
+  /** Capture `seconds` of raw microphone input without touching the transport (AUTO VOICE). */
+  async captureSnapshot(seconds: number): Promise<{ data: Float32Array; sampleRate: number }> {
+    if (!this.tap) await this.open();
+    if (this.opts) throw new RecorderError("Recording in progress.");
+    this.snapshot = [];
+    this.tap!.port.postMessage({ record: true });
+    await new Promise((r) => setTimeout(r, seconds * 1000));
+    this.tap!.port.postMessage({ record: false });
+    const parts = this.snapshot;
+    this.snapshot = null;
+    const total = parts.reduce((n, c) => n + c.length, 0);
+    const out = new Float32Array(total);
+    let o = 0;
+    for (const c of parts) {
+      out.set(c, o);
+      o += c.length;
+    }
+    return { data: out, sampleRate: this.engine.context!.sampleRate };
   }
 
   /**

@@ -24,14 +24,21 @@ function makeDsp(kind: string, sr: number, p: Params): Dsp {
     case "compressor": {
       const toP = (q: Params) => ({ thresholdDb: n(q.thresholdDb, -18), ratio: n(q.ratio, 3), attackMs: n(q.attackMs, 10), releaseMs: n(q.releaseMs, 120), kneeDb: n(q.kneeDb, 6), makeupDb: n(q.makeupDb, 0) });
       const c = new Compressor(sr, toP(p));
+      c.setControlRate(8);
+      let g = 1;
       return {
         run(ins, outs) {
           const len = ins[0].length;
-          for (let i = 0; i < len; i++) {
+          // Gain computed at control rate (every 8 samples, peak of the block), linearly interpolated.
+          for (let b = 0; b < len; b += 8) {
             let d = 0;
-            for (const ch of ins) d = Math.max(d, Math.abs(ch[i]));
-            const g = c.gainFor(d);
-            for (let k = 0; k < outs.length; k++) outs[k][i] = (ins[k] ?? ins[0])[i] * g;
+            for (let i = b; i < b + 8; i++) for (const ch of ins) { const a = Math.abs(ch[i]); if (a > d) d = a; }
+            const g1 = c.gainFor(d);
+            for (let i = b; i < b + 8; i++) {
+              const gi = g + ((g1 - g) * (i - b + 1)) / 8;
+              for (let k = 0; k < outs.length; k++) outs[k][i] = (ins[k] ?? ins[0])[i] * gi;
+            }
+            g = g1;
           }
         },
         set: (q) => c.set(toP(q)),
@@ -41,14 +48,19 @@ function makeDsp(kind: string, sr: number, p: Params): Dsp {
     case "gate": {
       const toP = (q: Params) => ({ thresholdDb: n(q.thresholdDb, -50), rangeDb: n(q.rangeDb, 30), attackMs: n(q.attackMs, 1), holdMs: n(q.holdMs, 40), releaseMs: n(q.releaseMs, 120) });
       const g = new Gate(sr, toP(p));
+      g.step = 8;
       let last = 1;
       return {
         run(ins, outs) {
-          for (let i = 0; i < ins[0].length; i++) {
+          for (let b = 0; b < ins[0].length; b += 8) {
             let d = 0;
-            for (const ch of ins) d = Math.max(d, Math.abs(ch[i]));
-            last = g.gainFor(d);
-            for (let k = 0; k < outs.length; k++) outs[k][i] = (ins[k] ?? ins[0])[i] * last;
+            for (let i = b; i < b + 8; i++) for (const ch of ins) { const a = Math.abs(ch[i]); if (a > d) d = a; }
+            const g1 = g.gainFor(d);
+            for (let i = b; i < b + 8; i++) {
+              const gi = last + ((g1 - last) * (i - b + 1)) / 8;
+              for (let k = 0; k < outs.length; k++) outs[k][i] = (ins[k] ?? ins[0])[i] * gi;
+            }
+            last = g1;
           }
         },
         set: (q) => { g.p = toP(q); },
@@ -146,6 +158,8 @@ class InsertProcessor extends AudioWorkletProcessor {
   private bypass = false;
   private frames = 0;
   private alive = true;
+  /** Consecutive silent input blocks; after ~0.5 s of silence the DSP is skipped entirely. */
+  private silentBlocks = 0;
 
   constructor(options: { processorOptions?: unknown }) {
     super();
@@ -163,7 +177,19 @@ class InsertProcessor extends AudioWorkletProcessor {
     const t0 = Date.now();
     const ins = inputs[0];
     const outs = outputs[0];
-    if (!ins || ins.length === 0) {
+    let silent = !ins || ins.length === 0;
+    if (!silent) {
+      silent = true;
+      for (const ch of ins) {
+        for (let i = 0; i < ch.length; i += 4) if (ch[i] !== 0) { silent = false; break; }
+        if (!silent) break;
+      }
+    }
+    this.silentBlocks = silent ? this.silentBlocks + 1 : 0;
+    if (silent && this.silentBlocks > 200) {
+      // Nothing to process (empty track / unused bus): no CPU spent, output silence.
+      for (const o of outs) o.fill(0);
+    } else if (!ins || ins.length === 0) {
       for (const o of outs) o.fill(0);
     } else if (this.bypass) {
       for (let k = 0; k < outs.length; k++) outs[k].set(ins[k] ?? ins[0]);

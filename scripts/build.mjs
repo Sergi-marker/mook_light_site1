@@ -19,4 +19,10 @@ execFileSync(tscCmd[0], [...tscCmd.slice(1), "-p", "tsconfig.json"], { stdio: "i
 copyFileSync("index.html", "dist/index.html");
 copyFileSync("src/styles.css", "dist/styles.css");
 if (existsSync("public/icon.png")) copyFileSync("public/icon.png", "dist/icon.png");
+// MP3 encoder (LAME, from the `lamejs` package) — copied when installed.
+const lame = ["node_modules/lamejs/lame.min.js", "node_modules/lamejs/lame.all.js"].find((f) => existsSync(f));
+if (lame) {
+  mkdirSync("dist/vendor", { recursive: true });
+  copyFileSync(lame, "dist/vendor/lame.min.js");
+} else console.warn("Note: lamejs not installed — MP3 export disabled (WAV export works).");
 console.log("Built to dist/");

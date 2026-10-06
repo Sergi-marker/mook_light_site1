@@ -1,8 +1,8 @@
 {
   "name": "beatmaker-studio",
   "productName": "Beatmaker Studio",
-  "version": "0.1.0",
-  "description": "Beatmaker & Vocal Studio — Phase 1: audio core and drum sequencer",
+  "version": "0.2.0",
+  "description": "Beatmaker & Vocal Studio \u2014 beats, melodies, 808, arrangement, vocal recording & processing, mixing, AI, export",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -12,7 +12,7 @@
     "start": "node scripts/build.mjs && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"tests/unit/*.test.ts\"",
-    "test:browser": "node scripts/build-core.mjs && node tests/browser/run-browser-tests.mjs",
+    "test:browser": "node scripts/build.mjs && node tests/browser/run-browser-tests.mjs",
     "test:e2e": "node scripts/build.mjs && node tests/e2e/run-e2e.mjs",
     "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e",
     "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable"
@@ -29,10 +29,34 @@
   "build": {
     "appId": "com.beatmakerstudio.app",
     "productName": "Beatmaker Studio",
-    "files": ["dist/**/*", "electron/**/*", "package.json"],
-    "directories": { "output": "release" },
-    "fileAssociations": [{ "ext": "bsproj", "name": "Beatmaker Studio Project" }],
-    "win": { "target": ["nsis", "portable"] },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "node_modules/@anthropic-ai/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "fileAssociations": [
+      {
+        "ext": "bsproj",
+        "name": "Beatmaker Studio Project"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": ">=0.60.0",
+    "lamejs": "^1.2.1"
   }
 }

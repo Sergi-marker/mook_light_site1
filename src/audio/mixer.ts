@@ -39,6 +39,8 @@ export class MixerGraph {
   /** Effect meters (gain reduction, detected pitch…) by effect id. */
   readonly effectMeters = new Map<string, Record<string, number>>();
   private lastKeySig = "";
+  /** Channels that will never receive audio (offline renders): their inserts are not built. */
+  inactive: Set<string> = new Set();
 
   constructor(ctx: BaseAudioContext, destination: AudioNode, env: EffectEnv) {
     this.ctx = ctx;
@@ -96,7 +98,7 @@ export class MixerGraph {
   private rebuildInserts(s: Strip, ch: Channel): void {
     for (const fx of s.inserts) fx.dispose();
     s.input.disconnect();
-    s.inserts = ch.inserts.filter((e) => e.enabled).map((e) => buildEffect(this.ctx, e, this.env));
+    s.inserts = this.inactive.has(ch.id) ? [] : ch.inserts.filter((e) => e.enabled).map((e) => buildEffect(this.ctx, e, this.env));
     let node: AudioNode = s.input;
     for (const fx of s.inserts) {
       node.connect(fx.input);
@@ -217,6 +219,7 @@ export class MixerGraph {
 }
 
 function sig(inserts: Effect[]): string {
+  // (inactive channels keep the same signature: their chain is simply empty)
   return inserts.filter((e) => e.enabled).map((e) => `${e.id}:${e.type}`).join(",");
 }
 

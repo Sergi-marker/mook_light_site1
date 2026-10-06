@@ -32,6 +32,7 @@ async function kv<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
 }
 
 export interface Autosave {
+  /** Project JSON (projectToJson). Audio is stored separately (see writeMedia). */
   text: string;
   name: string;
   savedAt: string;
@@ -44,6 +45,42 @@ export const writeAutosave = (a: Autosave) => kv<void>("readwrite", (s) => s.put
 export const readAutosave = () =>
   kv<Autosave | undefined>("readonly", (s) => s.get(AUTOSAVE_KEY)).catch(() => undefined);
 export const clearAutosave = () => kv<void>("readwrite", (s) => s.delete(AUTOSAVE_KEY));
+
+// Media blobs (samples, recorded takes) are immutable: written once, keyed by id.
+const mediaKey = (kind: "sample" | "audio", id: string) => `media:${kind}:${id}`;
+const writtenMedia = new Set<string>();
+
+export async function writeMedia(kind: "sample" | "audio", id: string, bytes: Uint8Array): Promise<void> {
+  const k = mediaKey(kind, id);
+  if (writtenMedia.has(k)) return;
+  await kv<void>("readwrite", (s) => s.put(bytes, k));
+  writtenMedia.add(k);
+}
+
+export async function readMedia(kind: "sample" | "audio", ids: Iterable<string>): Promise<Map<string, Uint8Array>> {
+  const out = new Map<string, Uint8Array>();
+  for (const id of ids) {
+    const b = await kv<Uint8Array | undefined>("readonly", (s) => s.get(mediaKey(kind, id))).catch(() => undefined);
+    if (b) {
+      out.set(id, b);
+      writtenMedia.add(mediaKey(kind, id));
+    }
+  }
+  return out;
+}
+
+/** Remove stored media that the current project no longer references. */
+export async function pruneMedia(keep: Set<string>): Promise<void> {
+  const keys = await kv<IDBValidKey[]>("readonly", (s) => s.getAllKeys()).catch(() => [] as IDBValidKey[]);
+  for (const k of keys) {
+    if (typeof k !== "string" || !k.startsWith("media:")) continue;
+    const id = k.split(":").slice(2).join(":");
+    if (!keep.has(id)) {
+      await kv<void>("readwrite", (s) => s.delete(k)).catch(() => {});
+      writtenMedia.delete(k);
+    }
+  }
+}
 
 /**
  * Crash detection: the flag is set while the app runs and removed on a clean exit.
@@ -92,15 +129,15 @@ export function hasFileHandle(): boolean {
  * picks a location once and later saves overwrite it; falls back to a download elsewhere.
  * Returns the file name, or null if the user cancelled.
  */
-export async function saveProjectFile(text: string, baseName: string, saveAs = false): Promise<string | null> {
-  const blob = new Blob([text], { type: "application/json" });
+export async function saveProjectFile(data: Uint8Array, baseName: string, saveAs = false): Promise<string | null> {
+  const blob = new Blob([data as Uint8Array<ArrayBuffer>], { type: "application/octet-stream" });
   const picker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
   if (picker) {
     try {
       if (!currentHandle || saveAs) {
         currentHandle = await picker({
           suggestedName: baseName + PROJECT_EXTENSION,
-          types: [{ description: "Beatmaker Studio project", accept: { "application/json": [PROJECT_EXTENSION] } }],
+          types: [{ description: "Beatmaker Studio project", accept: { "application/octet-stream": [PROJECT_EXTENSION] } }],
         });
       }
       const w = await currentHandle.createWritable();
@@ -149,10 +186,17 @@ export interface AppSettings {
   latency: "interactive" | "balanced" | "playback" | number;
   sampleRate: "auto" | 44100 | 48000;
   mode: "simple" | "pro";
+  inputDevice: string;
+  outputDevice: string;
+  midiEnabled: boolean;
+  midiOutput: string;
+  /** Optional Anthropic API key for the online song assistant (stored locally only). */
+  aiApiKey: string;
+  aiModel: string;
 }
 
 const SETTINGS_KEY = "bs.settings";
-export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple" };
+export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5" };
 
 export function loadSettings(): AppSettings {
   try {

@@ -56,6 +56,7 @@ export async function renderProject(p: Project, media: RenderMedia, o: RenderOpt
     workletReady = false;
   }
   const mixer = new MixerGraph(ctx, ctx.destination, { bpm: () => p.bpm, key: () => p.key, workletReady });
+  mixer.inactive = silentSources(p, mode, o.muted);
   mixer.sync(p, true);
   if (o.bypassMaster) mixer.setBypass("master", true);
   const muteSink = ctx.createGain();
@@ -81,6 +82,17 @@ export async function renderProject(p: Project, media: RenderMedia, o: RenderOpt
   o.onProgress?.(1);
   seq.dispose();
   mixer.dispose();
+  return out;
+}
+
+/** Source channels that cannot produce sound in this render (muted, or nothing to play). */
+export function silentSources(p: Project, mode: PlayMode, muted?: Set<string>): Set<string> {
+  const out = new Set<string>(muted ?? []);
+  const used = mode === "pattern" ? new Set([p.currentPatternId]) : new Set(p.arrangement.clips.map((c) => c.patternId));
+  const pats = p.patterns.filter((x) => used.has(x.id));
+  for (const t of p.tracks) if (!pats.some((x) => x.drums[t.id]?.some((st) => st.on))) out.add(t.id);
+  for (const i of p.instruments) if (!pats.some((x) => (x.notes[i.id]?.length ?? 0) > 0)) out.add(i.id);
+  for (const v of p.vocals) if (mode === "pattern" || !v.clips.length) out.add(v.id);
   return out;
 }
 

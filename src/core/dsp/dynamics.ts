@@ -34,8 +34,14 @@ export class Compressor {
 
   set(p: CompressorParams): void {
     this.p = p;
-    this.aA = coef(p.attackMs, this.sr);
-    this.aR = coef(p.releaseMs, this.sr);
+    this.aA = coef(p.attackMs, this.sr / this.step);
+    this.aR = coef(p.releaseMs, this.sr / this.step);
+  }
+
+  /** Run the envelope at a reduced (control) rate: one gainFor() per `n` samples. */
+  setControlRate(n: number): void {
+    this.step = n;
+    this.set(this.p);
   }
 
   /** Static curve: gain reduction (dB, >= 0) for an input level (dB). */
@@ -46,6 +52,9 @@ export class Compressor {
     if (k > 0 && Math.abs(over) <= k / 2) return (slope * (over + k / 2) ** 2) / (2 * k);
     return over > 0 ? slope * over : 0;
   }
+
+  /** Samples represented by one gainFor() call (8 when run at control rate). */
+  step = 1;
 
   /** Returns the gain to apply for this detector sample. */
   gainFor(detector: number): number {
@@ -68,6 +77,8 @@ export interface GateParams {
 
 /** Noise gate with hysteresis (opens at threshold, closes 4 dB below) and hold. */
 export class Gate {
+  /** Samples represented by one gainFor() call. */
+  step = 1;
   private gain = 1;
   private holdLeft = 0;
   private open = false;
@@ -82,17 +93,18 @@ export class Gate {
     const p = this.p;
     // Fast peak envelope.
     const ax = Math.abs(x);
-    this.env = ax > this.env ? ax : this.env * coef(5, this.sr);
+    const sr = this.sr / this.step;
+    this.env = ax > this.env ? ax : this.env * coef(5, sr);
     const lvl = gainToDb(this.env);
     if (lvl > p.thresholdDb) {
       this.open = true;
-      this.holdLeft = (p.holdMs / 1000) * this.sr;
+      this.holdLeft = (p.holdMs / 1000) * sr;
     } else if (lvl < p.thresholdDb - 4) {
       if (this.holdLeft > 0) this.holdLeft--;
       else this.open = false;
     }
     const target = this.open ? 1 : dbToGain(-p.rangeDb);
-    const a = target > this.gain ? coef(p.attackMs, this.sr) : coef(p.releaseMs, this.sr);
+    const a = target > this.gain ? coef(p.attackMs, sr) : coef(p.releaseMs, sr);
     this.gain = a * this.gain + (1 - a) * target;
     return this.gain;
   }
