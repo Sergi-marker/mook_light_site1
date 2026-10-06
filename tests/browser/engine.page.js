@@ -5,6 +5,7 @@ import { ProjectStore } from "/app/core/store.js";
 import { createEmptyProject, effect } from "/app/core/project.js";
 import { reduce } from "/app/core/reducer.js";
 import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
+import { SOUND_LIBRARY, soundParams } from "/app/core/soundLibrary.js";
 import { Yin, freqToMidi } from "/app/core/dsp/yin.js";
 import { measure } from "/app/core/dsp/loudness.js";
 
@@ -114,6 +115,40 @@ window.tests = {
     ] });
     const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
     return { first: pitchAt(buf, 0.5, 40, 8192), mid: pitchAt(buf, 1.05, 40, 4096), second: pitchAt(buf, 1.6, 40, 8192), ...stats(buf) };
+  },
+  async soundLibrary() {
+    const out = {};
+    for (const snd of SOUND_LIBRARY) {
+      let p = empty();
+      p = reduce(p, { type: "setBpm", bpm: 120 });
+      const sp = soundParams(snd);
+      p = reduce(p, { type: "addInstrument", preset: "piano" });
+      const ins = p.instruments[p.instruments.length - 1];
+      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808 } });
+      const pitch = sp.preset === "808" ? 45 : 57;
+      p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch, start: 0, length: 8, velocity: 100 }] });
+      const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+      out[snd.id] = { preset: sp.preset, expect: pitch + 12 * (sp.synth.octave ?? 0) + (sp.preset === "808" ? sp.bass808.tune : 0), midi: pitchAt(buf, 0.3, 40, 8192), ...stats(buf) };
+    }
+    return out;
+  },
+  async synthMonoGlideAndWidth() {
+    let p = empty();
+    p = reduce(p, { type: "setBpm", bpm: 60 });
+    p = reduce(p, { type: "addInstrument", preset: "synth" });
+    const ins = p.instruments[p.instruments.length - 1];
+    p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { synth: { mono: true, glide: 0.3, wave: "triangle", voices: 1, detune: 0, sustain: 1, cutoff: 12000, filterEnv: 0, drive: 0 } } });
+    // Overlapping notes → legato glide from A2 (45) to E3 (52).
+    p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch: 45, start: 0, length: 5, velocity: 110 }, { pitch: 52, start: 4, length: 4, velocity: 110 }] });
+    const mono = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+    const glide = { first: pitchAt(mono, 0.5, 40, 8192), mid: pitchAt(mono, 1.1, 40, 2048), second: pitchAt(mono, 1.7, 40, 8192) };
+    // Stereo width 0 on the master after a hard-left channel → identical L/R.
+    let q = reduce(p, { type: "updateChannel", channelId: ins.id, patch: { pan: -1 } });
+    const panned = await renderProject(q, media, { mode: "pattern", tail: 0.2 });
+    q = reduce(q, { type: "setInserts", channelId: "master", inserts: [effect("width", { width: 0 })] });
+    const narrowed = await renderProject(q, media, { mode: "pattern", tail: 0.2 });
+    const rms = (b, c) => Math.sqrt(b.getChannelData(c).reduce((a, x) => a + x * x, 0) / b.length);
+    return { glide, panned: [rms(panned, 0), rms(panned, 1)], narrowed: [rms(narrowed, 0), rms(narrowed, 1)], ...stats(mono) };
   },
   async effectsAndRouting() {
     const base = () => withSteps(empty(), "snare", [0, 8]);

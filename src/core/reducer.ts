@@ -495,7 +495,7 @@ export function reduce(p: Project, a: Action): Project {
         if (a.patch.preset && a.patch.preset !== t.preset) {
           const fresh = createInstrument(a.patch.preset);
           n.preset = a.patch.preset;
-          n.synth = fresh.synth;
+          n.synth = { ...fresh.synth, ...(a.patch.synth ?? {}) };
           n.color = fresh.color;
         }
         return n;

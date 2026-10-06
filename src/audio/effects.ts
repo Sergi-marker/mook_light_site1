@@ -286,6 +286,37 @@ export function buildEffect(ctx: BaseAudioContext, e: Effect, env: EffectEnv): E
     case "leveler":
       if (!env.workletReady) return passThrough(ctx, e);
       return workletInsert(ctx, e, env, (x) => x.params);
+    case "width": {
+      // Stereo width (mid/side): L' = L·a + R·b, R' = R·a + L·b with a = (1+w)/2, b = (1−w)/2.
+      // w = 0 → mono, 1 → unchanged, 2 → extra wide. Zero latency.
+      const input = ctx.createGain();
+      input.channelCount = 2;
+      input.channelCountMode = "explicit";
+      input.channelInterpretation = "speakers";
+      const split = ctx.createChannelSplitter(2);
+      const merge = ctx.createChannelMerger(2);
+      const ll = ctx.createGain(), rr = ctx.createGain(), lr = ctx.createGain(), rl = ctx.createGain();
+      input.connect(split);
+      split.connect(ll, 0).connect(merge, 0, 0);
+      split.connect(rl, 1).connect(merge, 0, 0);
+      split.connect(rr, 1).connect(merge, 0, 1);
+      split.connect(lr, 0).connect(merge, 0, 1);
+      let bypass = false;
+      let cur = e;
+      const apply = (x: Effect) => {
+        cur = x;
+        const w = bypass ? 1 : Math.max(0, Math.min(2, num(x.params.width, 1)));
+        const a = (1 + w) / 2, b = (1 - w) / 2;
+        for (const g of [ll, rr]) g.gain.setTargetAtTime(a, t(), 0.01);
+        for (const g of [lr, rl]) g.gain.setTargetAtTime(b, t(), 0.01);
+      };
+      apply(e);
+      return {
+        id: e.id, type: e.type, input, output: merge, update: apply,
+        setBypass: (b) => { bypass = b; apply(cur); },
+        dispose: () => [input, split, merge, ll, rr, lr, rl].forEach((n) => n.disconnect()),
+      };
+    }
     case "autopitch":
       if (!env.workletReady) return passThrough(ctx, e);
       return workletInsert(ctx, e, env, (x) => {

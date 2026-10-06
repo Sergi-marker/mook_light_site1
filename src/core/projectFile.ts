@@ -7,8 +7,10 @@ import {
 import { readZip, writeZip, type ZipEntry } from "./io/zip.ts";
 import type {
   AudioAsset, Channel, Effect, EffectType, InstrumentKind, InstrumentTrack, Note, Pattern, Project,
-  SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack,
+  SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack, Waveform,
 } from "./types.ts";
+
+const WAVES: Waveform[] = ["sawtooth", "square", "triangle", "sine"];
 
 // Project file (.bsproj) v2: a standard ZIP archive (no compression) containing
 //   project.json          the project (format/version header + data)
@@ -229,7 +231,16 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     const preset = PRESETS.includes(raw.preset as SynthPreset) ? (raw.preset as SynthPreset) : "piano";
     const fresh = createInstrument(preset);
     const synth = { ...fresh.synth };
-    if (isObj(raw.synth)) for (const k of Object.keys(synth) as (keyof typeof synth)[]) synth[k] = num(raw.synth[k], synth[k]);
+    if (isObj(raw.synth)) {
+      const rs = raw.synth;
+      for (const k of Object.keys(synth) as (keyof typeof synth)[]) {
+        if (k === "wave") synth.wave = WAVES.includes(rs.wave as Waveform) ? (rs.wave as Waveform) : synth.wave;
+        else if (k === "mono") synth.mono = typeof rs.mono === "boolean" ? rs.mono : synth.mono;
+        else (synth as unknown as Record<string, number>)[k] = num(rs[k], synth[k] as number);
+      }
+      synth.voices = Math.round(clamp(synth.voices ?? 1, 1, 7));
+      synth.octave = Math.round(clamp(synth.octave ?? 0, -2, 2));
+    }
     const bass808 = { ...DEFAULT_808 };
     if (isObj(raw.bass808)) for (const k of Object.keys(bass808) as (keyof typeof bass808)[]) bass808[k] = num(raw.bass808[k], bass808[k]);
     return [{ id: str(raw.id, "") || fresh.id, name: str(raw.name, fresh.name).slice(0, 40), preset, synth, bass808, color: str(raw.color, fresh.color) }];

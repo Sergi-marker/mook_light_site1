@@ -58,6 +58,7 @@ export const EFFECT_DEFAULTS: Record<EffectType, Effect["params"]> = {
   denoise: { amountDb: 12 },
   autopitch: { preset: "natural", correction: 45, retuneMs: 120, humanize: 60, formant: 0, useProjectKey: true, root: 0, scale: "minor" },
   leveler: { targetDb: -18, maxDb: 9, speedMs: 400, amount: 50 },
+  width: { width: 1.3 },
 };
 
 function channel(id: string, name: string, kind: ChannelKind, output: string, extra: Partial<Channel> = {}): Channel {
@@ -90,15 +91,15 @@ export function createTrack(kind: InstrumentKind): Track {
 // --- Instruments ------------------------------------------------------------------------
 
 export const SYNTH_PRESETS: Record<SynthPreset, { label: string; params: SynthParams; color: string }> = {
-  piano: { label: "Piano", color: "#f8fafc", params: { attack: 0.002, decay: 1.2, sustain: 0.25, release: 0.4, cutoff: 6000, resonance: 0.5, filterEnv: 0.3, detune: 3, glide: 0, drive: 0 } },
-  epiano: { label: "E-Piano", color: "#fde68a", params: { attack: 0.003, decay: 1.5, sustain: 0.3, release: 0.5, cutoff: 5000, resonance: 0.5, filterEnv: 0.2, detune: 2, glide: 0, drive: 0.1 } },
-  synth: { label: "Synth Lead", color: "#38bdf8", params: { attack: 0.01, decay: 0.3, sustain: 0.7, release: 0.25, cutoff: 3500, resonance: 3, filterEnv: 0.5, detune: 12, glide: 0.03, drive: 0.2 } },
-  pad: { label: "Pad", color: "#a78bfa", params: { attack: 0.6, decay: 1, sustain: 0.8, release: 1.4, cutoff: 2200, resonance: 1, filterEnv: 0.2, detune: 18, glide: 0, drive: 0 } },
-  strings: { label: "Strings", color: "#f472b6", params: { attack: 0.25, decay: 0.5, sustain: 0.85, release: 0.8, cutoff: 3200, resonance: 0.7, filterEnv: 0.1, detune: 10, glide: 0, drive: 0 } },
-  pluck: { label: "Pluck", color: "#34d399", params: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.2, cutoff: 5000, resonance: 1, filterEnv: 0.7, detune: 0, glide: 0, drive: 0 } },
-  bells: { label: "Bells", color: "#facc15", params: { attack: 0.001, decay: 2, sustain: 0, release: 1.5, cutoff: 9000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0, drive: 0 } },
-  bass: { label: "Synth Bass", color: "#fb923c", params: { attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15, cutoff: 900, resonance: 4, filterEnv: 0.6, detune: 8, glide: 0.04, drive: 0.3 } },
-  "808": { label: "808", color: "#ec4899", params: { attack: 0.002, decay: 1.2, sustain: 0.6, release: 0.3, cutoff: 8000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0.08, drive: 0 } },
+  piano: { label: "Piano", color: "#f8fafc", params: { attack: 0.002, decay: 1.2, sustain: 0.25, release: 0.4, cutoff: 6000, resonance: 0.5, filterEnv: 0.3, detune: 3, glide: 0, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
+  epiano: { label: "E-Piano", color: "#fde68a", params: { attack: 0.003, decay: 1.5, sustain: 0.3, release: 0.5, cutoff: 5000, resonance: 0.5, filterEnv: 0.2, detune: 2, glide: 0, drive: 0.1, wave: "sine", voices: 1, octave: 0, lfoRate: 4.5, lfoDepth: 0, lfoFilter: 0, mono: false } },
+  synth: { label: "Synth Lead", color: "#38bdf8", params: { attack: 0.01, decay: 0.3, sustain: 0.7, release: 0.25, cutoff: 3500, resonance: 3, filterEnv: 0.5, detune: 12, glide: 0.03, drive: 0.2, wave: "sawtooth", voices: 2, octave: 0, lfoRate: 5.5, lfoDepth: 0, lfoFilter: 0, mono: false } },
+  pad: { label: "Pad", color: "#a78bfa", params: { attack: 0.6, decay: 1, sustain: 0.8, release: 1.4, cutoff: 2200, resonance: 1, filterEnv: 0.2, detune: 18, glide: 0, drive: 0, wave: "sawtooth", voices: 4, octave: 0, lfoRate: 0.3, lfoDepth: 0, lfoFilter: 0.15, mono: false } },
+  strings: { label: "Strings", color: "#f472b6", params: { attack: 0.25, decay: 0.5, sustain: 0.85, release: 0.8, cutoff: 3200, resonance: 0.7, filterEnv: 0.1, detune: 10, glide: 0, drive: 0, wave: "sawtooth", voices: 3, octave: 0, lfoRate: 5.5, lfoDepth: 12, lfoFilter: 0, mono: false } },
+  pluck: { label: "Pluck", color: "#34d399", params: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.2, cutoff: 5000, resonance: 1, filterEnv: 0.7, detune: 0, glide: 0, drive: 0, wave: "sawtooth", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
+  bells: { label: "Bells", color: "#facc15", params: { attack: 0.001, decay: 2, sustain: 0, release: 1.5, cutoff: 9000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
+  bass: { label: "Synth Bass", color: "#fb923c", params: { attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15, cutoff: 900, resonance: 4, filterEnv: 0.6, detune: 8, glide: 0.04, drive: 0.3, wave: "sawtooth", voices: 2, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: true } },
+  "808": { label: "808", color: "#ec4899", params: { attack: 0.002, decay: 1.2, sustain: 0.6, release: 0.3, cutoff: 8000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0.08, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: true } },
 };
 
 export const DEFAULT_808: Bass808Params = {

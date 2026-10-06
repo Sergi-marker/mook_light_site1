@@ -77,7 +77,23 @@ export interface SynthParams {
   glide: number;
   /** 0–1 saturation/drive. */
   drive: number;
+  /** Oscillator waveform (synth / pad / strings / bass). */
+  wave?: Waveform;
+  /** Unison voices, 1–7 (synth / pad / strings / bass). */
+  voices?: number;
+  /** Octave transpose, −2…2. */
+  octave?: number;
+  /** Vibrato LFO rate, Hz. */
+  lfoRate?: number;
+  /** Vibrato depth, cents. */
+  lfoDepth?: number;
+  /** LFO → filter cutoff amount, 0–1 (wobble). */
+  lfoFilter?: number;
+  /** Monophonic legato: overlapping/slid notes glide (uses `glide`). */
+  mono?: boolean;
 }
+
+export type Waveform = "sawtooth" | "square" | "triangle" | "sine";
 
 export interface Bass808Params {
   /** Global tuning, semitones. */
@@ -130,6 +146,9 @@ export interface PatternClip {
   lane: number;
   start: number;
   length: number;
+  /** Bars into the pattern where the clip starts (after a split). */
+  offset?: number;
+  muted?: boolean;
 }
 
 export interface Section {
@@ -144,6 +163,8 @@ export interface Arrangement {
   clips: PatternClip[];
   sections: Section[];
   lanes: number;
+  /** Optional custom names of the pattern lanes. */
+  laneNames?: string[];
   loop: { enabled: boolean; start: number; end: number };
 }
 
@@ -181,6 +202,10 @@ export interface AudioClip {
   /** Duration, seconds. */
   duration: number;
   gainDb: number;
+  /** Fades, seconds. */
+  fadeIn?: number;
+  fadeOut?: number;
+  muted?: boolean;
 }
 
 export type VocalRole = "lead" | "double" | "adlibs" | "backing" | "custom";
@@ -202,11 +227,13 @@ export interface VocalTrack {
   /** RAW = play the original takes, PROCESSED = studio-processed versions (when available). */
   playProcessed: boolean;
   studio: StudioSettings;
+  /** Lyrics / notes written for this track. */
+  lyrics?: string;
 }
 
 export type EffectType =
   | "eq" | "compressor" | "limiter" | "saturation" | "distortion" | "deesser"
-  | "gate" | "reverb" | "delay" | "denoise" | "autopitch" | "leveler";
+  | "gate" | "reverb" | "delay" | "denoise" | "autopitch" | "leveler" | "width";
 
 export type ParamValue = number | string | boolean;
 

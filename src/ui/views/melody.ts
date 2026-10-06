@@ -1,10 +1,11 @@
 import { chooseProgression, generateBass, generateChords, generateMelody } from "../../core/ai/melody.ts";
 import { keyLabel } from "../../core/music.ts";
 import { currentPattern, getChannel, SYNTH_PRESETS } from "../../core/project.ts";
-import type { Bass808Params, InstrumentTrack, Project, SynthParams, SynthPreset } from "../../core/types.ts";
+import { SOUND_LIBRARY, soundParams } from "../../core/soundLibrary.ts";
+import type { Bass808Params, InstrumentTrack, Project, SynthParams, SynthPreset, Waveform } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
-import { fmtDb, fmtHz, fmtMs, fmtPct, reactive, slider } from "../widgets.ts";
+import { fmtDb, fmtHz, fmtMs, fmtPct, reactive, select, slider, toggle } from "../widgets.ts";
 import { patternBar } from "./patternBar.ts";
 import { createPianoRoll } from "./pianoRoll.ts";
 
@@ -105,9 +106,22 @@ export function createMelodyView(app: App): View {
     const set808 = (k: keyof Bass808Params) => (v: number) => app.dispatch({ type: "updateInstrument", trackId: id, patch: { bass808: { [k]: v } } }, `808:${id}:${k}`);
     const presetSel = h("select", { "aria-label": "Son", onchange: () => app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: presetSel.value as SynthPreset } }) },
       ...(Object.keys(SYNTH_PRESETS) as SynthPreset[]).map((k) => h("option", { value: k, selected: k === ins.preset }, SYNTH_PRESETS[k].label)));
+    const libSel = h("select", { "aria-label": "Bibliothèque de sons", onchange: () => {
+      const snd = SOUND_LIBRARY.find((x) => x.id === libSel.value);
+      if (!snd) return;
+      const sp = soundParams(snd);
+      app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808 } });
+      void app.engine.previewNote(id, sp.preset === "808" || sp.preset === "bass" ? 36 + p.key.root : 60 + p.key.root, 100, 0.6);
+      toast(`Son « ${snd.name} » chargé — tous les réglages restent modifiables.`, "ok");
+    } }, h("option", { value: "" }, "Charger un son…"),
+      ...[...new Set(SOUND_LIBRARY.map((x) => x.category))].map((cat) => h("optgroup", { label: cat }, ...SOUND_LIBRARY.filter((x) => x.category === cat).map((x) => h("option", { value: x.id }, x.name)))));
+    const nameIn = h("input", { type: "text", value: ins.name, "aria-label": "Nom de l'instrument", onchange: () => {
+      app.dispatch({ type: "batch", actions: [{ type: "updateInstrument", trackId: id, patch: { name: nameIn.value } }, { type: "updateChannel", channelId: id, patch: { name: nameIn.value.trim().slice(0, 40) || ins.name } }] });
+    } });
     params.append(
-      h("h3", {}, ins.name),
-      h("label", { class: "field" }, h("span", { class: "slider-label" }, "Son"), presetSel),
+      h("h3", {}, nameIn),
+      h("label", { class: "field" }, h("span", { class: "slider-label" }, "Bibliothèque"), libSel),
+      h("label", { class: "field" }, h("span", { class: "slider-label" }, "Moteur"), presetSel),
       slider({ label: "Volume", min: 0, max: 1.5, step: 0.01, value: ch.volume, format: fmtPct, reset: 0.7, learn: `channel:${id}:volume`, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { volume: v } }, `vol:${id}`) }),
       slider({ label: "Pan", min: -1, max: 1, step: 0.01, value: ch.pan, format: (v) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`), reset: 0, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { pan: v } }, `pan:${id}`) }),
       slider({ label: "Reverb", min: 0, max: 1, step: 0.01, value: ch.sends.reverb, format: fmtPct, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { sends: { reverb: v } } }, `rv:${id}`) }),
@@ -130,7 +144,20 @@ export function createMelodyView(app: App): View {
         h("p", { class: "hint" }, "Slide : sélectionnez une note et appuyez sur L (ou bouton « Slide 808 ») — la 808 glisse depuis la note précédente. Deux notes qui se chevauchent glissent aussi."));
     } else {
       const s = ins.synth;
-      params.append(h("h4", {}, "Synthé"),
+      const synthOsc = ins.preset === "synth" || ins.preset === "pad" || ins.preset === "strings" || ins.preset === "bass";
+      params.append(...[h("h4", {}, "Oscillateurs"),
+        synthOsc ? select<Waveform>("Forme d'onde", [{ value: "sawtooth", label: "Saw" }, { value: "square", label: "Square" }, { value: "triangle", label: "Triangle" }, { value: "sine", label: "Sine" }], s.wave ?? "sawtooth", (w) => app.dispatch({ type: "updateInstrument", trackId: id, patch: { synth: { wave: w } } })) : null,
+        synthOsc ? slider({ label: "Voix (unison)", min: 1, max: 7, step: 1, value: s.voices ?? 2, format: (v) => String(v), onInput: setSynth("voices") }) : null,
+        slider({ label: "Octave", min: -2, max: 2, step: 1, value: s.octave ?? 0, format: (v) => `${v > 0 ? "+" : ""}${v}`, reset: 0, onInput: setSynth("octave") }),
+        synthOsc ? h("div", { class: "row-inline" }, toggle("MONO / LEGATO", !!s.mono, (on) => app.dispatch({ type: "updateInstrument", trackId: id, patch: { synth: { mono: on } } }), "Une seule note à la fois ; les notes liées (ou en slide, touche L) glissent")) : null,
+        synthOsc && s.mono ? slider({ label: "Glide", min: 0.005, max: 0.5, step: 0.005, value: s.glide || 0.05, format: (v) => fmtMs(v * 1000), onInput: setSynth("glide") }) : null,
+        slider({ label: "Drive", min: 0, max: 1, step: 0.01, value: s.drive ?? 0, format: fmtPct, onInput: setSynth("drive") }),
+        h("h4", {}, "LFO"),
+        slider({ label: "Vitesse", min: 0.1, max: 12, step: 0.1, value: s.lfoRate ?? 5, format: (v) => `${v.toFixed(1)} Hz`, onInput: setSynth("lfoRate") }),
+        slider({ label: "Vibrato", min: 0, max: 60, step: 1, value: s.lfoDepth ?? 0, format: (v) => `${v} ct`, onInput: setSynth("lfoDepth") }),
+        synthOsc ? slider({ label: "Wobble filtre", min: 0, max: 1, step: 0.01, value: s.lfoFilter ?? 0, format: fmtPct, onInput: setSynth("lfoFilter") }) : null,
+      ].filter((x): x is HTMLElement => !!x));
+      params.append(h("h4", {}, "Enveloppe & filtre"),
         slider({ label: "Attack", min: 0.001, max: 2, step: 0.001, value: s.attack, format: (v) => `${v.toFixed(3)} s`, onInput: setSynth("attack") }),
         slider({ label: "Decay", min: 0.01, max: 4, step: 0.01, value: s.decay, format: (v) => `${v.toFixed(2)} s`, onInput: setSynth("decay") }),
         slider({ label: "Sustain", min: 0, max: 1, step: 0.01, value: s.sustain, format: fmtPct, onInput: setSynth("sustain") }),

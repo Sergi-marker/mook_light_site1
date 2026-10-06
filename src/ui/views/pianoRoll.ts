@@ -5,10 +5,11 @@
 //  L = toggle 808 slide · Velocity lane at the bottom: drag bars.
 
 import { inScale, noteName, snapToScale } from "../../core/music.ts";
+import { arpeggiate, chordPitches, CHORD_SHAPES, humanizeNotes, legatoNotes, reverseNotes, strumNotes, transposeNotes, velocityRamp, type ArpMode, type ChordShape } from "../../core/noteTools.ts";
 import { currentPattern } from "../../core/project.ts";
 import type { Note, Project } from "../../core/types.ts";
 import type { App } from "../app.ts";
-import { h } from "../dom.ts";
+import { h, toast } from "../dom.ts";
 
 const MIN_PITCH = 24, MAX_PITCH = 96;
 const KEYS_W = 54;
@@ -28,6 +29,7 @@ export function createPianoRoll(app: App, o: PianoRollOptions) {
   let defaultLen = 2;
   let selected = new Set<string>();
   let clipboard: Omit<Note, "id">[] = [];
+  let chordShape: ChordShape = "single";
 
   const snapSel = h("select", { "aria-label": "Snap", title: "Grille (snap)", onchange: () => (snap = Number(snapSel.value)) },
     ...[[4, "1/4"], [2, "1/8"], [1, "1/16"], [0.5, "1/32"], [0.0625, "Libre"]].map(([v, l]) => h("option", { value: v, selected: v === 1 }, String(l))));
@@ -55,13 +57,59 @@ export function createPianoRoll(app: App, o: PianoRollOptions) {
     h("button", { class: "btn btn-icon btn-sm", title: "Zoom vertical +", onclick: () => zoom(1, 1.15) }, "+↕"),
     h("span", { class: "hint" }, "Clic = note · glisser = déplacer · bord droit = durée · clic droit = supprimer · Shift+glisser = sélection"),
   );
+  const chordSel = h("select", { "aria-label": "Outil de dessin", title: "Ce que crée un clic : une note ou un accord complet (dans la gamme)", onchange: () => (chordShape = chordSel.value as ChordShape) },
+    ...CHORD_SHAPES.map((c) => h("option", { value: c.id }, c.label)));
+  const lenSel = h("select", { "aria-label": "Longueur de note", title: "Longueur des nouvelles notes", onchange: () => (defaultLen = Number(lenSel.value)) },
+    ...[[1, "1/16"], [2, "1/8"], [4, "1/4"], [8, "1/2"], [16, "1 mesure"]].map(([v, l]) => h("option", { value: v, selected: v === 2 }, String(l))));
+  const arpSel = h("select", { "aria-label": "Mode d'arpège" }, ...([["up", "↑ Up"], ["down", "↓ Down"], ["updown", "↕ Up/Down"], ["random", "Random"]] as const).map(([v, l]) => h("option", { value: v }, l)));
+  const arpRate = h("select", { "aria-label": "Vitesse d'arpège" }, ...[[1, "1/16"], [0.5, "1/32"], [2, "1/8"], [4 / 3, "1/16T"]].map(([v, l]) => h("option", { value: v }, String(l))));
+  const target = () => {
+    const list = notes();
+    return selected.size ? list.filter((n) => selected.has(n.id)) : list;
+  };
+  const needNotes = (): boolean => {
+    if (target().length) return true;
+    toast("Aucune note : dessinez ou sélectionnez des notes d'abord.", "error");
+    return false;
+  };
+  const transpose = (amount: number, degrees: boolean) => {
+    if (needNotes()) dispatchUpdates(transposeNotes(target(), amount, store.getState().key, degrees));
+  };
+  const tools = h("div", { class: "pr-toolbar pr-tools" },
+    h("label", { class: "field" }, h("span", { class: "slider-label" }, "DESSIN"), chordSel),
+    h("label", { class: "field" }, h("span", { class: "slider-label" }, "LONGUEUR"), lenSel),
+    h("span", { class: "sep" }),
+    h("span", { class: "slider-label" }, "TRANSPOSER"),
+    h("button", { class: "btn btn-sm", title: "Octave −", onclick: () => transpose(-12, false) }, "−8va"),
+    h("button", { class: "btn btn-sm", title: "Un degré de la gamme plus bas (demi-ton si SCALE LOCK est désactivé)", onclick: () => transpose(-1, scaleLock) }, "−1"),
+    h("button", { class: "btn btn-sm", title: "Un degré de la gamme plus haut (demi-ton si SCALE LOCK est désactivé)", onclick: () => transpose(1, scaleLock) }, "+1"),
+    h("button", { class: "btn btn-sm", title: "Octave +", onclick: () => transpose(12, false) }, "+8va"),
+    h("span", { class: "sep" }),
+    h("button", { class: "btn btn-sm", title: "Petites variations de timing et de vélocité (sélection ou tout)", onclick: () => needNotes() && dispatchUpdates(humanizeNotes(target(), 0.6, Math.floor(Math.random() * 1e6), pattern().stepCount)) }, "Humaniser"),
+    h("button", { class: "btn btn-sm", title: "Prolonge chaque note jusqu'à la suivante", onclick: () => needNotes() && dispatchUpdates(legatoNotes(target(), pattern().stepCount)) }, "Legato"),
+    h("button", { class: "btn btn-sm", title: "Égrène les accords du grave vers l'aigu (guitare, harpe)", onclick: () => needNotes() && dispatchUpdates(strumNotes(target(), 0.25)) }, "Strum"),
+    h("button", { class: "btn btn-sm", title: "Inverse l'ordre des notes dans le temps", onclick: () => needNotes() && dispatchUpdates(reverseNotes(target())) }, "Inverser"),
+    h("button", { class: "btn btn-sm", title: "Vélocité croissante (crescendo)", onclick: () => needNotes() && dispatchUpdates(velocityRamp(target(), 60, 120)) }, "Vél ↗"),
+    h("button", { class: "btn btn-sm", title: "Vélocité décroissante", onclick: () => needNotes() && dispatchUpdates(velocityRamp(target(), 120, 60)) }, "Vél ↘"),
+    h("span", { class: "sep" }),
+    h("span", { class: "slider-label" }, "ARPÈGE"), arpSel, arpRate,
+    h("button", { class: "btn btn-sm", title: "Transforme les accords (sélection ou tout) en arpège", onclick: () => {
+      const id = tid();
+      if (!id || !needNotes()) return;
+      const src = target();
+      const gen = arpeggiate(src, Number(arpRate.value), arpSel.value as ArpMode, 1, Math.floor(Math.random() * 1e6));
+      app.dispatch({ type: "batch", actions: [{ type: "removeNotes", trackId: id, ids: src.map((n) => n.id) }, { type: "addNotes", trackId: id, notes: gen }] });
+      selected.clear();
+      toast(`Arpège : ${gen.length} notes.`, "ok");
+    } }, "Arpéger"),
+  );
   const keys = h("canvas", { class: "pr-keys", width: KEYS_W, height: 100 });
   const canvas = h("canvas", { class: "pr-canvas", tabindex: 0, "aria-label": "Piano roll" });
   const vel = h("canvas", { class: "pr-vel", height: VEL_H });
   const ph = h("div", { class: "pr-ph" });
   const scroll = h("div", { class: "pr-scroll" }, h("div", { class: "pr-inner" }, keys, canvas, ph));
   const velWrap = h("div", { class: "pr-velwrap" }, h("div", { class: "pr-vel-label", style: `width:${KEYS_W}px` }, "VEL"), vel);
-  const el = h("div", { class: "piano-roll" }, toolbar, scroll, velWrap);
+  const el = h("div", { class: "piano-roll" }, toolbar, tools, scroll, velWrap);
 
   const rows = MAX_PITCH - MIN_PITCH + 1;
   const pattern = () => currentPattern(store.getState());
@@ -266,12 +314,13 @@ export function createPianoRoll(app: App, o: PianoRollOptions) {
     const pitch = lockPitch(pitchAt(y));
     const start = Math.min(pattern().stepCount - defaultLen, snapStep(stepAt(x)));
     const before = new Set(notes().map((n) => n.id));
-    app.dispatch({ type: "addNotes", trackId: id, notes: [{ pitch, start: Math.max(0, start), length: defaultLen, velocity: 100 }] });
-    const created = notes().find((n) => !before.has(n.id));
-    void app.engine.previewNote(id, pitch, 100, 0.25);
-    if (created) {
-      selected = new Set([created.id]);
-      drag = { kind: "resize", startX: x, startY: y, orig: new Map([[created.id, { ...created }]]) };
+    const pitches = o.isMono808() ? [pitch] : chordPitches(pitch, chordShape, store.getState().key, scaleLock).filter((q) => q >= MIN_PITCH && q <= MAX_PITCH);
+    app.dispatch({ type: "addNotes", trackId: id, notes: pitches.map((q) => ({ pitch: q, start: Math.max(0, start), length: defaultLen, velocity: 100 })) });
+    const created = notes().filter((n) => !before.has(n.id));
+    for (const q of pitches) void app.engine.previewNote(id, q, 100, 0.25);
+    if (created.length) {
+      selected = new Set(created.map((n) => n.id));
+      drag = { kind: "resize", startX: x, startY: y, orig: new Map(created.map((n) => [n.id, { ...n }])) };
       canvas.setPointerCapture(e.pointerId);
     }
   });

@@ -4,7 +4,7 @@
 //  • epiano / bells: FM pairs   • synth / pad / strings / bass: detuned oscillators + filter
 //  • 808: monophonic voice with glide/slide, punch, ADSR and its own processing chain.
 
-import type { Bass808Params, InstrumentTrack, SynthParams } from "../core/types.ts";
+import type { Bass808Params, InstrumentTrack, SynthParams, SynthPreset } from "../core/types.ts";
 
 const midiHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -98,13 +98,17 @@ export function renderPluckNote(midi: number, sr: number): Float32Array<ArrayBuf
 function adsr(param: AudioParam, t: number, end: number, peak: number, s: SynthParams): number {
   const a = Math.max(0.001, s.attack);
   const d = Math.max(0.01, s.decay);
+  const rel = Math.max(0.01, s.release);
   param.setValueAtTime(0, t);
-  param.linearRampToValueAtTime(peak, t + a);
-  param.setTargetAtTime(peak * s.sustain, t + a, d / 3);
-  const relStart = Math.max(end, t + a);
-  param.cancelScheduledValues(relStart);
-  param.setTargetAtTime(0, relStart, Math.max(0.01, s.release) / 4);
-  return relStart + Math.max(0.01, s.release) * 1.5;
+  if (end >= t + a) {
+    param.linearRampToValueAtTime(peak, t + a);
+    param.setTargetAtTime(peak * s.sustain, t + a, d / 3);
+  } else {
+    // Note shorter than the attack: release from wherever the attack ramp got to.
+    param.linearRampToValueAtTime(peak * ((end - t) / a), end);
+  }
+  param.setTargetAtTime(0, end, rel / 4);
+  return end + rel * 1.5;
 }
 
 function filterEnv(f: BiquadFilterNode, t: number, end: number, s: SynthParams, velGain: number): void {
@@ -114,6 +118,21 @@ function filterEnv(f: BiquadFilterNode, t: number, end: number, s: SynthParams, 
   f.frequency.setValueAtTime(top, t);
   f.frequency.setTargetAtTime(base, t + Math.max(0.001, s.attack), Math.max(0.02, s.decay) / 2);
   void end;
+}
+
+/** Unison voices used when a track has no explicit `voices` (older projects). */
+export const DEFAULT_VOICES: Partial<Record<SynthPreset, number>> = { pad: 4, strings: 3, synth: 2, bass: 2 };
+
+function driveCurve(drive: number): Float32Array<ArrayBuffer> | null {
+  if (drive <= 0.001) return null;
+  const k = 1 + drive * 8;
+  const n = 1024;
+  const c = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    c[i] = Math.tanh(k * x) / Math.tanh(k);
+  }
+  return c;
 }
 
 export interface NoteEvent {
@@ -129,7 +148,12 @@ export interface NoteEvent {
 export class InstrumentVoice {
   private readonly ctx: BaseAudioContext;
   readonly output: GainNode;
+  /** Voices → drive (soft saturation) → output. */
+  private readonly input: GainNode;
+  private readonly shaper: WaveShaperNode;
   private track: InstrumentTrack;
+  // Mono legato state (synth presets with `mono`).
+  private lastMono: { gain: GainNode; end: number; freq: number } | null = null;
   private active = new Set<AudioScheduledSourceNode>();
   // 808 mono voice state
   private osc808: OscillatorNode | null = null;
@@ -143,7 +167,18 @@ export class InstrumentVoice {
     this.track = track;
     this.output = ctx.createGain();
     this.output.connect(destination);
+    this.input = ctx.createGain();
+    this.shaper = ctx.createWaveShaper();
+    this.shaper.oversample = "2x";
+    this.input.connect(this.shaper).connect(this.output);
+    this.applyDrive();
     if (track.preset === "808") this.build808();
+  }
+
+  private applyDrive(): void {
+    const d = this.track.preset === "808" ? 0 : Math.max(0, Math.min(1, this.track.synth.drive ?? 0));
+    this.shaper.curve = driveCurve(d);
+    this.input.gain.value = 1 / (1 + d * 0.6);
   }
 
   get activeVoices(): number {
@@ -153,6 +188,7 @@ export class InstrumentVoice {
   update(track: InstrumentTrack): void {
     const presetChanged = track.preset !== this.track.preset;
     this.track = track;
+    this.applyDrive();
     if (presetChanged) {
       this.teardown808();
       if (track.preset === "808") this.build808();
@@ -240,16 +276,41 @@ export class InstrumentVoice {
     const t = ev.time;
     const end = t + Math.max(0.03, ev.duration);
     const vel = 0.25 + 0.75 * ev.velocity;
-    const f0 = midiHz(ev.pitch);
+    const octave = Math.round(Math.max(-2, Math.min(2, s.octave ?? 0)));
+    const pitch = ev.pitch + octave * 12;
+    const f0 = midiHz(pitch);
     const voiceGain = c.createGain();
     voiceGain.gain.value = 0;
-    voiceGain.connect(this.output);
+    voiceGain.connect(this.input);
+    // Vibrato / filter LFO shared by the oscillators of this note.
+    const lfoDepth = Math.max(0, s.lfoDepth ?? 0);
+    const lfoFilter = Math.max(0, Math.min(1, s.lfoFilter ?? 0));
+    const makeLfo = (sources: AudioScheduledSourceNode[]): { vib: GainNode | null; flt: GainNode | null } => {
+      if (lfoDepth <= 0 && lfoFilter <= 0) return { vib: null, flt: null };
+      const lfo = c.createOscillator();
+      lfo.frequency.value = Math.max(0.05, s.lfoRate ?? 5);
+      sources.push(lfo);
+      let vib: GainNode | null = null, flt: GainNode | null = null;
+      if (lfoDepth > 0) {
+        vib = c.createGain();
+        // Delayed vibrato, like a player would do.
+        vib.gain.setValueAtTime(0, t);
+        vib.gain.linearRampToValueAtTime(lfoDepth, t + 0.25);
+        lfo.connect(vib);
+      }
+      if (lfoFilter > 0) {
+        flt = c.createGain();
+        flt.gain.value = Math.min(18000, s.cutoff) * lfoFilter * 0.8;
+        lfo.connect(flt);
+      }
+      return { vib, flt };
+    };
     let stopAt: number;
     const sources: AudioScheduledSourceNode[] = [];
     switch (this.track.preset) {
       case "piano":
       case "pluck": {
-        const buf = cached(c, `${this.track.preset}:${ev.pitch}`, () => (this.track.preset === "piano" ? renderPianoNote(ev.pitch, c.sampleRate) : renderPluckNote(ev.pitch, c.sampleRate)));
+        const buf = cached(c, `${this.track.preset}:${pitch}`, () => (this.track.preset === "piano" ? renderPianoNote(pitch, c.sampleRate) : renderPluckNote(pitch, c.sampleRate)));
         const src = c.createBufferSource();
         src.buffer = buf;
         const lp = c.createBiquadFilter();
@@ -260,8 +321,11 @@ export class InstrumentVoice {
         const rel = Math.max(0.05, s.release);
         voiceGain.gain.setTargetAtTime(0, end, rel / 4);
         stopAt = Math.min(t + buf.duration, end + rel * 1.5);
+        const { vib } = makeLfo(sources);
+        if (vib) vib.connect(src.detune);
         src.start(t);
-        sources.push(src);
+        sources.unshift(src);
+        for (const x of sources) if (x !== src) x.start(t);
         break;
       }
       case "epiano":
@@ -278,50 +342,65 @@ export class InstrumentVoice {
         mod.connect(modGain).connect(car.frequency);
         car.connect(voiceGain);
         stopAt = adsr(voiceGain.gain, t, end, vel * 0.6, s);
-        car.start(t);
-        mod.start(t);
         sources.push(car, mod);
+        const { vib } = makeLfo(sources);
+        if (vib) vib.connect(car.detune);
+        for (const x of sources) x.start(t);
         break;
       }
       default: {
-        // synth, pad, strings, bass: detuned saws (+ square sub for bass) through a filter.
+        // synth, pad, strings, bass: unison oscillators (+ square sub for bass) through a filter.
         const filter = c.createBiquadFilter();
         filter.type = "lowpass";
         filter.connect(voiceGain);
         filterEnv(filter, t, end, s, ev.velocity);
-        const count = this.track.preset === "pad" ? 4 : this.track.preset === "strings" ? 3 : 2;
+        const count = Math.round(Math.max(1, Math.min(7, s.voices ?? DEFAULT_VOICES[this.track.preset] ?? 2)));
         const mix = c.createGain();
         mix.gain.value = 0.5 / Math.sqrt(count);
         mix.connect(filter);
+        const oscs: OscillatorNode[] = [];
         for (let i = 0; i < count; i++) {
           const o = c.createOscillator();
-          o.type = "sawtooth";
-          o.frequency.value = f0;
-          o.detune.value = ((i / (count - 1)) * 2 - 1) * s.detune;
+          o.type = s.wave ?? "sawtooth";
+          o.detune.value = count === 1 ? 0 : ((i / (count - 1)) * 2 - 1) * s.detune;
           o.connect(mix);
-          sources.push(o);
+          oscs.push(o);
         }
         if (this.track.preset === "bass") {
           const sub = c.createOscillator();
           // Square at the written pitch (a sub-octave would make the note sound an octave low).
           sub.type = "square";
-          sub.frequency.value = f0;
           const sg = c.createGain();
           sg.gain.value = 0.25;
           sub.connect(sg).connect(filter);
-          sources.push(sub);
+          oscs.push(sub);
         }
-        if (this.track.preset === "strings") {
-          const lfo = c.createOscillator();
-          lfo.frequency.value = 5.5;
-          const depth = c.createGain();
-          depth.gain.setValueAtTime(0, t);
-          depth.gain.linearRampToValueAtTime(12, t + 0.4);
-          lfo.connect(depth);
-          for (const o of sources) depth.connect((o as OscillatorNode).detune);
-          sources.push(lfo);
+        // Mono legato: glide from the previous note when it is still held (or on slide).
+        const prev = this.lastMono;
+        const legato = !!s.mono && !!prev && (ev.slide || t < prev.end - 0.005);
+        for (const o of oscs) {
+          if (legato) {
+            o.frequency.setValueAtTime(prev!.freq, t);
+            o.frequency.exponentialRampToValueAtTime(f0, t + Math.max(0.005, s.glide || 0.05));
+          } else o.frequency.value = f0;
         }
-        stopAt = adsr(voiceGain.gain, t, end, vel * (this.track.preset === "pad" ? 0.5 : 0.7), s);
+        sources.push(...oscs);
+        const { vib, flt } = makeLfo(sources);
+        if (vib) for (const o of oscs) vib.connect(o.detune);
+        if (flt) flt.connect(filter.frequency);
+        const peak = vel * (this.track.preset === "pad" ? 0.5 : 0.7);
+        if (s.mono && prev) {
+          // Mono: the new note cuts the previous one.
+          prev.gain.gain.cancelScheduledValues(t);
+          prev.gain.gain.setTargetAtTime(0, t, 0.008);
+        }
+        if (legato) {
+          voiceGain.gain.setValueAtTime(0, t);
+          voiceGain.gain.linearRampToValueAtTime(peak * Math.max(0.2, s.sustain), t + 0.006);
+          voiceGain.gain.setTargetAtTime(0, end, Math.max(0.01, s.release) / 4);
+          stopAt = end + Math.max(0.01, s.release) * 1.5;
+        } else stopAt = adsr(voiceGain.gain, t, end, peak, s);
+        if (s.mono) this.lastMono = { gain: voiceGain, end, freq: f0 };
         for (const o of sources) o.start(t);
       }
     }
@@ -367,6 +446,7 @@ export class InstrumentVoice {
   /** Silence everything immediately (transport stop). */
   stopAll(): void {
     const t = this.ctx.currentTime;
+    this.lastMono = null;
     for (const s of this.active) {
       try { s.stop(t + 0.02); } catch { /* not started */ }
     }
@@ -382,6 +462,8 @@ export class InstrumentVoice {
   dispose(): void {
     this.stopAll();
     this.teardown808();
+    this.input.disconnect();
+    this.shaper.disconnect();
     this.output.disconnect();
   }
 }

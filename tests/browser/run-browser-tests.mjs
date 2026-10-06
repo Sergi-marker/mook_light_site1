@@ -87,6 +87,23 @@ await check("808: correct pitch, glides on slide notes", async () => {
   assert.ok(r.mid > 45.5 && r.mid < 51.8, `mid-glide ${r.mid}`);
 });
 
+await check("sound library: every sound plays, no NaN, in tune (octave presets included)", async () => {
+  const r = await run("soundLibrary");
+  for (const [id, v] of Object.entries(r)) {
+    assert.ok(v.peak > 0.02 && !v.nan, `${id} silent/NaN ${JSON.stringify(v)}`);
+    if (v.preset !== "bells" && id !== "vibes") assert.ok(near(v.midi, v.expect, 0.5), `${id} pitch ${v.midi} expected ${v.expect}`);
+  }
+});
+
+await check("synth: mono legato glides; stereo width 0 folds to mono", async () => {
+  const r = await run("synthMonoGlideAndWidth");
+  assert.ok(near(r.glide.first, 45, 0.4), `first ${r.glide.first}`);
+  assert.ok(near(r.glide.second, 52, 0.4), `second ${r.glide.second}`);
+  assert.ok(r.glide.mid > 45.5 && r.glide.mid < 51.8, `mid-glide ${r.glide.mid}`);
+  assert.ok(r.panned[1] < r.panned[0] * 0.05, `pan left ${r.panned}`);
+  assert.ok(near(r.narrowed[0], r.narrowed[1], r.narrowed[0] * 0.02), `width 0 ${r.narrowed}`);
+});
+
 await check("effects & routing: reverb send, compressor, master limiter, delay echo, mute, solo", async () => {
   const r = await run("effectsAndRouting");
   console.log("     ", JSON.stringify({ ...r, delayOnsets: r.delayOnsets.slice(0, 4) }));
