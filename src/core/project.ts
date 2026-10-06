@@ -198,6 +198,7 @@ export function createEmptyProject(name = "Untitled Beat"): Project {
     assets: [],
     midiMappings: [],
     metronome: { enabled: false, countInBars: 1, volume: 0.6 },
+    ai: { lastBeatPrompt: "", masterTarget: "loud", melodyComplexity: 0.6 },
     createdAt: now,
     updatedAt: now,
   };
@@ -232,6 +233,8 @@ export function insertChannel(channels: Channel[], ch: Channel): Channel[] {
     }
   return [...channels.slice(0, idx), ch, ...channels.slice(idx)];
 }
+
+export const DEFAULT_SAMPLE_EDIT = { start: 0, end: 1, reverse: false, fadeIn: 0, fadeOut: 0.005, gainDb: 0, loop: false };
 
 // --- Lookups ----------------------------------------------------------------------------
 

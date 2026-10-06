@@ -267,7 +267,7 @@ export function createVocalsView(app: App): View {
           ? h("button", { class: "btn btn-rec recording", onclick: () => void app.stopRecording() }, "■ STOP")
           : h("button", { class: "btn btn-rec", title: "Record (R) — commence au curseur de l'arrangement, sur la piste armée", onclick: () => void app.startRecording({ punch }) }, "● REC"),
         h("button", { class: "btn", title: "Play / Stop (Espace)", onclick: () => { engine.setMode("song"); void app.togglePlay(); } }, engine.isPlaying ? "■ Stop" : "▶ Play"),
-        h("button", { class: "btn", title: "Pause", onclick: () => engine.pause() }, "❚❚ Pause"),
+        h("button", { class: "btn", title: "Pause", onclick: () => app.pause() }, "❚❚ Pause"),
         h("button", { class: `btn btn-toggle ${m.enabled ? "on" : ""}`, onclick: () => app.dispatch({ type: "setMetronome", metronome: { enabled: !m.enabled } }) }, "♩ Métronome"),
         h("label", { class: "field" }, h("span", { class: "slider-label" }, "COUNT-IN"),
           h("select", { "aria-label": "Count-in", onchange: (e: Event) => app.dispatch({ type: "setMetronome", metronome: { countInBars: Number((e.target as HTMLSelectElement).value) } }) },

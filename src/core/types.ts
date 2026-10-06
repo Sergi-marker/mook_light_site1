@@ -25,10 +25,25 @@ export interface Track {
   instrument: InstrumentKind;
   /** null = built-in synthesised sound; otherwise id of an imported sample. */
   sampleId: string | null;
+  /** Non-destructive edit of the sample (trim, reverse, fades, gain, loop). */
+  sampleEdit?: SampleEdit;
   /** Semitones, −24 … 24. */
   pitch: number;
   /** Tracks sharing a non-null choke group cut each other off. */
   chokeGroup: number | null;
+}
+
+export interface SampleEdit {
+  /** Trim, 0–1 of the sample length. */
+  start: number;
+  end: number;
+  reverse: boolean;
+  /** Seconds. */
+  fadeIn: number;
+  fadeOut: number;
+  gainDb: number;
+  /** Loop the trimmed region until the next hit of the lane (sustained samples). */
+  loop: boolean;
 }
 
 export interface Note {
@@ -274,6 +289,8 @@ export interface Project {
   assets: AudioAsset[];
   midiMappings: MidiMapping[];
   metronome: { enabled: boolean; countInBars: number; volume: number };
+  /** AI settings remembered with the project. */
+  ai: { lastBeatPrompt: string; masterTarget: string; melodyComplexity: number };
   createdAt: string;
   updatedAt: string;
 }

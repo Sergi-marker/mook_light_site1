@@ -207,14 +207,20 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
       warnings.push(`Track "${str(raw.name, String(raw.instrument))}": missing sample, using built-in sound.`);
       sampleId = null;
     }
-    tracks.push({
+    const t: Track = {
       id: str(raw.id, "") || newId("trk"),
       name: str(raw.name, String(raw.instrument)).slice(0, 60),
       instrument: raw.instrument as InstrumentKind,
       sampleId,
       pitch: Math.round(clamp(num(raw.pitch, 0), -PITCH_RANGE, PITCH_RANGE)),
       chokeGroup: typeof raw.chokeGroup === "number" ? raw.chokeGroup : null,
-    });
+    };
+    if (isObj(raw.sampleEdit)) {
+      const e = raw.sampleEdit;
+      const start = clamp(num(e.start, 0), 0, 0.99);
+      t.sampleEdit = { start, end: clamp(num(e.end, 1), start + 0.01, 1), reverse: e.reverse === true, fadeIn: clamp(num(e.fadeIn, 0), 0, 5), fadeOut: clamp(num(e.fadeOut, 0.005), 0, 5), gainDb: clamp(num(e.gainDb, 0), -24, 12), loop: e.loop === true };
+    }
+    tracks.push(t);
   }
   if (!tracks.length) throw new ProjectFileError("The project contains no usable tracks.");
 
@@ -343,6 +349,10 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     assets,
     midiMappings: arr(p.midiMappings).flatMap((m) => (isObj(m) && typeof m.source === "string" && typeof m.target === "string" ? [{ source: m.source, target: m.target }] : [])),
     metronome: { enabled: metro.enabled === true, countInBars: Math.round(clamp(num(metro.countInBars, 1), 0, 4)), volume: clamp(num(metro.volume, 0.6), 0, 1) },
+    ai: (() => {
+      const ai = isObj(p.ai) ? p.ai : {};
+      return { lastBeatPrompt: str(ai.lastBeatPrompt, "").slice(0, 500), masterTarget: str(ai.masterTarget, "loud"), melodyComplexity: clamp(num(ai.melodyComplexity, 0.6), 0, 1) };
+    })(),
     createdAt: str(p.createdAt, base.createdAt),
     updatedAt: str(p.updatedAt, base.updatedAt),
   };

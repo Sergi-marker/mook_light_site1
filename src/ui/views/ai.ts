@@ -44,7 +44,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
   const range = (min: number, max: number, step: number, value: number) => h("input", { type: "range", min, max, step, value });
 
   // --- BEAT -----------------------------------------------------------------------------
-  let beatState: { prompt: string; seed: number; result: ReturnType<typeof generateSong> | null; understood: string[] } = { prompt: "Dark trap beat, 140 BPM, F minor, melancholic, heavy 808.", seed: 1, result: null, understood: [] };
+  let beatState: { prompt: string; seed: number; result: ReturnType<typeof generateSong> | null; understood: string[] } = { prompt: store.getState().ai.lastBeatPrompt || "Dark trap beat, 140 BPM, F minor, melancholic, heavy 808.", seed: 1, result: null, understood: [] };
   function beatTab(): HTMLElement {
     const ta = h("textarea", { class: "prompt", rows: 2, "aria-label": "Décrivez le beat" }, beatState.prompt);
     const gen = (newSeed: boolean) => {
@@ -77,7 +77,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
           } }, "▶ Écouter (preview)"),
           h("button", { class: "btn btn-primary", onclick: () => {
             app.engine.stop();
-            app.applyActions([{ type: "patchProject", patch: r.patch }], "Beat généré : tout est éditable dans BEAT, MELODY et ARRANGEMENT (Ctrl+Z pour annuler).");
+            app.applyActions([{ type: "patchProject", patch: r.patch }, { type: "setAiSettings", ai: { lastBeatPrompt: beatState.prompt } }], "Beat généré : tout est éditable dans BEAT, MELODY et ARRANGEMENT (Ctrl+Z pour annuler).");
             beatState.result = null;
             navigate("arrangement");
           } }, "Appliquer au projet"),
@@ -297,7 +297,8 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
   }
 
   // --- MASTER -------------------------------------------------------------------------------
-  let masterState: { target: MasterTarget; before: (MixMeasurements & { bands: ReturnType<typeof bandBalance> }) | null; proposal: Effect[] | null; notes: string[]; after: MixMeasurements | null } = { target: "loud", before: null, proposal: null, notes: [], after: null };
+  const savedTarget = store.getState().ai.masterTarget as MasterTarget;
+  let masterState: { target: MasterTarget; before: (MixMeasurements & { bands: ReturnType<typeof bandBalance> }) | null; proposal: Effect[] | null; notes: string[]; after: MixMeasurements | null } = { target: savedTarget in MASTER_TARGETS ? savedTarget : "loud", before: null, proposal: null, notes: [], after: null };
   /** Loudest part of the song (around the first chorus, 16 bars): the loudness target applies there. */
   function loudRange(p: Project): [number, number] | undefined {
     if (songEndStep(p) <= 0) return undefined;
@@ -328,7 +329,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     if (!masterState.proposal) return;
     app.cancelPreview();
     let inserts = masterState.proposal.map((e) => ({ ...e, params: { ...e.params } }));
-    app.dispatch({ type: "setInserts", channelId: "master", inserts });
+    app.dispatch({ type: "batch", actions: [{ type: "setInserts", channelId: "master", inserts }, { type: "setAiSettings", ai: { masterTarget: masterState.target } }] });
     await app.task("AI MASTER : vérification…", async () => {
       // Verify on the real render, correct the limiter gain once, and make sure TP ≤ ceiling.
       let res = await renderMaster(store.getState(), false);

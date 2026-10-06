@@ -1,99 +1,108 @@
 # Architecture — Beatmaker Studio
 
-## Vue d'ensemble
-
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ Electron (Windows)  electron/main.cjs                        │
-│  fenêtre, protocole app://, confirmation de fermeture         │
-│ ┌──────────────────────────────────────────────────────────┐ │
-│ │ UI  src/ui/           (TypeScript + DOM, sans framework) │ │
-│ │  shell (navigation, transport) · vues BEAT/HOME/…        │ │
-│ │  persistence (fichiers .bsproj, autosave IndexedDB)      │ │
-│ └───────────────▲───────────────────────┬──────────────────┘ │
-│        subscribe │                       │ dispatch(action)   │
-│ ┌───────────────┴───────────────────────▼──────────────────┐ │
-│ │ CORE  src/core/   (TypeScript pur, testé sous Node)      │ │
-│ │  types · reducer (actions pures) · store (undo/redo)     │ │
-│ │  projectFile (format .bsproj) · templates                │ │
-│ │  timing · scheduler (look-ahead)                         │ │
-│ │  engine (AudioContext) · voicer (graphe) · drumSynth     │ │
-│ └───────────────────────────┬──────────────────────────────┘ │
-└─────────────────────────────┼────────────────────────────────┘
-                              ▼
-                Web Audio (thread audio de Chromium)
-                              ▼
-            pilote Windows (WASAPI) → casque / enceintes
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Electron (Windows) — electron/main.cjs + preload.cjs                       │
+│   app:// protocol · mic/MIDI permissions · IPC: online assistant (SDK), CPU │
+│ ┌────────────────────────────────────────────────────────────────────────┐ │
+│ │ UI  src/ui/  (TypeScript + DOM, no framework)                          │ │
+│ │  shell (transport, nav) · views: HOME BEAT MELODY VOCALS MIXER         │ │
+│ │  ARRANGEMENT AI PROJECTS SETTINGS · App controller (app.ts)            │ │
+│ └──────────────┬───────────────────────────────▲─────────────────────────┘ │
+│     dispatch(action)                     subscribe                          │
+│ ┌──────────────▼───────────────────────────────┴─────────────────────────┐ │
+│ │ CORE  src/core/  — pure TypeScript, unit-tested in Node                │ │
+│ │  types · reducer (all edits, undo/redo) · store · projectFile (.bsproj)│ │
+│ │  dsp/ (FFT, YIN, dynamics, loudness, autopitch, denoise, analysis)     │ │
+│ │  ai/ (prompt, drums, melody, beat, assistant, mix, master, take comp)  │ │
+│ └──────────────┬─────────────────────────────────────────────────────────┘ │
+│ ┌──────────────▼─────────────────────────────────────────────────────────┐ │
+│ │ AUDIO  src/audio/ — Web Audio                                          │ │
+│ │  engine (transport, devices) · sequencer · instruments · mixer/effects │ │
+│ │  worklets/processors (real-time DSP) · recorder · render (offline)     │ │
+│ │  studioWorker (heavy offline DSP) · export (WAV/MP3) · midi            │ │
+│ └────────────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────────┘
+        mic / interface ──► MediaStream ──► recorder worklet ──► vocal channel
+        Web Audio graph ──► WASAPI ──► headphones / speakers
 ```
 
-## Principes
+## Design principles
 
-- **Une seule source de vérité** : le `Project` (JSON pur) dans `ProjectStore`.
-  Seul le reducer le modifie, et toute action annulable passe par lui → undo/redo gratuit.
-- **Le moteur ne stocke pas l'état** : à chaque step, le scheduler relit le projet courant.
-  Une note ajoutée pendant la lecture est donc entendue au prochain passage.
-- **Le cœur ne dépend d'aucun framework** : il est testé sous Node et dans Chromium, et
-  peut être réutilisé tel quel par une UI React plus tard.
+- **Single source of truth.** The `Project` (plain JSON) lives in `ProjectStore`. Only the
+  reducer changes it, so every edit (including AI suggestions) is undoable, saveable and
+  testable.
+- **The engine stores no state.** It reads the current project on every step, so edits made
+  during playback are heard straight away. AI PREVIEW plays a *modified copy* of the project
+  without touching the real one; APPLY sends the same actions to the store.
+- **Same code for listening and exporting.** The `Sequencer`, `MixerGraph`, instruments and
+  effects drive `AudioContext` (real time) and `OfflineAudioContext` (export, AI analysis)
+  alike.
+- **Non-destructive vocals.** Takes are always recorded RAW. The live chain is applied at
+  playback, and STUDIO processing (PSOLA pitch, spectral cleaning) writes separate audio.
+  RAW/PROCESSED toggles between the two.
+- **Testable DSP.** All DSP lives in `src/core/dsp`, independent of Web Audio. AudioWorklets
+  and the Web Worker import those same modules.
 
-## Moteur audio (Phase 1)
+## Real-time audio
 
-### Scheduler « two clocks »
-Un timer JS (25 ms) se réveille et programme sur l'horloge audio
-(`AudioContext.currentTime`, précise à l'échantillon) tous les steps qui tombent dans
-les 120 ms suivantes. La gigue du timer JS ne décale donc jamais le rythme. Si le thread
-principal se bloque (onglet en arrière-plan, GC), les steps en retard sont **sautés**
-et comptés (`lateSteps`) au lieu d'être joués d'un coup.
+- **"Two clocks" scheduler**: a 25 ms JS timer schedules steps 120 ms ahead on the audio
+  clock (sample-accurate timing). It supports pattern/song loops and count-in. If the main
+  thread stalls, late steps are skipped rather than bursting.
+- **Mixer**: `source → input → inserts → pan → fader → meter`, then the bus (DRUM / MUSIC /
+  VOCAL), REVERB and DELAY returns, and MASTER → soft-clipper (0 latency, ceiling −0.18 dBFS).
+- **Effects**: EQ, saturation, distortion, reverb (generated IR) and delay (tempo-synced,
+  ping-pong) use native nodes. Compressor, gate, de-esser, limiter, leveler, denoise and
+  AUTO PITCH run as AudioWorklets (`bs-insert`). None of them has look-ahead, hence **no
+  added latency** (except AUTO PITCH while it corrects, ≈10 ms). Fast path: silent input is
+  not processed. Dynamics are computed at control rate (every 8 samples, interpolated).
+- **Instruments**: piano (additive, inharmonicity), pluck (Karplus-Strong), e-piano and bells
+  (FM), synth/pad/strings/bass (detuned oscillators + filter envelope), monophonic 808 (glide,
+  punch, saturation, distortion, EQ, compression; the compressor's 6 ms look-ahead is
+  compensated by early scheduling).
+- **Recording**: `getUserMedia` (with echo cancellation, noise suppression and AGC disabled)
+  feeds the `bs-recorder` worklet, which captures timestamped frames. The take is aligned on
+  the exact audio frame of the start step, plus the output and input latency compensation.
 
-### Graphe audio
-```
-source (sample) → gain vélocité → gain piste (volume, mute/solo) → pan ─┐
-                                                                          ▼
-                     master gain ─┬─→ analyser pré-clip (voyant CLIP)
-                                  └─→ ×¼ → soft clipper (WaveShaper) → analyser → sortie
-```
-- **Choke groups** : le charley fermé coupe l'ouvert ; une nouvelle 808 coupe la précédente.
-- **Sécurité anti-clipping** : un `DynamicsCompressorNode` a été mesuré dans Chromium :
-  il ajoute **6 ms** de retard fixe et laisse passer des crêtes à 1,31. Il est remplacé par
-  une courbe de soft-clip statique : 0 ms de latence, linéaire sous −1,9 dBFS, plafond
-  absolu à −0,18 dBFS. Le voyant CLIP s'allume quand le mix atteint la zone de saturation.
-- **Kit intégré synthétisé** (`drumSynth.ts`) en TypeScript pur : l'app sonne sans fichier
-  de sample, et les sons sont déterministes et testables.
+## Vocal DSP
 
-### Latence
-La latence affichée = `baseLatency` (buffer) + `outputLatency` (pilote), telles que
-rapportées par Chromium. La taille de buffer choisie dans SETTINGS est transmise comme
-`latencyHint` : c'est une demande, la valeur réellement obtenue est affichée.
+| Module | Method |
+|---|---|
+| Pitch detection | YIN (sub-sample parabolic interpolation), ×2 decimation in live mode |
+| LIVE PITCH | Two-head delay-line pitch shifter, retune speed, humanize, dry bypass when no correction is needed |
+| STUDIO PITCH | TD-PSOLA on pitch marks, formants preserved, adjustable formant shift |
+| LIVE clean | 4-band complementary downward expander, minimum-statistics noise floor |
+| AI VOICE CLEAN | STFT 2048/512 sqrt-Hann WOLA, noise profile from the quiet frames, floored Wiener gain, time/frequency smoothing, attenuation of inter-phrase silences |
+| AUTO VOICE | Analysis (SNR, dynamics, sibilance 5–10 kHz, low end, mud, presence, pitch stability, clipping, LUFS, voice key) → conservative chain recommendation |
+| Consistency | Leveler (target RMS, ±max dB, frozen in silence) + clip loudness alignment (LUFS) |
 
-## Vers un moteur natif (architecture hybride)
+## AI (local)
 
-Web Audio sous Windows passe par WASAPI en mode partagé : typiquement **10–40 ms** de
-latence de sortie. C'est suffisant pour programmer des beats, pas pour le **monitoring
-vocal** (objectif < 10 ms aller-retour), qui exige WASAPI exclusif ou **ASIO**.
+- **Beat**: free-text prompt (FR/EN) → genre, BPM, key, mood, energy, heavy 808. Drums come
+  from per-genre probability grids. Chords use mood-based progressions with voice leading. The
+  melody is a developed motif (A A′ B A″, chord tones on strong beats). The 808 follows chord
+  roots on the kicks, with slides. Five patterns plus a 72-bar arrangement are generated.
+- **Assistant**: project analysis (per-pattern energy, Krumhansl key detection, out-of-key 808
+  notes, structure). It answers with actions that can be previewed and then applied.
+  Optionally, Claude online via the main process (`@anthropic-ai/sdk`, model
+  `claude-opus-5-5`, server-side refusal fallbacks), after consent; only text is sent.
+- **AI MIX**: renders the full mix and each group, then measures LUFS, peaks, band balance
+  against a rap reference, stereo and PLR. It reports problems with corrective actions.
+- **AI MASTER**: EQ, glue compression, light saturation, limiter (ceiling −1 dBTP). The gain
+  is computed for the target, checked on a real render and corrected; the true peak is checked.
+- **Take comp**: per-bar scoring (presence, clipping, SNR, pitch stability, level consistency).
 
-Plan proposé (Phase 3/4) :
-1. Un moteur natif (C++ avec JUCE, ou Rust avec `cpal`) chargé dans le processus
-   principal Electron (addon N-API) ou en processus séparé.
-2. Il gère l'entrée micro, le monitoring et la chaîne vocale temps réel (gate, EQ,
-   de-esser, compresseur, pitch) — tout ce qui est critique en latence.
-3. L'UI et le format de projet ne changent pas : le natif reçoit le même `Project`
-   et les mêmes événements que le moteur Web Audio actuel (interface `AudioEngine`).
-4. Les traitements lourds (débruitage IA, pitch « studio ») tournent hors temps réel,
-   après l'enregistrement, comme demandé dans le cahier des charges.
+## Project format `.bsproj` (v2)
 
-## Format de projet `.bsproj`
+A standard ZIP containing `project.json`, `samples/<id>` (original files) and `audio/<id>.wav`
+(takes and processed versions, 24-bit). Loading validates and repairs every field. v1 files
+(Phase 1) are migrated. Autosave stores the JSON plus each audio file once in IndexedDB.
+Crash recovery restores the audio too.
 
-Un seul fichier JSON : `{ format, version, savedAt, project, sampleData }`.
-Les samples importés y sont embarqués (octets d'origine en base64), donc un projet se
-déplace d'une machine à l'autre sans perdre ses sons. Le chargement **valide et répare**
-(valeurs bornées, pistes inconnues ignorées, sample manquant → son intégré) et signale
-chaque réparation. Un fichier d'une version plus récente est refusé avec un message clair.
-Limite connue : avec beaucoup de samples, le fichier grossit (+33 % base64). Un format
-archive (zip) pourra le remplacer derrière la même API.
+## Towards a native engine (Windows)
 
-## Fiabilité
-
-- Autosave dans IndexedDB 1,5 s après chaque modification.
-- Détection de crash : un drapeau est posé au démarrage et retiré à la fermeture propre.
-  S'il est encore là au démarrage suivant → « Recover previous session? ».
-- Fermeture avec modifications non sauvegardées : confirmation (navigateur et Electron).
-- Aucun effacement de pattern ou de projet sans confirmation ; tout est annulable.
+Web Audio under Windows goes through shared-mode WASAPI (typically 10–40 ms of output
+latency). For monitoring below 10 ms, a native engine (JUCE / Rust `cpal`, exclusive WASAPI or
+ASIO) can be loaded by the Electron main process. The `AudioEngine` and `Recorder` interfaces
+and the project format stay the same, and the core DSP can be reused (it is pure TypeScript,
+portable to WASM).

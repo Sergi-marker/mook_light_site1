@@ -7,6 +7,8 @@ import type { Project, StepCount, Track } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h } from "../dom.ts";
 import { patternBar } from "./patternBar.ts";
+import { DEFAULT_SAMPLE_EDIT } from "../../core/project.ts";
+import { drawWaveform, fmtDb, reactive, slider } from "../widgets.ts";
 
 interface Row {
   el: HTMLElement;
@@ -56,7 +58,51 @@ export function createBeatView(app: App): View {
   const help = h("p", { class: "hint" }, "Clic = note · Molette / Shift+glisser = vélocité · Alt+clic = roll (×2, ×3, ×4) · Clic sur le nom = écouter et sélectionner (M/S)");
   const pbar = patternBar(app);
   const grid = h("div", { class: "grid", role: "grid", "aria-label": "Step sequencer" });
-  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, help, h("div", { class: "grid-scroll" }, grid));
+  const editor = h("div", { class: "card sample-editor" });
+  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, help, h("div", { class: "grid-scroll" }, grid), editor);
+
+  /** SAMPLER panel for the selected drum lane: trim, reverse, fades, gain, loop (non-destructive). */
+  function renderEditor(): void {
+    editor.textContent = "";
+    const p = store.getState();
+    const t = p.tracks.find((x) => x.id === app.selectedTrackId);
+    if (!t) {
+      editor.append(h("p", { class: "hint" }, "SAMPLER : cliquez sur le nom d'une piste pour éditer son son (découpe, reverse, fondus, gain, boucle)."));
+      return;
+    }
+    const e = { ...DEFAULT_SAMPLE_EDIT, ...(t.sampleEdit ?? {}) };
+    const set = (patch: Partial<typeof e>) => app.dispatch({ type: "editSample", trackId: t.id, edit: patch }, `se:${t.id}`);
+    const raw = (t.sampleId ? engine.seq?.samples.get(t.sampleId) : undefined) ?? undefined;
+    const cv = h("canvas", { class: "se-wave", width: 520, height: 70 });
+    const buf = raw ?? (engine.seq ? engine.seq.bufferForTrack({ ...t, sampleEdit: undefined }) : undefined);
+    if (buf) {
+      drawWaveform(cv, buf.getChannelData(0), "#a68bff");
+      const ctx = cv.getContext("2d")!;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, 0, e.start * cv.width, cv.height);
+      ctx.fillRect(e.end * cv.width, 0, cv.width - e.end * cv.width, cv.height);
+    }
+    const name = t.sampleId ? p.samples.find((x) => x.id === t.sampleId)?.name ?? "sample" : "son intégré";
+    editor.append(
+      h("div", { class: "row-inline" }, h("h3", {}, `SAMPLER — ${t.name}`), h("span", { class: "hint" }, `${name}${buf ? ` · ${buf.duration.toFixed(2)} s` : " · démarrez l'audio (Play) pour voir la forme d'onde"}`),
+        h("button", { class: "btn btn-sm", onclick: () => void engine.previewDrum(t.id) }, "▶ Écouter"),
+        h("button", { class: "btn btn-sm", onclick: () => void app.importSample(t.id) }, "Importer WAV/MP3/AIFF/OGG…"),
+        h("button", { class: "btn btn-sm", onclick: () => app.dispatch({ type: "editSample", trackId: t.id, edit: null }) }, "Réinitialiser")),
+      cv,
+      h("div", { class: "sliders" },
+        slider({ label: "Début", min: 0, max: 0.99, step: 0.005, value: e.start, format: (v) => `${Math.round(v * 100)}%`, onInput: (v) => set({ start: v }) }),
+        slider({ label: "Fin", min: 0.01, max: 1, step: 0.005, value: e.end, format: (v) => `${Math.round(v * 100)}%`, onInput: (v) => set({ end: v }) }),
+        slider({ label: "Fade in", min: 0, max: 0.5, step: 0.001, value: e.fadeIn, format: (v) => `${Math.round(v * 1000)} ms`, onInput: (v) => set({ fadeIn: v }) }),
+        slider({ label: "Fade out", min: 0, max: 1, step: 0.001, value: e.fadeOut, format: (v) => `${Math.round(v * 1000)} ms`, onInput: (v) => set({ fadeOut: v }) }),
+        slider({ label: "Gain", min: -24, max: 12, step: 0.5, value: e.gainDb, format: fmtDb, reset: 0, onInput: (v) => set({ gainDb: v }) }),
+        slider({ label: "Pitch", min: -24, max: 24, step: 1, value: t.pitch, format: (v) => `${v > 0 ? "+" : ""}${v} st`, reset: 0, onInput: (v) => app.dispatch({ type: "updateTrack", trackId: t.id, patch: { pitch: v } }, `pitch:${t.id}`) })),
+      h("div", { class: "row-inline" },
+        h("button", { class: `btn btn-toggle btn-sm ${e.reverse ? "on" : ""}`, onclick: () => set({ reverse: !e.reverse }) }, "⇄ Reverse"),
+        h("button", { class: `btn btn-toggle btn-sm ${e.loop ? "on" : ""}`, title: "Boucle la zone jusqu'au coup suivant de la piste", onclick: () => set({ loop: !e.loop }) }, "⟳ Loop"),
+        h("span", { class: "hint" }, "Time-stretch : non disponible (le pitch change la durée, comme sur un sampler classique).")));
+  }
+  const rerenderEditor = reactive(editor, renderEditor);
+  let editorSig = "";
 
   let rows: Row[] = [];
   let layoutKey = "";
@@ -136,6 +182,12 @@ export function createBeatView(app: App): View {
   function update(p: Project): void {
     const pat = currentPattern(p);
     pbar.update(p);
+    const sel = p.tracks.find((x) => x.id === app.selectedTrackId);
+    const es = sel ? `${sel.id}|${sel.sampleId}|${sel.pitch}|${JSON.stringify(sel.sampleEdit ?? null)}|${engine.isReady}` : "";
+    if (es !== editorSig) {
+      editorSig = es;
+      rerenderEditor();
+    }
     stepsSelect.value = String(pat.stepCount);
     el.classList.toggle("mode-pro", app.settings.mode === "pro");
     const key = [pat.stepCount, p.timeSignature.beats, p.timeSignature.beatUnit, p.samples.map((s) => s.id).join(), p.tracks.map((t) => `${t.id}:${t.name}`).join()].join("|");

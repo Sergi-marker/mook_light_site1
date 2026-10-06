@@ -3,6 +3,7 @@
 // so what you hear is exactly what gets exported.
 
 import { synthesizeDrum } from "../core/drumSynth.ts";
+import { applySampleEdit, sampleEditKey } from "../core/dsp/sampleEdit.ts";
 import { MASTER, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
 import { semitonesToRate, stepDuration, swingOffset, velocityToGain } from "../core/timing.ts";
 import type { InstrumentKind, Pattern, Project, Track } from "../core/types.ts";
@@ -74,8 +75,22 @@ export class Sequencer {
     return this.opts.muted?.has(channelId) ?? false;
   }
 
+  private edited = new Map<string, AudioBuffer>();
+  private loopVoices = new Map<string, AudioBufferSourceNode>();
+
   bufferForTrack(t: Track): AudioBuffer | undefined {
-    return (t.sampleId ? this.samples.get(t.sampleId) : undefined) ?? this.builtins.get(t.instrument);
+    const raw = (t.sampleId ? this.samples.get(t.sampleId) : undefined) ?? this.builtins.get(t.instrument);
+    if (!raw || !t.sampleEdit) return raw;
+    const key = `${t.sampleId ?? t.instrument}|${sampleEditKey(t.sampleEdit)}`;
+    let b = this.edited.get(key);
+    if (!b) {
+      const chans = applySampleEdit(Array.from({ length: raw.numberOfChannels }, (_, i) => raw.getChannelData(i)), raw.sampleRate, t.sampleEdit);
+      b = this.ctx.createBuffer(chans.length, chans[0].length, raw.sampleRate);
+      chans.forEach((c, i) => b!.copyToChannel(c, i));
+      if (this.edited.size > 64) this.edited.clear();
+      this.edited.set(key, b);
+    }
+    return b;
   }
 
   /** One drum hit (with optional roll subdivisions) on the track's mixer channel. */
@@ -100,6 +115,14 @@ export class Sequencer {
           try { prev.src.stop(at + 0.01); } catch { /* stopped */ }
         }
         this.chokeVoices.set(key, { src, gain: g });
+      }
+      if (t.sampleEdit?.loop) {
+        // Looped sample: sustains until the next hit of this lane (max 8 s).
+        src.loop = true;
+        const prevLoop = this.loopVoices.get(t.id);
+        if (prevLoop) try { prevLoop.stop(at); } catch { /* stopped */ }
+        this.loopVoices.set(t.id, src);
+        src.stop(at + 8);
       }
       this.activeSources.add(src);
       src.onended = () => {
@@ -242,6 +265,7 @@ export class Sequencer {
     }
     this.activeSources.clear();
     this.chokeVoices.clear();
+    this.loopVoices.clear();
     for (const v of this.voices.values()) v.stopAll();
   }
 

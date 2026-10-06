@@ -140,6 +140,19 @@ export class App {
     await this.engine.toggle();
   }
 
+  /** PAUSE: keeps the position; while recording, the take recorded so far is kept. */
+  pause(): void {
+    if (this.recorder.isRecording) {
+      const pos = this.engine.currentPosition();
+      void this.stopRecording().then(() => {
+        this.engine.cursor = Math.max(0, Math.floor(pos));
+        this.emit();
+      });
+      return;
+    }
+    this.engine.pause();
+  }
+
   stop(): void {
     if (this.recorder.isRecording) {
       void this.stopRecording();

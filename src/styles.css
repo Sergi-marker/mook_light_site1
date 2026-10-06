@@ -291,3 +291,5 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .sugg.sev-issue { border-left: 4px solid var(--danger); } .sugg.sev-warn { border-left: 4px solid var(--warn); } .sugg.sev-ok { border-left: 4px solid var(--ok); } .sugg.sev-info { border-left: 4px solid #0ea5e9; }
 .workflow { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .workflow .step { display: flex; flex-direction: column; gap: 4px; }
+.sample-editor { margin-top: 12px; }
+.se-wave { background: #11141c; border-radius: 4px; display: block; margin: 6px 0; width: 520px; height: 70px; }

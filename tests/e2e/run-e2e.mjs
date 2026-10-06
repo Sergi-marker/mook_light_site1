@@ -137,6 +137,24 @@ await step("5. drums: AI drum generator + manual edits, rolls; PLAY is audible",
   await page.click(".btn-play");
 });
 
+await step("SAMPLER: edit a lane's sound (trim, reverse, gain), still audible", async () => {
+  await page.click('.row .track-name:has-text("Snare")');
+  await page.waitForSelector(".sample-editor >> text=SAMPLER — Snare");
+  await page.click('.sample-editor button:has-text("Reverse")');
+  const fin = page.locator('.sample-editor input[aria-label="Fin"]');
+  await fin.fill("0.5");
+  await fin.dispatchEvent("input");
+  const t = (await state()).tracks.find((x) => x.instrument === "snare");
+  assert.deepEqual([t.sampleEdit.reverse, t.sampleEdit.end], [true, 0.5]);
+  const peak = await evalApp(async (id) => {
+    const e = window.__app.engine;
+    const t = window.__app.store.getState().tracks.find((x) => x.id === id);
+    const b = e.seq.bufferForTrack(t);
+    return { len: b.duration, first: Math.abs(b.getChannelData(0)[10]) };
+  }, t.id);
+  assert.ok(peak.len < 0.16, `trimmed ${peak.len}`);
+});
+
 await step("6. melody: piano roll notes (scale lock), audible", async () => {
   await nav("MELODY");
   await page.waitForSelector(".pr-canvas");

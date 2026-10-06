@@ -209,3 +209,18 @@ test("voice analysis + recommendation on a noisy, sibilant, slightly off-key tak
   assert.ok(rec.pitchCorrection >= 20);
   assert.ok(rec.notes.length > 0);
 });
+
+import { applySampleEdit } from "../../src/core/dsp/sampleEdit.ts";
+test("sample edit: trim, reverse, gain, fades", () => {
+  const ch = Float32Array.from({ length: 1000 }, (_, i) => i / 1000);
+  const [t] = applySampleEdit([ch], 1000, { start: 0.1, end: 0.5, reverse: false, fadeIn: 0, fadeOut: 0, gainDb: 0, loop: false });
+  assert.equal(t.length, 400);
+  assert.ok(Math.abs(t[0] - 0.1) < 1e-6);
+  const [r] = applySampleEdit([ch], 1000, { start: 0, end: 1, reverse: true, fadeIn: 0, fadeOut: 0, gainDb: -6.0206, loop: false });
+  assert.ok(Math.abs(r[0] - 0.999 * 0.5) < 1e-3);
+  const [f] = applySampleEdit([Float32Array.from({ length: 1000 }, () => 1)], 1000, { start: 0, end: 1, reverse: false, fadeIn: 0.1, fadeOut: 0.1, gainDb: 0, loop: false });
+  assert.equal(f[0], 0);
+  assert.ok(Math.abs(f[50] - 0.5) < 1e-6);
+  assert.equal(f[500], 1);
+  assert.ok(f[999] < 0.02);
+});

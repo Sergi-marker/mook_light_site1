@@ -1,12 +1,12 @@
 import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
 import {
-  clamp, clampBpm, createInstrument, insertChannel, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
+  clamp, clampBpm, createInstrument, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS,
 } from "./project.ts";
 import type {
   AudioAsset, AudioClip, AutomationLane, Bass808Params, Channel, Effect, EffectType, InstrumentTrack, MidiMapping,
-  Note, Pattern, PatternClip, Project, SampleMeta, Section, Step, StepCount, SynthParams, SynthPreset, Take,
+  Note, Pattern, PatternClip, Project, SampleEdit, SampleMeta, Section, Step, StepCount, SynthParams, SynthPreset, Take,
   TimeSignature, Track, VocalRole, VocalTrack,
 } from "./types.ts";
 
@@ -48,6 +48,8 @@ export type Action =
   | { type: "updateTrack"; trackId: string; patch: TrackPatch }
   | { type: "addSample"; sample: SampleMeta }
   | { type: "assignSample"; trackId: string; sampleId: string | null }
+  | { type: "editSample"; trackId: string; edit: Partial<SampleEdit> | null }
+  | { type: "setAiSettings"; ai: Partial<Project["ai"]> }
   | { type: "removeSample"; sampleId: string }
   // Mixer
   | { type: "updateChannel"; channelId: string; patch: ChannelPatch }
@@ -386,6 +388,26 @@ export function reduce(p: Project, a: Action): Project {
       const tracks = mapArr(p.tracks, a.trackId, (t) => (t.sampleId === a.sampleId ? t : { ...t, sampleId: a.sampleId }));
       return tracks === p.tracks ? p : { ...p, tracks };
     }
+    case "editSample": {
+      const tracks = mapArr(p.tracks, a.trackId, (t) => {
+        if (a.edit === null) {
+          if (!t.sampleEdit) return t;
+          const n = { ...t };
+          delete n.sampleEdit;
+          return n;
+        }
+        const e: SampleEdit = { ...DEFAULT_SAMPLE_EDIT, ...(t.sampleEdit ?? {}), ...a.edit };
+        e.start = clamp(e.start, 0, 0.99);
+        e.end = clamp(e.end, e.start + 0.01, 1);
+        e.fadeIn = clamp(e.fadeIn, 0, 5);
+        e.fadeOut = clamp(e.fadeOut, 0, 5);
+        e.gainDb = clamp(e.gainDb, -24, 12);
+        return { ...t, sampleEdit: e };
+      });
+      return tracks === p.tracks ? p : { ...p, tracks };
+    }
+    case "setAiSettings":
+      return { ...p, ai: { ...p.ai, ...a.ai } };
     case "removeSample":
       if (!p.samples.some((s) => s.id === a.sampleId)) return p;
       return {

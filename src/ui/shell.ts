@@ -60,7 +60,7 @@ export function createShell(app: App, root: HTMLElement): void {
   const modeBtn = h("button", { class: "btn btn-mode", title: "PATTERN : boucle le pattern en cours · SONG : joue l'arrangement", onclick: () => engine.setMode(engine.mode === "pattern" ? "song" : "pattern") });
   const stopBtn = h("button", { class: "btn btn-icon", title: "Stop (retour au curseur) — Entrée : retour au début", "aria-label": "Stop", onclick: () => app.stop() }, "■");
   const playBtn = h("button", { class: "btn btn-play", title: "Play / Stop (Espace)", "aria-label": "Play", onclick: () => void app.togglePlay() }, "▶");
-  const pauseBtn = h("button", { class: "btn btn-icon", title: "Pause", "aria-label": "Pause", onclick: () => engine.pause() }, "❚❚");
+  const pauseBtn = h("button", { class: "btn btn-icon", title: "Pause", "aria-label": "Pause", onclick: () => app.pause() }, "❚❚");
   const recBtn = h("button", { class: "btn btn-rec", title: "Record sur la piste vocale armée (R)", "aria-label": "Record", onclick: () => void (app.recorder.isRecording ? app.stopRecording() : app.startRecording()) }, "●");
   const posEl = h("span", { class: "position", title: "Position (mesure.temps.double-croche)" });
   const bpmInput = h("input", {
