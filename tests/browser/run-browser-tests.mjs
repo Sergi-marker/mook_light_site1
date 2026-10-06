@@ -123,6 +123,11 @@ await check("realtime: play, live edit is heard, live mute silences, stop", asyn
   assert.equal(r.stoppedStep, -1);
 });
 
+await check("templates leave headroom (pre-clip peak < 0.8)", async () => {
+  const r = await run("templateHeadroom");
+  for (const [id, peak] of Object.entries(r)) assert.ok(peak < 0.8, `${id}: ${peak}`);
+});
+
 if (errors.length) {
   failed++;
   console.log("FAIL page errors:", errors);

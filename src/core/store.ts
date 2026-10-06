@@ -97,6 +97,13 @@ export class ProjectStore {
 
   isDirty = (): boolean => this.dirty;
 
+  /** Flag the current state as not written to a project file (e.g. a recovered autosave). */
+  markDirty = (): void => {
+    if (this.dirty) return;
+    this.dirty = true;
+    this.emit();
+  };
+
   markSaved = (): void => {
     if (!this.dirty) return;
     this.dirty = false;

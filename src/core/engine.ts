@@ -103,14 +103,27 @@ export class AudioEngine {
    * Create (or re-create) the AudioContext. Browsers only allow audio to start after a user
    * gesture, so this is called from the first click / key press.
    */
-  async init(config: Partial<EngineConfig> = {}): Promise<void> {
+  init(config: Partial<EngineConfig> = {}): Promise<void> {
+    // Serialised: overlapping (re)initialisations would race and leak AudioContexts.
+    const run = this.initChain.then(() => this.doInit(config));
+    this.initChain = run.catch(() => {});
+    return run;
+  }
+
+  private initChain: Promise<void> = Promise.resolve();
+  /** True while a re-initialisation that must resume playback is in progress. */
+  private resumeAfterInit = false;
+
+  private async doInit(config: Partial<EngineConfig>): Promise<void> {
     if (!this.AudioCtx) throw new Error("Web Audio is not available in this environment.");
     const next = { ...this.config, ...config };
     if (this.ctx && next.latencyHint === this.config.latencyHint && next.sampleRate === this.config.sampleRate) {
-      if (this.ctx.state === "suspended") await this.ctx.resume();
+      // Not awaited: without a user gesture resume() stays pending until the next one.
+      if (this.ctx.state === "suspended") void this.ctx.resume().catch(() => {});
       return;
     }
-    const wasPlaying = this.isPlaying;
+    const wasPlaying = this.isPlaying || this.resumeAfterInit;
+    this.resumeAfterInit = wasPlaying;
     await this.disposeContext();
     this.config = next;
     const ctx = new this.AudioCtx({ latencyHint: next.latencyHint, sampleRate: next.sampleRate });
@@ -130,8 +143,9 @@ export class AudioEngine {
     // Re-decode imported samples for the new context (sample rate may have changed).
     this.decoded.clear();
     await Promise.all([...this.sampleBytes].map(([id, bytes]) => this.decode(id, bytes)));
-    if (ctx.state === "suspended") await ctx.resume();
-    if (wasPlaying) this.play();
+    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    this.resumeAfterInit = false;
+    if (wasPlaying) this.startTransport();
     this.emit();
   }
 
@@ -192,15 +206,20 @@ export class AudioEngine {
   async play(): Promise<void> {
     if (!this.ctx) await this.init();
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
-    if (this.isPlaying) return;
+    this.startTransport();
+  }
+
+  private startTransport(): void {
+    if (!this.ctx || !this.scheduler || this.isPlaying) return;
     this.stepQueue = [];
     this.currentStep = -1;
     // Small offset so the first step is never scheduled in the past.
-    this.scheduler!.start(this.ctx!.currentTime + 0.05);
+    this.scheduler.start(this.ctx.currentTime + 0.05);
     this.emit();
   }
 
   stop(): void {
+    this.resumeAfterInit = false;
     if (!this.scheduler?.isRunning) return;
     this.scheduler.stop();
     this.voicer?.stopAll();
@@ -217,6 +236,7 @@ export class AudioEngine {
   /** Audition one track right now (clicking an instrument name). */
   async preview(trackId: string): Promise<void> {
     if (!this.ctx) await this.init();
+    if (this.ctx!.state === "suspended") await this.ctx!.resume();
     const p = this.getProject();
     const track = p.tracks.find((t) => t.id === trackId);
     if (!track) return;

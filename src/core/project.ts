@@ -77,7 +77,7 @@ export function createDefaultProject(name = "Untitled Beat", withStarterPattern 
     swing: 0,
     timeSignature: { beats: 4, beatUnit: 4 },
     stepCount,
-    masterVolume: 0.8,
+    masterVolume: 0.7,
     tracks,
     samples: [],
     createdAt: now,

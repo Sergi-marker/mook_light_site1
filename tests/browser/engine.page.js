@@ -3,6 +3,9 @@ import { AudioEngine, renderPatternOffline } from "/build/core/engine.js";
 import { ProjectStore } from "/build/core/store.js";
 import { createDefaultProject } from "/build/core/project.js";
 import { reduce } from "/build/core/reducer.js";
+import { TEMPLATES, projectFromTemplate } from "/build/core/templates.js";
+import { Voicer } from "/build/core/voicer.js";
+import { synthesizeDrum } from "/build/core/drumSynth.js";
 
 /** Minimal 16-bit PCM mono WAV encoder, used to fake an imported sample file. */
 function sineWav(freq, seconds, sampleRate = 44100) {
@@ -58,6 +61,33 @@ function stats(buffer) {
 }
 
 window.tests = {
+  async templateHeadroom() {
+    // Pre-clipper peak of each factory template: must stay below the soft-clip knee (0.8).
+    const out = {};
+    for (const t of TEMPLATES) {
+      const proj = projectFromTemplate(t.id);
+      const ctx = new OfflineAudioContext(2, 44100 * 4, 44100);
+      const bufs = new Map();
+      for (const tr of proj.tracks) {
+        const d = synthesizeDrum(tr.instrument, 44100);
+        const ab = ctx.createBuffer(1, d.length, 44100);
+        ab.copyToChannel(d, 0);
+        bufs.set(tr.instrument, ab);
+      }
+      const v = new Voicer(ctx, ctx.createGain(), (tr) => bufs.get(tr.instrument));
+      v.master.disconnect();
+      v.master.connect(ctx.destination); // measure before the clipper
+      v.syncMixer(proj, true);
+      const dur = 60 / proj.bpm / 4;
+      for (let i = 0; i < 32; i++)
+        for (const tr of proj.tracks) {
+          const s = tr.steps[i % 16];
+          if (s.on) v.trigger(tr, s.velocity, i * dur);
+        }
+      out[t.id] = stats(await ctx.startRendering()).peak;
+    }
+    return out;
+  },
   async offlineTiming() {
     let p = withSteps(emptyProject(), "kick", [0, 4, 8, 12]);
     p = reduce(p, { type: "setBpm", bpm: 120 });
