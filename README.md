@@ -3,6 +3,8 @@
 Application de production musicale pour rap, trap, drill, afrobeat et R&B : beats, mélodies,
 voix et mix, avec de l'IA ajoutée progressivement. Cible : **Windows** (Electron).
 
+![BEAT](docs/screenshot-beat.png)
+
 > **État : PHASE 1 — AUDIO CORE.** Le step sequencer fonctionne réellement. Les modules
 > MELODY, VOCALS, MIXER, ARRANGEMENT et AI sont marqués « en développement » dans l'app,
 > sans bouton factice.
