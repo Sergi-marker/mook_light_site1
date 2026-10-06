@@ -3,7 +3,10 @@ import { stepDuration, swingOffset } from "./timing.ts";
 export interface SchedulerTiming {
   bpm: number;
   swing: number;
+  /** Loop end (exclusive). Infinity = no loop. */
   stepCount: number;
+  /** Where playback jumps when reaching `stepCount` (default 0). */
+  loopStart?: number;
 }
 
 export interface SchedulerOptions {
@@ -75,9 +78,10 @@ export class StepScheduler {
     const horizon = now + this.opts.lookahead;
     // Max steps per tick guards against an infinite loop on absurd clock values.
     for (let guard = 0; guard < 4096 && this.nextGridTime < horizon; guard++) {
-      const { bpm, swing, stepCount } = this.opts.getTiming();
-      const step = this.stepIndex % stepCount;
-      const time = this.nextGridTime + swingOffset(step, bpm, swing);
+      const { bpm, swing, stepCount, loopStart = 0 } = this.opts.getTiming();
+      // Negative steps are a count-in and never wrap; a shrunk loop restarts at loopStart.
+      const step = this.stepIndex >= stepCount ? loopStart : this.stepIndex;
+      const time = this.nextGridTime + swingOffset(((step % 2) + 2) % 2, bpm, swing);
       if (time < now - 0.01) {
         // Woke up too late (tab throttled, debugger, GC pause…): skip rather than burst.
         this.lateSteps++;
@@ -85,7 +89,7 @@ export class StepScheduler {
         this.opts.onStep(step, Math.max(time, now));
       }
       this.nextGridTime += stepDuration(bpm);
-      this.stepIndex = (step + 1) % stepCount;
+      this.stepIndex = step + 1 >= stepCount ? loopStart : step + 1;
     }
   }
 }

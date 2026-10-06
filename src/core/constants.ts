@@ -41,5 +41,5 @@ export function instrumentDef(kind: InstrumentKind): InstrumentDef {
 }
 
 export const PROJECT_FORMAT = "beatmaker-studio-project";
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 export const PROJECT_EXTENSION = ".bsproj";

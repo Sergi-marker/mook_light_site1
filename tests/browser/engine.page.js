@@ -1,13 +1,16 @@
-// Loaded in Chromium by run-browser-tests.mjs. Exposes the compiled core to Playwright.
-import { AudioEngine, renderPatternOffline } from "/build/core/engine.js";
-import { ProjectStore } from "/build/core/store.js";
-import { createDefaultProject } from "/build/core/project.js";
-import { reduce } from "/build/core/reducer.js";
-import { TEMPLATES, projectFromTemplate } from "/build/core/templates.js";
-import { Voicer } from "/build/core/voicer.js";
-import { synthesizeDrum } from "/build/core/drumSynth.js";
+// Loaded in Chromium by run-browser-tests.mjs (served from the built dist/).
+import { AudioEngine } from "/app/audio/engine.js";
+import { renderProject } from "/app/audio/render.js";
+import { ProjectStore } from "/app/core/store.js";
+import { createEmptyProject, effect } from "/app/core/project.js";
+import { reduce } from "/app/core/reducer.js";
+import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
+import { Yin, freqToMidi } from "/app/core/dsp/yin.js";
+import { measure } from "/app/core/dsp/loudness.js";
 
-/** Minimal 16-bit PCM mono WAV encoder, used to fake an imported sample file. */
+const SR = 44100;
+const media = { samples: new Map(), assets: new Map() };
+
 function sineWav(freq, seconds, sampleRate = 44100) {
   const n = Math.floor(seconds * sampleRate);
   const buf = new ArrayBuffer(44 + n * 2);
@@ -21,12 +24,15 @@ function sineWav(freq, seconds, sampleRate = 44100) {
   return new Uint8Array(buf);
 }
 
-function emptyProject() {
-  return createDefaultProject("browser-test", false);
-}
-
+const empty = () => {
+  let p = createEmptyProject("browser-test");
+  // neutral master for measurements: no limiter
+  p = reduce(p, { type: "setInserts", channelId: "master", inserts: [] });
+  return p;
+};
+const drum = (p, kind) => p.tracks.find((t) => t.instrument === kind);
 function withSteps(p, kind, steps, velocity) {
-  const t = p.tracks.find((x) => x.instrument === kind);
+  const t = drum(p, kind);
   for (const s of steps) {
     p = reduce(p, { type: "toggleStep", trackId: t.id, step: s });
     if (velocity) p = reduce(p, { type: "setStepVelocity", trackId: t.id, step: s, velocity });
@@ -34,7 +40,6 @@ function withSteps(p, kind, steps, velocity) {
   return p;
 }
 
-/** Sample indexes where the signal rises above `thr` after at least `gap` s of quiet. */
 function onsets(data, sr, thr = 0.05, gap = 0.08) {
   const out = [];
   let last = -Infinity;
@@ -50,8 +55,7 @@ function onsets(data, sr, thr = 0.05, gap = 0.08) {
 function stats(buffer) {
   let peak = 0, sumSq = 0, nan = false;
   for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const d = buffer.getChannelData(c);
-    for (const x of d) {
+    for (const x of buffer.getChannelData(c)) {
       if (!Number.isFinite(x)) nan = true;
       peak = Math.max(peak, Math.abs(x));
       sumSq += x * x;
@@ -60,146 +64,165 @@ function stats(buffer) {
   return { peak, rms: Math.sqrt(sumSq / (buffer.length * buffer.numberOfChannels)), nan };
 }
 
+function pitchAt(buf, t, minF = 60, win = 4096) {
+  const y = new Yin(buf.sampleRate, win, minF, 2000);
+  const d = buf.getChannelData(0);
+  const r = y.detect(d, Math.floor(t * buf.sampleRate));
+  return r.freq ? freqToMidi(r.freq) : 0;
+}
+
 window.tests = {
-  async templateHeadroom() {
-    // Pre-clipper peak of each factory template: must stay below the soft-clip knee (0.8).
+  async drumTiming() {
+    let p = withSteps(empty(), "kick", [0, 4, 8, 12]);
+    p = reduce(p, { type: "setBpm", bpm: 120 });
+    const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+    return { onsets: onsets(buf.getChannelData(0), SR), ...stats(buf) };
+  },
+  async swingAndRolls() {
+    let p = withSteps(empty(), "closedHat", [0, 1, 2, 3]);
+    p = reduce(p, { type: "setBpm", bpm: 120 });
+    p = reduce(p, { type: "setSwing", swing: 100 });
+    const swung = onsets((await renderProject(p, media, { mode: "pattern", tail: 0.2 })).getChannelData(0), SR, 0.03, 0.02);
+    let r = withSteps(empty(), "closedHat", [0]);
+    r = reduce(r, { type: "setBpm", bpm: 60 }); // step = 0.25 s
+    r = reduce(r, { type: "setStep", trackId: drum(r, "closedHat").id, step: 0, value: { roll: 4 } });
+    const rolled = onsets((await renderProject(r, media, { mode: "pattern", tail: 0.2 })).getChannelData(0), SR, 0.03, 0.012);
+    return { swung, rolled };
+  },
+  async instrumentsInTune() {
     const out = {};
-    for (const t of TEMPLATES) {
-      const proj = projectFromTemplate(t.id);
-      const ctx = new OfflineAudioContext(2, 44100 * 4, 44100);
-      const bufs = new Map();
-      for (const tr of proj.tracks) {
-        const d = synthesizeDrum(tr.instrument, 44100);
-        const ab = ctx.createBuffer(1, d.length, 44100);
-        ab.copyToChannel(d, 0);
-        bufs.set(tr.instrument, ab);
-      }
-      const v = new Voicer(ctx, ctx.createGain(), (tr) => bufs.get(tr.instrument));
-      v.master.disconnect();
-      v.master.connect(ctx.destination); // measure before the clipper
-      v.syncMixer(proj, true);
-      const dur = 60 / proj.bpm / 4;
-      for (let i = 0; i < 32; i++)
-        for (const tr of proj.tracks) {
-          const s = tr.steps[i % 16];
-          if (s.on) v.trigger(tr, s.velocity, i * dur);
-        }
-      out[t.id] = stats(await ctx.startRendering()).peak;
+    for (const preset of ["piano", "epiano", "synth", "pad", "strings", "pluck", "bells", "bass"]) {
+      let p = empty();
+      p = reduce(p, { type: "addInstrument", preset });
+      const ins = p.instruments[p.instruments.length - 1];
+      p = reduce(p, { type: "setBpm", bpm: 120 });
+      p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch: 57, start: 0, length: 8, velocity: 100 }] });
+      const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+      // bells are inharmonic by design: only check they sound
+      out[preset] = { midi: pitchAt(buf, 0.3), ...stats(buf) };
     }
     return out;
   },
-  async offlineTiming() {
-    let p = withSteps(emptyProject(), "kick", [0, 4, 8, 12]);
-    p = reduce(p, { type: "setBpm", bpm: 120 });
-    const buf = await renderPatternOffline(p, { sampleRate: 44100, loops: 1, tail: 0.5 });
-    return { onsets: onsets(buf.getChannelData(0), 44100), ...stats(buf) };
+  async bass808Glide() {
+    let p = empty();
+    const ins = p.instruments.find((i) => i.preset === "808");
+    p = reduce(p, { type: "setBpm", bpm: 60 });
+    p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { bass808: { glide: 0.2, saturation: 0, distortion: 0, punch: 0 } } });
+    p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [
+      { pitch: 45, start: 0, length: 4, velocity: 110 },
+      { pitch: 52, start: 4, length: 4, velocity: 110, slide: true },
+    ] });
+    const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+    return { first: pitchAt(buf, 0.5, 40, 8192), mid: pitchAt(buf, 1.05, 40, 4096), second: pitchAt(buf, 1.6, 40, 8192), ...stats(buf) };
   },
-  async offlineSwing() {
-    let p = withSteps(emptyProject(), "closedHat", [0, 1, 2, 3]);
-    p = reduce(p, { type: "setBpm", bpm: 120 });
-    p = reduce(p, { type: "setSwing", swing: 100 });
-    const buf = await renderPatternOffline(p, { sampleRate: 44100, tail: 0.2 });
-    return onsets(buf.getChannelData(0), 44100, 0.05, 0.02);
-  },
-  async offlineMuteSolo() {
-    let p = withSteps(emptyProject(), "kick", [0]);
-    p = withSteps(p, "snare", [8]);
-    const kick = p.tracks.find((t) => t.instrument === "kick");
-    const snare = p.tracks.find((t) => t.instrument === "snare");
-    const render = async (q) => onsets((await renderPatternOffline(q, { tail: 0.5 })).getChannelData(0), 44100);
+  async effectsAndRouting() {
+    const base = () => withSteps(empty(), "snare", [0, 8]);
+    const r = async (p) => renderProject(p, media, { mode: "pattern", tail: 1.5 });
+    let p = base();
+    const dry = await r(p);
+    // Reverb send: energy after the hit should increase a lot.
+    p = reduce(base(), { type: "updateChannel", channelId: drum(base(), "snare").id, patch: { sends: { reverb: 1 } } });
+    const sn = drum(p, "snare").id;
+    p = reduce(p, { type: "updateChannel", channelId: sn, patch: { sends: { reverb: 1 } } });
+    const wet = await r(p);
+    const tailE = (b) => { const d = b.getChannelData(0); let e = 0; for (let i = Math.floor(SR * 1.8); i < Math.min(d.length, Math.floor(SR * 3.0)); i++) e += d[i] * d[i]; return e; };
+    // Compressor insert on the snare channel lowers its peak.
+    let q = base();
+    const sid = drum(q, "snare").id;
+    q = reduce(q, { type: "addEffect", channelId: sid, effectType: "compressor" });
+    const fx = q.channels.find((c) => c.id === sid).inserts[0];
+    q = reduce(q, { type: "updateEffect", channelId: sid, effectId: fx.id, params: { thresholdDb: -40, ratio: 10, attackMs: 0.1, makeupDb: 0 } });
+    const comp = await r(q);
+    // Master limiter at -6 dBFS holds the ceiling even when driven.
+    let m = withSteps(empty(), "kick", [0, 4, 8, 12]);
+    for (const t of m.tracks) m = reduce(m, { type: "updateChannel", channelId: t.id, patch: { volume: 1.5 } });
+    m = reduce(m, { type: "setInserts", channelId: "master", inserts: [effect("limiter", { ceilingDb: -6, inputGainDb: 12 })] });
+    const lim = await r(m);
+    // Delay return: echo 1/8 note later (140 BPM → 0.214 s).
+    let d = withSteps(empty(), "perc", [0]);
+    const cl = drum(d, "perc").id;
+    d = reduce(d, { type: "updateChannel", channelId: cl, patch: { sends: { delay: 1 } } });
+    const dl = await r(d);
+    // Mute & solo through the channels.
+    let s = withSteps(withSteps(empty(), "kick", [0]), "snare", [8]);
+    const muted = await r(reduce(s, { type: "toggleMute", trackId: drum(s, "kick").id }));
+    const soloed = await r(reduce(s, { type: "toggleSolo", trackId: drum(s, "snare").id }));
     return {
-      both: await render(p),
-      kickMuted: await render(reduce(p, { type: "toggleMute", trackId: kick.id })),
-      snareSolo: await render(reduce(p, { type: "toggleSolo", trackId: snare.id })),
+      dryTail: tailE(dry), wetTail: tailE(wet),
+      dryPeak: stats(dry).peak, compPeak: stats(comp).peak,
+      limPeak: stats(lim).peak,
+      delayOnsets: onsets(dl.getChannelData(0), SR, 0.02, 0.05),
+      mutedOnsets: onsets(muted.getChannelData(0), SR), soloOnsets: onsets(soloed.getChannelData(0), SR),
     };
   },
-  async offlineVelocity() {
-    const loud = await renderPatternOffline(withSteps(emptyProject(), "snare", [0], 127), { tail: 0.4 });
-    const soft = await renderPatternOffline(withSteps(emptyProject(), "snare", [0], 30), { tail: 0.4 });
-    return { loud: stats(loud).peak, soft: stats(soft).peak };
+  async songModeAndVocals() {
+    let p = empty();
+    p = reduce(p, { type: "setBpm", bpm: 120 }); // 1 bar = 2 s
+    const pat = p.patterns[0];
+    p = withSteps(p, "kick", [0]);
+    p = reduce(p, { type: "addClip", clip: { patternId: pat.id, lane: 0, start: 1, length: 2 } }); // bars 1-2
+    // A vocal take (1 kHz sine 0.5 s) placed at bar 3 (step 48).
+    const v = p.vocals[0];
+    const ctx = new OfflineAudioContext(1, 1, SR);
+    const tb = await ctx.decodeAudioData(sineWav(1000, 0.5).buffer);
+    const asset = { id: "a1", name: "take", sampleRate: SR, frames: tb.length, channels: 1 };
+    p = reduce(p, { type: "setInserts", channelId: v.id, inserts: [] });
+    p = reduce(p, { type: "addTake", trackId: v.id, take: { id: "t1", name: "Take 1", assetId: "a1", startStep: 48, recordedAt: "" }, asset, clip: { takeId: "t1", start: 48, offset: 0, duration: 0.5, gainDb: 0 } });
+    const buf = await renderProject(p, { samples: new Map(), assets: new Map([["a1", tb]]) }, { mode: "song", tail: 0.5 });
+    const ons = onsets(buf.getChannelData(0), SR, 0.05, 0.3);
+    const instrumental = await renderProject(p, { samples: new Map(), assets: new Map([["a1", tb]]) }, { mode: "song", tail: 0.5, muted: new Set(p.vocals.map((x) => x.id)) });
+    return { onsets: ons, duration: buf.duration, instrumentalOnsets: onsets(instrumental.getChannelData(0), SR, 0.05, 0.3) };
   },
-  async offlineFullBeatNoClip() {
-    // Everything on every step at max volume: the safety limiter must prevent clipping.
-    let p = emptyProject();
-    for (const t of p.tracks) {
-      p = reduce(p, { type: "updateTrack", trackId: t.id, patch: { volume: 1.5 } });
-      for (let s = 0; s < 16; s++) p = reduce(p, { type: "toggleStep", trackId: t.id, step: s });
+  async templateHeadroom() {
+    const out = {};
+    for (const t of TEMPLATES) {
+      const p = projectFromTemplate(t.id);
+      const buf = await renderProject(p, media, { mode: "pattern", loops: 2, bypassMaster: true });
+      out[t.id] = measure([buf.getChannelData(0), buf.getChannelData(1)], buf.sampleRate).truePeakDb;
     }
-    p = reduce(p, { type: "setMasterVolume", volume: 1.5 });
-    return stats(await renderPatternOffline(p, { loops: 2 }));
+    return out;
   },
-  async offlinePitch() {
-    // 808 pitched +12 st must have ~2× the zero-crossing rate.
-    const zc = async (pitch) => {
-      let p = withSteps(emptyProject(), "808", [0]);
-      const t = p.tracks.find((x) => x.instrument === "808");
-      p = reduce(p, { type: "updateTrack", trackId: t.id, patch: { pitch } });
-      const d = (await renderPatternOffline(p, { tail: 1 })).getChannelData(0);
-      let n = 0;
-      for (let i = 4410 + 1; i < 4410 + 22050; i++) if ((d[i - 1] < 0) !== (d[i] < 0)) n++;
-      return n;
-    };
-    return { base: await zc(0), up: await zc(12) };
-  },
-  async importedSample() {
-    // Decode a WAV through the real engine path, then render with it on the kick track.
-    let p = withSteps(emptyProject(), "kick", [0]);
-    p = reduce(p, { type: "addSample", sample: { id: "smp_sine", name: "sine.wav", mime: "audio/wav" } });
-    const kick = p.tracks.find((t) => t.instrument === "kick");
-    p = reduce(p, { type: "assignSample", trackId: kick.id, sampleId: "smp_sine" });
-    const engine = new AudioEngine(() => p);
-    const decoded = await engine.loadSample("smp_sine", sineWav(1000, 0.3));
-    const buf = await renderPatternOffline(p, { samples: new Map([["smp_sine", decoded]]), tail: 0.5 });
-    const d = buf.getChannelData(0);
-    let zc = 0;
-    for (let i = 1; i < 0.25 * 44100; i++) if ((d[i - 1] < 0) !== (d[i] < 0)) zc++;
-    let rejected = false;
-    try {
-      await engine.loadSample("bad", new Uint8Array([1, 2, 3, 4]));
-    } catch {
-      rejected = true;
-    }
-    await engine.dispose();
-    return { duration: decoded.duration, zeroCrossingsIn250ms: zc, rejectedGarbage: rejected };
-  },
-  async realtimePlayback() {
-    const store = new ProjectStore(emptyProject());
+  async realtime() {
+    const store = new ProjectStore(withSteps(empty(), "snare", []));
     store.dispatch({ type: "setBpm", bpm: 160 });
     const engine = new AudioEngine(store.getState);
-    store.subscribe(() => engine.syncMixer());
+    store.subscribe(() => engine.sync());
     await engine.init({ latencyHint: "interactive" });
-    await engine.play();
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const peakOver = async (ms) => {
       let peak = 0;
       const end = performance.now() + ms;
-      while (performance.now() < end) {
-        peak = Math.max(peak, engine.getMasterPeak());
-        await sleep(10);
-      }
+      while (performance.now() < end) { peak = Math.max(peak, engine.getMasterPeak()); await sleep(10); }
       return peak;
     };
-    const silentPeak = await peakOver(400);
-    const stepsSeen = new Set();
-    // Live edit while playing: turn the kick on, on every step.
-    const kick = store.getState().tracks.find((t) => t.instrument === "kick");
+    await engine.play();
+    const silent = await peakOver(400);
+    const kick = drum(store.getState(), "kick");
     for (let s = 0; s < 16; s++) store.dispatch({ type: "toggleStep", trackId: kick.id, step: s });
-    let livePeak = 0;
-    for (let i = 0; i < 60; i++) {
-      stepsSeen.add(engine.getPlayheadStep());
-      livePeak = Math.max(livePeak, engine.getMasterPeak());
-      await sleep(15);
-    }
-    // Live mute: output must fall back to (near) silence.
+    const steps = new Set();
+    let live = 0;
+    for (let i = 0; i < 50; i++) { steps.add(engine.getPlayheadStep()); live = Math.max(live, engine.getMasterPeak()); await sleep(15); }
     store.dispatch({ type: "toggleMute", trackId: kick.id });
-    await sleep(600);
-    const mutedPeak = await peakOver(400);
-    const latency = engine.getLatency();
-    const lateSteps = engine.lateSteps;
+    await sleep(500);
+    const muted = await peakOver(400);
+    store.dispatch({ type: "toggleMute", trackId: kick.id });
+    // pause keeps position, play resumes from it
+    engine.pause();
+    const pausedPos = engine.currentPosition();
+    await engine.play();
+    await sleep(100);
+    const resumedPos = engine.currentPosition();
     engine.stop();
-    const stoppedStep = engine.getPlayheadStep();
+    // Song mode with a clip
+    store.dispatch({ type: "addClip", clip: { patternId: store.getState().patterns[0].id, lane: 0, start: 0, length: 1 } });
+    engine.setMode("song");
+    await engine.play();
+    const songPeak = await peakOver(600);
+    const songPos = engine.currentPosition();
+    engine.stop();
+    const result = { silent, live, muted, steps: steps.size, pausedPos, resumedPos, songPeak, songPos, late: engine.lateSteps, worklet: engine.workletReady, workletError: engine.workletError, latency: engine.getLatency(), dspLoad: engine.dspLoad };
     await engine.dispose();
-    return { silentPeak, livePeak, mutedPeak, stepsSeen: stepsSeen.size, latency, lateSteps, stoppedStep };
+    return result;
   },
 };
 window.testsReady = true;

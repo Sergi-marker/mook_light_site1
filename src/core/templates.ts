@@ -1,4 +1,4 @@
-import { createDefaultProject } from "./project.ts";
+import { createEmptyProject } from "./project.ts";
 import { reduce } from "./reducer.ts";
 import type { InstrumentKind, Project } from "./types.ts";
 
@@ -94,7 +94,7 @@ export const TEMPLATES: readonly Template[] = [
 
 export function projectFromTemplate(templateId: string, name?: string): Project {
   const tpl = TEMPLATES.find((t) => t.id === templateId) ?? TEMPLATES[0];
-  let p = createDefaultProject(name ?? `${tpl.name} Beat`, false);
+  let p = createEmptyProject(name ?? `${tpl.name} Beat`);
   p = reduce(p, { type: "setBpm", bpm: tpl.bpm });
   p = reduce(p, { type: "setSwing", swing: tpl.swing });
   for (const track of p.tracks) {
