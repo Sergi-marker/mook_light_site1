@@ -1,7 +1,7 @@
 import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
 import {
-  clamp, clampBpm, createInstrument, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
+  clamp, clampBpm, createInstrument, insertChannel, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS,
 } from "./project.ts";
 import type {
@@ -449,7 +449,7 @@ export function reduce(p: Project, a: Action): Project {
       return {
         ...p,
         instruments: [...p.instruments, ins],
-        channels: [...p.channels.filter((c) => c.kind !== "bus" && c.kind !== "return" && c.kind !== "master"), instrumentChannel(ins), ...p.channels.filter((c) => c.kind === "bus" || c.kind === "return" || c.kind === "master")],
+        channels: insertChannel(p.channels, instrumentChannel(ins)),
         patterns: p.patterns.map((pat) => ({ ...pat, notes: { ...pat.notes, [ins.id]: [] } })),
       };
     }
@@ -586,9 +586,7 @@ export function reduce(p: Project, a: Action): Project {
     // --- vocals
     case "addVocalTrack": {
       const v = createVocalTrack(a.role, a.name);
-      const nonBus = p.channels.filter((c) => c.kind !== "bus" && c.kind !== "return" && c.kind !== "master");
-      const buses = p.channels.filter((c) => c.kind === "bus" || c.kind === "return" || c.kind === "master");
-      return { ...p, vocals: [...p.vocals, v], channels: [...nonBus, vocalChannel(v), ...buses] };
+      return { ...p, vocals: [...p.vocals, v], channels: insertChannel(p.channels, vocalChannel(v)) };
     }
     case "removeVocalTrack":
       if (!p.vocals.some((v) => v.id === a.trackId)) return p;
@@ -652,7 +650,7 @@ export function reduce(p: Project, a: Action): Project {
           const n = { ...c, ...a.patch };
           n.start = Math.max(0, n.start);
           n.offset = Math.max(0, n.offset);
-          n.duration = Math.max(0.05, n.duration);
+          n.duration = Math.max(0.01, n.duration);
           n.gainDb = clamp(n.gainDb, -24, 24);
           return sameShallow(c, n) ? c : n;
         }),

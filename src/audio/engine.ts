@@ -37,7 +37,7 @@ export class AudioEngine {
   mixer: MixerGraph | null = null;
   seq: Sequencer | null = null;
   private scheduler: StepScheduler | null = null;
-  private readonly getProject: () => Project;
+  readonly getProject: () => Project;
   private readonly AudioCtx: typeof AudioContext | undefined;
   private config: EngineConfig = { latencyHint: "interactive" };
   private listeners = new Set<() => void>();

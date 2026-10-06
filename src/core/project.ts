@@ -220,6 +220,19 @@ export function createDefaultProject(name = "Untitled Beat", withStarterPattern 
   return p;
 }
 
+/** Insert a channel keeping the canonical order: drums, instruments, vocals, buses/returns/master. */
+export function insertChannel(channels: Channel[], ch: Channel): Channel[] {
+  const rank: Record<ChannelKind, number> = { drum: 0, instrument: 1, vocal: 2, bus: 3, return: 3, master: 3 };
+  const r = rank[ch.kind];
+  let idx = channels.length;
+  for (let i = 0; i < channels.length; i++)
+    if (rank[channels[i].kind] > r) {
+      idx = i;
+      break;
+    }
+  return [...channels.slice(0, idx), ch, ...channels.slice(idx)];
+}
+
 // --- Lookups ----------------------------------------------------------------------------
 
 export function currentPattern(p: Project): Pattern {

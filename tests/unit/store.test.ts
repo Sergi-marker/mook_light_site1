@@ -6,11 +6,12 @@ import { createDefaultProject } from "../../src/core/project.ts";
 function makeStore() {
   let clock = 0;
   const store = new ProjectStore(createDefaultProject("T", false), { now: () => clock, coalesceMs: 500 });
-  return { store, advance: (ms: number) => (clock += ms) };
+  const firstStep = () => store.getState().patterns[0].drums[store.getState().tracks[0].id][0];
+  return { store, firstStep, advance: (ms: number) => (clock += ms) };
 }
 
 test("undo / redo restores previous states", () => {
-  const { store, advance } = makeStore();
+  const { store, advance, firstStep } = makeStore();
   const id = store.getState().tracks[0].id;
   store.dispatch({ type: "toggleStep", trackId: id, step: 0 });
   advance(1000);
@@ -18,9 +19,9 @@ test("undo / redo restores previous states", () => {
   assert.equal(store.getState().bpm, 90);
   store.undo();
   assert.equal(store.getState().bpm, 140);
-  assert.equal(store.getState().tracks[0].steps[0].on, true);
+  assert.equal(firstStep().on, true);
   store.undo();
-  assert.equal(store.getState().tracks[0].steps[0].on, false);
+  assert.equal(firstStep().on, false);
   assert.equal(store.canUndo(), false);
   store.redo();
   store.redo();

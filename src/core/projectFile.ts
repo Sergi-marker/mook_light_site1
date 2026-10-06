@@ -276,7 +276,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     const takeIds = new Set(takes.map((t) => t.id));
     const clips = arr(raw.clips).flatMap((c) =>
       isObj(c) && typeof c.takeId === "string" && takeIds.has(c.takeId)
-        ? [{ id: str(c.id, "") || newId("aclip"), takeId: c.takeId, start: Math.max(0, num(c.start, 0)), offset: Math.max(0, num(c.offset, 0)), duration: Math.max(0.05, num(c.duration, 1)), gainDb: clamp(num(c.gainDb, 0), -24, 24) }]
+        ? [{ id: str(c.id, "") || newId("aclip"), takeId: c.takeId, start: Math.max(0, num(c.start, 0)), offset: Math.max(0, num(c.offset, 0)), duration: Math.max(0.01, num(c.duration, 1)), gainDb: clamp(num(c.gainDb, 0), -24, 24) }]
         : [],
     );
     const studio = isObj(raw.studio) ? raw.studio : {};
@@ -367,6 +367,7 @@ function parseSamples(rawSamples: unknown, hasBytes: (id: string) => boolean, wa
  */
 export function parseProject(input: Uint8Array | string, externalMedia?: Partial<ProjectMedia>): ParsedProject {
   let text: string;
+  let bundle = false;
   const samples = new Map<string, Uint8Array>(externalMedia?.samples ?? []);
   const audio = new Map<string, Uint8Array>(externalMedia?.audio ?? []);
   if (typeof input !== "string" && input.length > 4 && input[0] === 0x50 && input[1] === 0x4b) {
@@ -379,6 +380,7 @@ export function parseProject(input: Uint8Array | string, externalMedia?: Partial
     const json = files.get("project.json");
     if (!json) throw new ProjectFileError("Project could not be loaded: project.json is missing.");
     text = new TextDecoder().decode(json);
+    bundle = true;
     for (const [name, data] of files) {
       if (name.startsWith("samples/")) samples.set(name.slice(8), data);
       else if (name.startsWith("audio/")) audio.set(name.slice(6).replace(/\.wav$/, ""), data);
@@ -411,7 +413,7 @@ export function parseProject(input: Uint8Array | string, externalMedia?: Partial
   }
   const sampleMeta = parseSamples(data.project.samples, (id) => samples.has(id), warnings);
   const sampleIds = new Set(sampleMeta.map((s) => s.id));
-  const project = version < 2 ? migrateV1(data.project, warnings, sampleIds) : parseV2(data.project, warnings, sampleIds, externalMedia?.audio || audio.size ? new Set(audio.keys()) : null);
+  const project = version < 2 ? migrateV1(data.project, warnings, sampleIds) : parseV2(data.project, warnings, sampleIds, bundle || externalMedia?.audio ? new Set(audio.keys()) : null);
   project.samples = sampleMeta;
   for (const k of [...samples.keys()]) if (!sampleIds.has(k)) samples.delete(k);
   return { project, samples, audio, warnings };
