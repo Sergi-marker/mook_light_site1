@@ -447,6 +447,41 @@ await step("15. AI song assistant answers and applies a change; AI MIX ASSISTANT
   if (await applyBtn.count()) await applyBtn.click();
 });
 
+await step("AI tools: CHORDS, 808 / BASS, VARIATIONS (new pattern), STRUCTURE from existing patterns", async () => {
+  await nav("AI");
+  await page.click('.tab:has-text("CHORDS")');
+  const pat0 = await evalApp(() => window.__app.store.getState().currentPatternId);
+  await page.selectOption('.ai-panel select[aria-label="Instrument cible"]', "new:pad");
+  await page.click('.ai-panel button:has-text("Appliquer au pattern")');
+  let p = await state();
+  const pad = p.instruments[p.instruments.length - 1];
+  assert.equal(pad.preset, "pad");
+  const chordNotes = p.patterns.find((x) => x.id === pat0).notes[pad.id];
+  const inF = (m) => [0, 2, 3, 5, 7, 8, 10, 4].includes((((m - 5) % 12) + 12) % 12); // minor (+ raised 7th of harmonic minor)
+  assert.ok(chordNotes.length >= 9 && chordNotes.every((n) => inF(n.pitch)), `chords ${chordNotes.length}`);
+  await page.click('.tab:has-text("808 / BASS")');
+  await page.click('.ai-panel button:has-text("Appliquer au pattern")');
+  p = await state();
+  const b808 = p.instruments.find((i) => i.preset === "808");
+  assert.ok(p.patterns.find((x) => x.id === pat0).notes[b808.id].length >= 2, "808 line");
+  await page.click('.tab:has-text("VARIATIONS")');
+  const nPat = p.patterns.length;
+  await page.locator('.ai-panel .option:has-text("Fill de fin") button:has-text("Nouveau pattern")').click();
+  p = await state();
+  assert.equal(p.patterns.length, nPat + 1);
+  assert.match(p.patterns[p.patterns.length - 1].name, /Fill/);
+  await page.click('.tab:has-text("STRUCTURE")');
+  await page.selectOption('.ai-panel select[aria-label="Structure"]', "short");
+  await page.click('.ai-panel button:has-text("Appliquer")');
+  await page.waitForSelector(".arrangement-view");
+  p = await state();
+  assert.equal(p.arrangement.sections[0].name, "Hook");
+  assert.equal(p.arrangement.sections.length, 6);
+  await page.keyboard.press("Control+z"); // keep the full AI arrangement for the following steps
+  assert.ok((await state()).arrangement.sections.length >= 7);
+  await nav("AI");
+});
+
 await step("16. AI MASTER: analysis, apply, verified true peak ≤ -1 dBTP", async () => {
   await page.click('.tab:has-text("AI MASTER")');
   await page.click("text=✨ Analyser le mix (MASTER ANALYSIS)");

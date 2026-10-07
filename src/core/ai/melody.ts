@@ -26,6 +26,11 @@ const PROGRESSIONS: Record<Mood, number[][]> = {
   romantic: [[0, 4, 5, 3], [0, 5, 1, 4], [3, 4, 2, 5], [0, 2, 3, 4]],
 };
 
+/** All built-in progressions for a mood (scale degrees, one chord per bar). */
+export function progressionsFor(mood: Mood): number[][] {
+  return PROGRESSIONS[mood].map((x) => x.slice());
+}
+
 export function chooseProgression(mood: Mood, seed: number): number[] {
   return pick(rng(seed * 13 + 5), PROGRESSIONS[mood]);
 }

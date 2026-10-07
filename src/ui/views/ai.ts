@@ -8,21 +8,24 @@ import { measureMix } from "../../audio/studio.ts";
 import { askAssistant, projectSummaryForRemote, type AssistantAnswer } from "../../core/ai/assistant.ts";
 import { generateSong, melodyOptions } from "../../core/ai/beat.ts";
 import { generateDrums } from "../../core/ai/drums.ts";
+import { generateBass, generateChords, progressionsFor } from "../../core/ai/melody.ts";
+import { buildStructure, STRUCTURES } from "../../core/ai/structure.ts";
+import { drumVariation, VARIATIONS, type VariationKind } from "../../core/ai/variation.ts";
 import { MASTER_TARGETS, proposeMaster, refineLimiterGain, type MasterTarget } from "../../core/ai/master.ts";
 import { analyzeMix, type GroupMeasure, type Suggestion } from "../../core/ai/mix.ts";
 import { GENRE_DEFAULTS, parseBeatPrompt, type Genre, type Mood } from "../../core/ai/prompt.ts";
 import type { MixMeasurements } from "../../core/dsp/loudness.ts";
 import { bandBalance } from "../../core/dsp/spectrum.ts";
-import { keyLabel, NOTE_NAMES, SCALES, type ScaleId } from "../../core/music.ts";
+import { degreeToMidi, keyLabel, NOTE_NAMES, SCALES, type ScaleId } from "../../core/music.ts";
 import { currentPattern, getChannel, masterChannel } from "../../core/project.ts";
 import { reduce, type Action } from "../../core/reducer.ts";
-import type { Effect, Project } from "../../core/types.ts";
+import type { Effect, Project, SynthPreset } from "../../core/types.ts";
 import { desktop, type App, type View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import type { Route } from "../shell.ts";
 
-type Tab = "beat" | "melody" | "drums" | "assistant" | "mix" | "master";
-const TABS: [Tab, string][] = [["beat", "BEAT GENERATOR"], ["melody", "MELODY GENERATOR"], ["drums", "GENERATE DRUMS"], ["assistant", "SONG ASSISTANT"], ["mix", "AI MIX ASSISTANT"], ["master", "AI MASTER"]];
+type Tab = "beat" | "melody" | "chords" | "bass" | "drums" | "variation" | "structure" | "assistant" | "mix" | "master";
+const TABS: [Tab, string][] = [["beat", "BEAT GENERATOR"], ["melody", "MELODY GENERATOR"], ["chords", "CHORDS"], ["bass", "808 / BASS"], ["drums", "GENERATE DRUMS"], ["variation", "VARIATIONS"], ["structure", "STRUCTURE"], ["assistant", "SONG ASSISTANT"], ["mix", "AI MIX ASSISTANT"], ["master", "AI MASTER"]];
 const MOODS: Mood[] = ["dark", "sad", "aggressive", "happy", "chill", "epic", "romantic"];
 
 let lastTab: Tab = "beat";
@@ -157,6 +160,176 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
           pending = null;
         } }, "Appliquer"),
         h("button", { class: "btn", onclick: () => { app.cancelPreview(); app.engine.stop(); } }, "Annuler")));
+  }
+
+  // Target instrument: an existing track, or a new one created on apply ("new:<preset>").
+  const targetSelect = (presets: SynthPreset[], value: string) => {
+    const p = store.getState();
+    const list = p.instruments.filter((i) => presets.includes(i.preset));
+    return h("select", { "aria-label": "Instrument cible" },
+      ...list.map((i) => h("option", { value: i.id, selected: i.id === value }, i.name)),
+      ...presets.map((pr) => h("option", { value: `new:${pr}`, selected: value === `new:${pr}` }, `+ nouvel instrument ${pr}`)));
+  };
+  /** Resolve a target (creating the instrument if needed) and write notes into the current pattern. */
+  const writeNotes = (target: string, notes: { pitch: number; start: number; length: number; velocity: number; slide?: boolean }[], label: string) => {
+    let id = target;
+    if (target.startsWith("new:")) {
+      app.dispatch({ type: "addInstrument", preset: target.slice(4) as SynthPreset });
+      const p = store.getState();
+      id = p.instruments[p.instruments.length - 1].id;
+    }
+    app.dispatch({ type: "setNotes", trackId: id, notes });
+    app.selectedInstrumentId = id;
+    toast(`${label} : ${notes.length} notes dans « ${store.getState().instruments.find((i) => i.id === id)?.name} » (pattern « ${currentPattern(store.getState()).name} »). Éditables dans MELODY, Ctrl+Z pour annuler.`, "ok", 6000);
+    return id;
+  };
+  const previewNotes = async (target: string, notes: { pitch: number; start: number; length: number; velocity: number; slide?: boolean }[], preset: SynthPreset) => {
+    let q = store.getState();
+    let id = target;
+    if (target.startsWith("new:")) {
+      q = reduce(q, { type: "addInstrument", preset });
+      id = q.instruments[q.instruments.length - 1].id;
+    }
+    q = reduce(q, { type: "setNotes", trackId: id, notes });
+    const buf = await app.renderPreview(q, "pattern", 1);
+    if (buf) app.playPreviewBuffer(buf);
+  };
+
+  // --- CHORDS -------------------------------------------------------------------------------
+  let chordState = { mood: "dark" as Mood, prog: 0, style: "sustain" as "sustain" | "stabs" | "arp", target: "", seed: 1 };
+  function chordsTab(): HTMLElement {
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const m = moodSelect(chordState.mood);
+    const progs = progressionsFor(chordState.mood);
+    const roman = (deg: number) => ["I", "II", "III", "IV", "V", "VI", "VII"][deg % 7];
+    const chordName = (deg: number) => {
+      const root = degreeToMidi(deg, p.key, 60);
+      const third = degreeToMidi(deg + 2, p.key, 60) - root;
+      return `${NOTE_NAMES[root % 12]}${third === 3 ? "m" : ""}`;
+    };
+    const progSel = h("select", { "aria-label": "Progression" }, ...progs.map((pr, i) => h("option", { value: i, selected: i === chordState.prog }, `${pr.map(roman).join(" – ")}   (${pr.map(chordName).join(" – ")})`)));
+    const styleSel = h("select", { "aria-label": "Style d'accords" }, ...([["sustain", "Tenus (pad)"], ["stabs", "Stabs rythmiques"], ["arp", "Arpège"]] as const).map(([v, l]) => h("option", { value: v, selected: v === chordState.style }, l)));
+    const def = p.instruments.find((i) => ["pad", "strings", "epiano", "piano"].includes(i.preset))?.id ?? "new:pad";
+    const target = targetSelect(["pad", "strings", "epiano", "piano", "synth", "pluck"], chordState.target || def);
+    m.addEventListener("change", () => { chordState.mood = m.value as Mood; chordState.prog = 0; render(); });
+    const make = () => {
+      chordState = { ...chordState, mood: m.value as Mood, prog: Number(progSel.value), style: styleSel.value as typeof chordState.style, target: target.value };
+      return generateChords({ key: p.key, progression: progs[chordState.prog] ?? progs[0], stepCount: pat.stepCount, genre: "trap", seed: chordState.seed, style: chordState.style });
+    };
+    const presetOf = () => (target.value.startsWith("new:") ? (target.value.slice(4) as SynthPreset) : "pad");
+    return h("div", {},
+      h("p", {}, `Progressions d'accords dans la tonalité du projet (${keyLabel(p.key)}), une par mesure, avec un voice-leading fluide.`),
+      h("div", { class: "row-inline" }, field("Humeur", m), field("Progression", progSel), field("Style", styleSel), field("Instrument", target)),
+      h("div", { class: "button-row" },
+        h("button", { class: "btn", onclick: () => void previewNotes(target.value, make(), presetOf()) }, "▶ Écouter"),
+        h("button", { class: "btn btn-primary", onclick: () => { app.stopPreviewPlayback(); writeNotes(target.value, make(), "Accords"); render(); } }, "Appliquer au pattern"),
+        h("button", { class: "btn", onclick: () => { chordState.seed = Math.floor(Math.random() * 1e6); toast("Nouveau voicing (rythme des stabs/arpèges) : réécoutez.", "info"); } }, "↻ Varier"),
+        h("button", { class: "btn btn-sm", onclick: () => app.stopPreviewPlayback() }, "■ Stop")));
+  }
+
+  // --- 808 / BASS -----------------------------------------------------------------------------
+  let bassState = { mood: "dark" as Mood, prog: 0, rhythm: "kick" as "kick" | "sustain" | "bounce", slides: true, target: "", genre: "trap" as Genre, seed: 1 };
+  function bassTab(): HTMLElement {
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const m = moodSelect(bassState.mood);
+    const g = genreSelect(bassState.genre);
+    const progs = progressionsFor(bassState.mood);
+    const progSel = h("select", { "aria-label": "Progression" }, ...progs.map((pr, i) => h("option", { value: i, selected: i === bassState.prog }, pr.map((d) => ["I", "II", "III", "IV", "V", "VI", "VII"][d % 7]).join(" – "))));
+    const rhy = h("select", { "aria-label": "Rythme" }, ...([["kick", "Suit le kick"], ["sustain", "Notes longues (1 par mesure)"], ["bounce", "Rebond (syncopé)"]] as const).map(([v, l]) => h("option", { value: v, selected: v === bassState.rhythm }, l)));
+    const slides = h("input", { type: "checkbox", checked: bassState.slides, "aria-label": "Slides" });
+    const def = p.instruments.find((i) => i.preset === "808")?.id ?? "new:808";
+    const target = targetSelect(["808", "bass"], bassState.target || def);
+    m.addEventListener("change", () => { bassState.mood = m.value as Mood; bassState.prog = 0; render(); });
+    const make = () => {
+      bassState = { ...bassState, mood: m.value as Mood, genre: g.value as Genre, prog: Number(progSel.value), rhythm: rhy.value as typeof bassState.rhythm, slides: slides.checked, target: target.value };
+      const kickTrack = p.tracks.find((t) => t.instrument === "kick");
+      const kickSteps = kickTrack ? pat.drums[kickTrack.id] : undefined;
+      const rhythm = Array.from({ length: pat.stepCount }, (_, i) => {
+        const on = bassState.rhythm === "kick" ? !!kickSteps?.[i]?.on : bassState.rhythm === "sustain" ? i % 16 === 0 : [0, 3, 7, 10, 14].includes(i % 16);
+        return { on, velocity: 110 };
+      });
+      if (!rhythm.some((s) => s.on)) for (let i = 0; i < pat.stepCount; i += 16) rhythm[i] = { on: true, velocity: 110 };
+      return generateBass({ key: p.key, progression: progs[bassState.prog] ?? progs[0], stepCount: pat.stepCount, rhythm, genre: bassState.genre, seed: bassState.seed, slides: bassState.slides });
+    };
+    const presetOf = () => (target.value.startsWith("new:") ? (target.value.slice(4) as SynthPreset) : "808");
+    return h("div", {},
+      h("p", {}, `Ligne de 808 / basse sur les fondamentales des accords, en ${keyLabel(p.key)}, calée sur le kick du pattern « ${pat.name} ». Les slides (glissés) sont éditables avec la touche L dans le piano roll.`),
+      h("div", { class: "row-inline" }, field("Genre", g), field("Humeur", m), field("Progression", progSel), field("Rythme", rhy), h("label", { class: "field" }, slides, " Slides"), field("Instrument", target)),
+      h("div", { class: "button-row" },
+        h("button", { class: "btn", onclick: () => void previewNotes(target.value, make(), presetOf()) }, "▶ Écouter"),
+        h("button", { class: "btn btn-primary", onclick: () => { app.stopPreviewPlayback(); writeNotes(target.value, make(), "808"); render(); } }, "Appliquer au pattern"),
+        h("button", { class: "btn", onclick: () => { bassState.seed = Math.floor(Math.random() * 1e6); toast("Nouvelle variante de slides : réécoutez.", "info"); } }, "↻ Varier"),
+        h("button", { class: "btn btn-sm", onclick: () => app.stopPreviewPlayback() }, "■ Stop")));
+  }
+
+  // --- VARIATIONS ---------------------------------------------------------------------------
+  let varKind: VariationKind = "fill";
+  function variationTab(): HTMLElement {
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const make = (kind: VariationKind): Action[] => {
+      const d = drumVariation(pat.drums, p.tracks, kind, pat.stepCount, Math.floor(Math.random() * 1e6));
+      return p.tracks.map((t) => ({ type: "setDrumSteps", trackId: t.id, steps: d[t.id], patternId: pat.id }));
+    };
+    let pending: Action[] | null = null;
+    return h("div", {},
+      h("p", {}, `Crée une variation du pattern « ${pat.name} » (drums). « Nouveau pattern » garde l'original intact : posez la variation dans l'ARRANGEMENT (fin de couplet, break…).`),
+      h("div", { class: "options" }, ...VARIATIONS.map((v) => h("div", { class: `card option ${varKind === v.id ? "selected" : ""}` },
+        h("h3", {}, v.label), h("p", { class: "hint" }, v.detail),
+        h("div", { class: "button-row" },
+          h("button", { class: "btn", onclick: async () => {
+            varKind = v.id;
+            pending = make(v.id);
+            app.startPreview(`Variation ${v.label}`, pending);
+            app.engine.setMode("pattern");
+            if (!app.engine.isPlaying) await app.togglePlay();
+          } }, "▶ Écouter"),
+          h("button", { class: "btn btn-primary", title: "Crée un nouveau pattern avec cette variation", onclick: () => {
+            const acts = varKind === v.id && pending ? pending : make(v.id);
+            app.cancelPreview();
+            app.dispatch({ type: "addPattern", copyFrom: pat.id, name: `${pat.name} ${v.label}`.slice(0, 30), select: true });
+            const id = store.getState().currentPatternId;
+            app.dispatch({ type: "batch", actions: acts.map((a) => (a.type === "setDrumSteps" ? { ...a, patternId: id } : a)) });
+            pending = null;
+            toast(`Pattern « ${currentPattern(store.getState()).name} » créé — éditable dans BEAT, prêt pour l'ARRANGEMENT.`, "ok", 6000);
+            render();
+          } }, "Nouveau pattern"),
+          h("button", { class: "btn btn-sm", title: "Remplace les drums du pattern actuel (Ctrl+Z pour annuler)", onclick: () => {
+            app.applyActions(varKind === v.id && pending ? pending : make(v.id), `Variation « ${v.label} » appliquée à « ${pat.name} ».`);
+            pending = null;
+          } }, "Remplacer"))))),
+      h("button", { class: "btn btn-sm", onclick: () => { app.cancelPreview(); app.engine.stop(); } }, "■ Stop / annuler la preview"));
+  }
+
+  // --- STRUCTURE ------------------------------------------------------------------------------
+  let structId = "trap";
+  function structureTab(): HTMLElement {
+    const p = store.getState();
+    const sel = h("select", { "aria-label": "Structure" }, ...STRUCTURES.map((st) => h("option", { value: st.id, selected: st.id === structId }, st.label)));
+    sel.addEventListener("change", () => { structId = sel.value; render(); });
+    const res = buildStructure(p, structId);
+    const action: Action = { type: "patchProject", patch: { arrangement: res.arrangement } };
+    return h("div", {},
+      h("p", {}, "Construit un arrangement complet à partir de VOS patterns existants (choisis d'après leur nom — Intro, Couplet/Verse, Refrain/Chorus/Hook, Bridge, Outro — ou leur énergie). Les clips vocaux ne sont pas touchés."),
+      h("div", { class: "row-inline" }, field("Structure", sel), h("span", { class: "hint" }, `${p.patterns.length} pattern(s) disponibles`)),
+      h("div", { class: "card" }, h("h3", {}, "Proposition"), h("ul", {}, ...res.summary.map((x) => h("li", {}, x))),
+        h("p", { class: "hint" }, res.arrangement.sections.map((x) => `${x.name} (${x.length})`).join(" → ")),
+        p.arrangement.clips.length ? h("p", { class: "hint" }, `⚠ Remplace l'arrangement actuel (${p.arrangement.clips.length} clips) — annulable avec Ctrl+Z.`) : null,
+        h("div", { class: "button-row" },
+          h("button", { class: "btn", onclick: async () => {
+            app.startPreview("Structure", [action]);
+            app.engine.setMode("song");
+            app.engine.seek(0);
+            if (!app.engine.isPlaying) await app.togglePlay();
+          } }, "▶ Écouter (preview)"),
+          h("button", { class: "btn btn-primary", onclick: () => {
+            app.engine.stop();
+            app.applyActions([action], "Structure appliquée : ajustez-la dans ARRANGEMENT (Ctrl+Z pour annuler).");
+            navigate("arrangement");
+          } }, "Appliquer"),
+          h("button", { class: "btn", onclick: () => { app.cancelPreview(); app.engine.stop(); } }, "Stop / annuler la preview"))));
   }
 
   // --- ASSISTANT ----------------------------------------------------------------------------
@@ -384,7 +557,8 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     tabs.textContent = "";
     for (const [id, label] of TABS) tabs.append(h("button", { class: `tab ${tab === id ? "active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { tab = id; render(); } }, label));
     panel.textContent = "";
-    panel.append(tab === "beat" ? beatTab() : tab === "melody" ? melodyTab() : tab === "drums" ? drumsTab() : tab === "assistant" ? assistantTab() : tab === "mix" ? mixTab() : masterTab());
+    const views: Record<Tab, () => HTMLElement> = { beat: beatTab, melody: melodyTab, chords: chordsTab, bass: bassTab, drums: drumsTab, variation: variationTab, structure: structureTab, assistant: assistantTab, mix: mixTab, master: masterTab };
+    panel.append(views[tab]());
   }
 
   render();
