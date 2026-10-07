@@ -304,3 +304,17 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .tl-auto-help { position: absolute; right: 80px; top: 4px; font-size: 10px; pointer-events: none; }
 .pr-tools { flex-wrap: wrap; row-gap: 6px; }
 .tl-head { cursor: default; }
+
+/* --- mixer v3: groups, pinned master, routing, peak hold, clip LED --- */
+.mixer-board { display: flex; gap: 10px; align-items: flex-start; }
+.mixer-board .mixer-strips { flex: 1; min-width: 0; gap: 12px; }
+.mixer-master { flex: none; display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 1px solid var(--line); }
+.strip-group { flex: none; display: flex; flex-direction: column; gap: 4px; }
+.strip-group-row { display: flex; gap: 6px; }
+.strip-group-title { font-size: 10px; letter-spacing: 0.14em; color: var(--muted); padding: 0 2px; border-bottom: 1px solid var(--line); }
+.strip-out { font-size: 10px; max-width: 84px; padding: 1px 2px; min-height: 18px; }
+.peak-readout { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.peak-readout.hot { color: #f59e0b; }
+.clip-led { font-size: 8px; padding: 1px 4px; border-radius: 3px; border: 1px solid #3a2a2a; background: #1d1414; color: #6b4545; cursor: pointer; letter-spacing: 0.08em; }
+.clip-led.on { background: #ef4444; color: #fff; border-color: #ef4444; }
+.fx-presets { font-size: 11px; max-width: 170px; }

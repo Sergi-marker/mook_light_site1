@@ -11,7 +11,7 @@ import type {
 } from "./types.ts";
 
 export type TrackPatch = Partial<Pick<Track, "name" | "pitch">>;
-export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "solo" | "name">> & { sends?: Partial<Channel["sends"]> };
+export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "solo" | "name" | "output">> & { sends?: Partial<Channel["sends"]> };
 export type NoteUpdate = { id: string } & Partial<Omit<Note, "id">>;
 export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params> };
 export type VocalPatch = Partial<Pick<VocalTrack, "name" | "armed" | "playProcessed" | "role">> & { studio?: Partial<VocalTrack["studio"]> };
@@ -434,7 +434,12 @@ export function reduce(p: Project, a: Action): Project {
         if (q.name !== undefined) n.name = q.name.trim().slice(0, 40) || c.name;
         if (q.sends?.reverb !== undefined) n.sends.reverb = clamp(q.sends.reverb, 0, 1);
         if (q.sends?.delay !== undefined) n.sends.delay = clamp(q.sends.delay, 0, 1);
-        const same = n.volume === c.volume && n.pan === c.pan && n.mute === c.mute && n.solo === c.solo && n.name === c.name && n.sends.reverb === c.sends.reverb && n.sends.delay === c.sends.delay;
+        // Routing: track channels → any bus or the master (never into another track / a return).
+        if (q.output !== undefined && c.kind !== "master" && c.kind !== "return" && c.kind !== "bus") {
+          const dest = p.channels.find((x) => x.id === q.output);
+          if (dest && (dest.kind === "bus" || dest.kind === "master")) n.output = dest.id;
+        }
+        const same = n.volume === c.volume && n.pan === c.pan && n.mute === c.mute && n.solo === c.solo && n.name === c.name && n.sends.reverb === c.sends.reverb && n.sends.delay === c.sends.delay && n.output === c.output;
         return same ? c : n;
       });
     case "toggleMute":

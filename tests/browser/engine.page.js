@@ -239,6 +239,21 @@ window.tests = {
     void v;
     return { mutedBar0: rmsAt(0.1, 1.8), pitchBar3: pitchAt(buf, 6.5, 60, 4096), rmsBar3: rmsAt(6.1, 7.5), fadeStart: vr(0.05, 0.15), fadeEnd: vr(1.5, 2) };
   },
+  async routing() {
+    let p = withSteps(empty(), "kick", [0, 4, 8, 12]);
+    const kick = drum(p, "kick").id;
+    const r = async (q) => stats(await renderProject(q, media, { mode: "pattern", tail: 0.3 })).peak;
+    const normal = await r(p);
+    // Mute the VOCAL bus: the kick still sounds (it goes through the DRUM bus)...
+    p = reduce(p, { type: "updateChannel", channelId: "bus_vocals", patch: { mute: true } });
+    const vocalBusMuted = await r(p);
+    // ...until it is routed into the VOCAL bus.
+    p = reduce(p, { type: "updateChannel", channelId: kick, patch: { output: "bus_vocals" } });
+    const routedToMuted = await r(p);
+    p = reduce(p, { type: "updateChannel", channelId: kick, patch: { output: "master" } });
+    const direct = await r(p);
+    return { normal, vocalBusMuted, routedToMuted, direct };
+  },
   async templateHeadroom() {
     const out = {};
     for (const t of TEMPLATES) {

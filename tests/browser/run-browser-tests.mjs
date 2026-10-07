@@ -131,6 +131,13 @@ await check("arrangement: split clip keeps its pattern offset, muted clips are s
   assert.ok(r.fadeStart < r.fadeEnd * 0.2, `fade-in ${r.fadeStart} vs ${r.fadeEnd}`);
 });
 
+await check("mixer routing: a track follows the bus it is routed to", async () => {
+  const r = await run("routing");
+  assert.ok(r.normal > 0.05 && near(r.vocalBusMuted, r.normal, 0.01), JSON.stringify(r));
+  assert.ok(r.routedToMuted < 1e-4, `routed to a muted bus still sounds ${r.routedToMuted}`);
+  assert.ok(r.direct > 0.05, `direct to master silent ${r.direct}`);
+});
+
 await check("factory templates leave headroom before the master chain (true peak < -1 dBTP)", async () => {
   const r = await run("templateHeadroom");
   for (const [id, tp] of Object.entries(r)) assert.ok(tp < -1, `${id}: ${tp}`);

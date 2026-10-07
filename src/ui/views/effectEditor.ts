@@ -1,6 +1,7 @@
 // Generic insert-effect editor: enable, reorder, remove and edit every parameter.
 
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../../core/dsp/autopitch.ts";
+import { EFFECT_PRESETS } from "../../core/effectPresets.ts";
 import { SCALES, NOTE_NAMES } from "../../core/music.ts";
 import type { Channel, Effect, EffectType, ParamValue } from "../../core/types.ts";
 import type { App } from "../app.ts";
@@ -54,6 +55,7 @@ export function effectEditor(app: App, ch: Channel, e: Effect, index: number, to
     h("button", { class: `btn btn-toggle btn-sm ${e.enabled ? "on" : ""}`, title: e.enabled ? "Désactiver" : "Activer", "aria-pressed": String(e.enabled), onclick: () => app.dispatch({ type: "updateEffect", channelId: ch.id, effectId: e.id, enabled: !e.enabled }) }, e.enabled ? "ON" : "OFF"),
     h("strong", {}, EFFECT_LABELS[e.type]),
     meterEl,
+    presetSelect(app, ch, e),
     h("span", { class: "grow" }),
     h("button", { class: "btn btn-icon btn-sm", title: "Monter", disabled: index === 0, onclick: () => app.dispatch({ type: "moveEffect", channelId: ch.id, effectId: e.id, delta: -1 }) }, "↑"),
     h("button", { class: "btn btn-icon btn-sm", title: "Descendre", disabled: index === total - 1, onclick: () => app.dispatch({ type: "moveEffect", channelId: ch.id, effectId: e.id, delta: 1 }) }, "↓"),
@@ -76,6 +78,19 @@ export function effectEditor(app: App, ch: Channel, e: Effect, index: number, to
     }
   }
   return h("div", { class: `fx ${e.enabled ? "" : "off"}` }, head, e.enabled ? body : null);
+}
+
+/** "Preset…" menu of an effect (null when the type has no presets). */
+function presetSelect(app: App, ch: Channel, e: Effect): HTMLElement | null {
+  const list = EFFECT_PRESETS[e.type];
+  if (!list?.length) return null;
+  const sel = h("select", { class: "fx-presets", "aria-label": `Presets ${EFFECT_LABELS[e.type]}`, title: "Charger un réglage tout prêt (modifiable ensuite)" },
+    h("option", { value: "" }, "Preset…"), ...list.map((pr, i) => h("option", { value: String(i) }, pr.name)));
+  sel.addEventListener("change", () => {
+    const pr = list[Number(sel.value)];
+    if (pr) app.dispatch({ type: "updateEffect", channelId: ch.id, effectId: e.id, enabled: true, params: { ...pr.params } });
+  });
+  return sel;
 }
 
 /** Update the live meters (gain reduction, detected pitch…) of rendered effect editors. */

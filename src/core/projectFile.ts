@@ -2,7 +2,7 @@ import { DEFAULT_VELOCITY, INSTRUMENTS, PITCH_RANGE, PROJECT_FORMAT, PROJECT_VER
 import { SCALES, type ScaleId } from "./music.ts";
 import {
   busChannels, clamp, clampBpm, createEmptyProject, createInstrument, createVocalTrack, drumChannel, emptySteps,
-  instrumentChannel, newId, resizeSteps, vocalChannel, EFFECT_DEFAULTS, SYNTH_PRESETS, DEFAULT_808,
+  instrumentChannel, newId, resizeSteps, vocalChannel, EFFECT_DEFAULTS, SYNTH_PRESETS, DEFAULT_808, MASTER, BUS_DRUMS, BUS_MUSIC, BUS_VOCALS,
 } from "./project.ts";
 import { readZip, writeZip, type ZipEntry } from "./io/zip.ts";
 import type {
@@ -10,6 +10,7 @@ import type {
   SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack, Waveform,
 } from "./types.ts";
 
+const ROUTABLE = [MASTER, BUS_DRUMS, BUS_MUSIC, BUS_VOCALS];
 const WAVES: Waveform[] = ["sawtooth", "square", "triangle", "sine"];
 
 // Project file (.bsproj) v2: a standard ZIP archive (no compression) containing
@@ -141,6 +142,8 @@ function parseChannel(c: unknown, fallback: Channel): Channel {
     solo: c.solo === true,
     sends: { reverb: clamp(num(sends.reverb, fallback.sends.reverb), 0, 1), delay: clamp(num(sends.delay, fallback.sends.delay), 0, 1) },
     inserts: Array.isArray(c.inserts) ? (c.inserts.map(parseEffect).filter(Boolean) as Effect[]) : fallback.inserts,
+    // Track channels may be routed to any bus or the master.
+    output: ["drum", "instrument", "vocal"].includes(fallback.kind) && ROUTABLE.includes(str(c.output, "")) ? str(c.output, "") : fallback.output,
   };
 }
 
