@@ -318,3 +318,10 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .clip-led { font-size: 8px; padding: 1px 4px; border-radius: 3px; border: 1px solid #3a2a2a; background: #1d1414; color: #6b4545; cursor: pointer; letter-spacing: 0.08em; }
 .clip-led.on { background: #ef4444; color: #fff; border-color: #ef4444; }
 .fx-presets { font-size: 11px; max-width: 170px; }
+
+/* --- vocals v3: clips table, lyrics --- */
+.clips-table input.num { width: 64px; }
+.clips-table tr.muted td { opacity: 0.45; }
+.clips-table td.row-inline { gap: 4px; }
+textarea.lyrics { width: 100%; box-sizing: border-box; background: #0f121a; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 14px/1.5 inherit; resize: vertical; }
+.presets { flex-wrap: wrap; row-gap: 6px; }

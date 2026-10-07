@@ -75,7 +75,12 @@ await context.addInitScript(() => {
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("dialog", (d) => d.accept(d.defaultValue() || "OK"));
+let nextPrompt = null;
+page.on("dialog", (d) => {
+  const v = nextPrompt ?? (d.defaultValue() || "OK");
+  nextPrompt = null;
+  void d.accept(v);
+});
 
 let failed = 0;
 async function step(name, fn) {
@@ -230,6 +235,61 @@ await step("8. arrangement: AI beat generator builds sections + clips; song mode
   await page.click(".btn-play");
 });
 
+await step("MELODY tools: sound library, chord drawing, transpose in key, arpeggiator", async () => {
+  await nav("MELODY");
+  await page.click('.ins-row .track-name:has-text("Piano")');
+  const ins = (await state()).instruments.find((i) => i.name === "Piano").id;
+  const cur = async () => { const q = await state(); return q.patterns.find((x) => x.id === q.currentPatternId).notes[ins]; };
+  await page.selectOption('select[aria-label="Bibliothèque de sons"]', "rnb-rhodes");
+  const after = (await state()).instruments.find((i) => i.id === ins);
+  assert.equal(after.preset, "epiano");
+  assert.equal(after.synth.lfoDepth, 6);
+  await page.selectOption('select[aria-label="Outil de dessin"]', "triad");
+  await evalApp(() => { document.querySelector(".pr-scroll").scrollTop = (96 - 72) * 14 - 20; });
+  const before = (await cur()).length;
+  await clickCanvas(".pr-canvas", 0 * 28 + 3, (96 - 65) * 14 + 7); // F4 triad
+  let notes = await cur();
+  assert.equal(notes.length, before + 3, "triad = 3 notes");
+  const inF = (m) => [0, 2, 3, 5, 7, 8, 10].includes((((m - 5) % 12) + 12) % 12);
+  assert.ok(notes.every((n) => inF(n.pitch)), "chord in key");
+  await page.click('.pr-tools button:has-text("+1")');
+  notes = await cur();
+  assert.ok(notes.every((n) => inF(n.pitch)), "transposed by a scale degree stays in key");
+  await page.selectOption('select[aria-label="Outil de dessin"]', "single");
+  await page.click('.pr-tools button:has-text("Arpéger")');
+  const arp = await cur();
+  assert.ok(arp.length > 0 && arp.every((n) => inF(n.pitch)), `arpeggio ${arp.length}`);
+  await page.click(".btn-play");
+  assert.ok((await maxPeak(1200, ins)) > 0.01, "e-piano audible");
+  await page.click(".btn-play");
+});
+
+await step("ARRANGEMENT editing: split at cursor (S), mute clip, insert bars, lane name", async () => {
+  await nav("ARRANGEMENT");
+  const p0 = await state();
+  const c = p0.arrangement.clips.slice().sort((a, b) => b.length - a.length)[0];
+  await evalApp((bar) => { window.__app.engine.setMode("song"); window.__app.engine.seek(bar * 16); }, c.start + Math.floor(c.length / 2));
+  await page.click(`.tl-clip[data-clip="${c.id}"]`);
+  await page.keyboard.press("s");
+  const p1 = await state();
+  assert.equal(p1.arrangement.clips.length, p0.arrangement.clips.length + 1, "split");
+  const right = p1.arrangement.clips.find((x) => x.offset && x.start === c.start + Math.floor(c.length / 2));
+  assert.ok(right, "right half has an offset");
+  await page.click(`.tl-clip[data-clip="${right.id}"]`);
+  await page.click('.toolbar button:has-text("Mute clip")');
+  assert.equal((await state()).arrangement.clips.find((x) => x.id === right.id).muted, true);
+  const len0 = await evalApp(() => document.querySelector(".arrangement-view .toolbar .hint").textContent);
+  await evalApp(() => window.__app.engine.seek(0));
+  await page.selectOption('select[aria-label="Nombre de mesures"]', "4");
+  await page.click('.toolbar button:has-text("Insérer")');
+  const p2 = await state();
+  assert.equal(Math.min(...p2.arrangement.clips.map((x) => x.start)), Math.min(...p1.arrangement.clips.map((x) => x.start)) + 4, `bars inserted (${len0})`);
+  await page.keyboard.press("Control+z");
+  nextPrompt = "Drums A";
+  await page.locator(".tl-lane .tl-head").first().dblclick();
+  assert.equal((await state()).arrangement.laneNames?.[0], "Drums A");
+});
+
 let takeCount = 0;
 await step("9–10. microphone: open, monitoring through the chain, record a take (count-in, latency compensation)", async () => {
   await nav("VOCALS");
@@ -324,6 +384,17 @@ await step("AI TAKE COMP proposes a comp and applies it", async () => {
   assert.ok(v.clips.length >= 1 && v.takes.every((t) => typeof t.score === "number"));
 });
 
+await step("VOCALS: chain presets, clips table, lyrics saved with the project", async () => {
+  await page.click('.presets button:has-text("Drill")');
+  const v = (await state()).vocals.find((x) => x.takes.length);
+  const comp = (await state()).channels.find((c) => c.id === v.id).inserts.find((e) => e.type === "compressor");
+  assert.equal(comp.params.ratio, 6, "Drill chain applied");
+  assert.ok((await page.locator(".clips-table tr").count()) >= 2, "clips table");
+  await page.fill("textarea.lyrics", "Couplet 1\nJe pose ma voix sur la prod");
+  await page.locator("textarea.lyrics").blur();
+  assert.match((await state()).vocals.find((x) => x.id === v.id).lyrics, /Je pose ma voix/);
+});
+
 await step("14. mixer: strips, effect insert, meters", async () => {
   await evalApp(() => window.__app.recorder.setMonitoring(null));
   await nav("MIXER");
@@ -338,6 +409,22 @@ await step("14. mixer: strips, effect insert, meters", async () => {
   const peak = await maxPeak(1500, "bus_drums");
   await page.click(".btn-play");
   assert.ok(peak > 0.01, `drum bus meter ${peak}`);
+});
+
+await step("MIXER: routing a track to another bus, effect preset, rename, peak readout", async () => {
+  const kick = (await state()).tracks.find((t) => t.instrument === "kick").id;
+  await page.selectOption(`.strip[data-channel="${kick}"] select.strip-out`, "master");
+  assert.equal((await state()).channels.find((c) => c.id === kick).output, "master");
+  await page.click('.strip[data-channel="bus_drums"] .strip-name');
+  await page.selectOption('.fx-presets[aria-label="Presets Saturation"]', { label: "Tape" });
+  const sat = (await state()).channels.find((c) => c.id === "bus_drums").inserts.find((e) => e.type === "saturation");
+  assert.equal(sat.params.drive, 0.35);
+  nextPrompt = "Big Kick";
+  await page.locator(`.strip[data-channel="${kick}"] .strip-name`).dblclick();
+  assert.equal((await state()).tracks.find((t) => t.id === kick).name, "Big Kick", "rename syncs the drum lane");
+  await page.keyboard.press("Control+z");
+  assert.ok((await page.locator(".peak-readout").count()) >= 15);
+  await page.selectOption(`.strip[data-channel="${kick}"] select.strip-out`, "bus_drums");
 });
 
 await step("15. AI song assistant answers and applies a change; AI MIX ASSISTANT preview/apply", async () => {
@@ -444,7 +531,7 @@ await step("MIDI: keyboard plays the selected instrument; REC MIDI writes notes;
   await evalApp(() => { window.__app.engine.setMode("pattern"); });
   await page.click(".btn-play");
   await page.waitForTimeout(300);
-  const ins = (await state()).instruments.find((i) => i.preset === "piano").id;
+  const ins = (await state()).instruments.find((i) => i.name === "Piano").id;
   const before = (await state()).patterns.find((p) => p.id === (/** @type any */ (null) ?? undefined) || true) && (await evalApp((id) => { const s = window.__app.store.getState(); return s.patterns.find((x) => x.id === s.currentPatternId).notes[id]?.length ?? 0; }, ins));
   await evalApp(() => window.__midiSend([0x90, 65, 100]));
   await page.waitForTimeout(250);

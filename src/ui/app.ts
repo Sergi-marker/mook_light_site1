@@ -413,7 +413,11 @@ export class App {
     this.store.dispatch({ type: "addTake", trackId: track.id, take: t, asset, clip: { takeId: t.id, start: take.startStep, offset: 0, duration: take.data.length / take.sampleRate, gainDb: 0 } });
     this.engine.cursor = take.startStep;
     const clipped = take.peak >= 0.99;
-    toast(`${t.name} enregistrée sur « ${track.name} » (${(take.data.length / take.sampleRate).toFixed(1)} s, latence compensée ${(take.compensation * 1000).toFixed(0)} ms).${clipped ? " ⚠ Saturation détectée : baissez le gain du micro." : ""}`, clipped ? "error" : "ok", 8000);
+    const quiet = take.peak < 0.06;
+    const advice = clipped
+      ? " ⚠ Saturation détectée : baissez le gain du micro (sur l'interface ou dans Windows) et refaites la prise."
+      : quiet ? ` ⚠ Niveau très faible (pic ${(20 * Math.log10(Math.max(1e-6, take.peak))).toFixed(0)} dBFS) : rapprochez-vous du micro ou montez son gain.` : "";
+    toast(`${t.name} enregistrée sur « ${track.name} » (${(take.data.length / take.sampleRate).toFixed(1)} s, latence compensée ${(take.compensation * 1000).toFixed(0)} ms).${advice}`, clipped || quiet ? "error" : "ok", 8000);
   }
 
   /** Audio data of a take (raw or processed). */

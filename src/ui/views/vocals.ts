@@ -4,13 +4,14 @@
 import { Recorder, type InputInfo } from "../../audio/recorder.ts";
 import { analyzeTake } from "../../audio/studio.ts";
 import { compTakes, takeScores, type CompSegment } from "../../core/ai/takeComp.ts";
+import { buildChain, VOCAL_CHAIN_PRESETS, type ChainPreset } from "../../core/effectPresets.ts";
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../../core/dsp/autopitch.ts";
 import { integratedLoudness } from "../../core/dsp/loudness.ts";
 import type { VoiceAnalysis, VoiceRecommendation } from "../../core/dsp/voiceAnalysis.ts";
 import { keyLabel } from "../../core/music.ts";
-import { effect, getChannel, stepsPerBarOf, stepsToSeconds } from "../../core/project.ts";
+import { effect, getChannel, secondsToSteps, stepsPerBarOf, stepsToSeconds } from "../../core/project.ts";
 import type { Action } from "../../core/reducer.ts";
-import type { Effect, Project, VocalRole, VocalTrack } from "../../core/types.ts";
+import type { AudioClip, Effect, Project, VocalRole, VocalTrack } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { drawWaveform, fmtDb, fmtPct, meter, reactive, slider } from "../widgets.ts";
@@ -145,6 +146,48 @@ export function createVocalsView(app: App): View {
         } }, "Désactiver"),
         h("button", { class: "btn", onclick: () => { analysis = null; render(); } }, "Fermer")),
     );
+  }
+
+  // --- chain presets -------------------------------------------------------------------
+  function chainActions(v: VocalTrack, preset: ChainPreset): Action[] {
+    const ch = getChannel(store.getState(), v.id)!;
+    return [
+      { type: "setInserts", channelId: v.id, inserts: buildChain(preset, ch.inserts) },
+      { type: "updateChannel", channelId: v.id, patch: { sends: { ...preset.sends } } },
+    ];
+  }
+
+  // --- clips on the timeline -------------------------------------------------------------
+  function clipsCard(p: Project, v: VocalTrack): HTMLElement {
+    const s = stepsPerBarOf(p);
+    const card = h("div", { class: "card" }, h("h3", {}, `Clips de « ${v.name} » sur la timeline`));
+    if (!v.clips.length) {
+      card.append(h("p", { class: "hint" }, "Aucun clip : enregistrez une prise ou cliquez « Utiliser » sur une prise."));
+      return card;
+    }
+    const rows = v.clips.slice().sort((a, b) => a.start - b.start).map((c) => {
+      const take = v.takes.find((t) => t.id === c.takeId);
+      const up = (patch: Partial<AudioClip>, key?: string) => app.dispatch({ type: "updateAudioClip", trackId: v.id, clipId: c.id, patch }, key);
+      const num = (value: number, min: number, max: number, step: number, on: (x: number) => void, label: string) =>
+        h("input", { type: "number", class: "num", value: Number(value.toFixed(2)), min, max, step, "aria-label": label, onchange: (e: Event) => on(Math.max(min, Math.min(max, Number((e.target as HTMLInputElement).value) || 0))) });
+      const end = c.start + secondsToSteps(c.duration, p.bpm);
+      return h("tr", { class: c.muted ? "muted" : "" },
+        h("td", {}, take?.name ?? "?"),
+        h("td", {}, `${(c.start / s + 1).toFixed(2)}`),
+        h("td", {}, `${c.duration.toFixed(2)} s`),
+        h("td", {}, num(c.gainDb, -24, 12, 0.5, (x) => up({ gainDb: x }), "Gain (dB)")),
+        h("td", {}, num(c.fadeIn ?? 0, 0, c.duration / 2, 0.05, (x) => up({ fadeIn: x }), "Fade in (s)")),
+        h("td", {}, num(c.fadeOut ?? 0, 0, c.duration / 2, 0.05, (x) => up({ fadeOut: x }), "Fade out (s)")),
+        h("td", { class: "row-inline" },
+          h("button", { class: "btn btn-sm", title: "Placer le curseur au début du clip", onclick: () => { engine.setMode("song"); engine.seek(c.start); } }, "Aller"),
+          h("button", { class: "btn btn-sm", title: "Couper le clip au curseur", disabled: !(engine.cursor > c.start && engine.cursor < end), onclick: () => app.dispatch({ type: "splitAudioClips", trackId: v.id, ids: [c.id], step: engine.cursor }) }, "✂"),
+          h("button", { class: `btn btn-toggle btn-sm ${c.muted ? "on" : ""}`, onclick: () => up({ muted: !c.muted }) }, "M"),
+          h("button", { class: "btn btn-icon btn-sm", title: "Retirer le clip de la timeline (la prise reste)", onclick: () => app.dispatch({ type: "removeAudioClips", trackId: v.id, ids: [c.id] }) }, "✕")));
+    });
+    card.append(h("table", { class: "comp clips-table" },
+      h("tr", {}, h("th", {}, "Prise"), h("th", {}, "Mesure"), h("th", {}, "Durée"), h("th", {}, "Gain dB"), h("th", {}, "Fade in s"), h("th", {}, "Fade out s"), h("th", {}, "")),
+      ...rows));
+    return card;
   }
 
   // --- takes ---------------------------------------------------------------------------
@@ -325,6 +368,13 @@ export function createVocalsView(app: App): View {
     const roleSel = h("select", { "aria-label": "Rôle" }, ...(["lead", "double", "adlibs", "backing", "custom"] as VocalRole[]).map((r) => h("option", { value: r }, r)));
     tracksCard.append(h("div", { class: "row-inline" }, roleSel, h("button", { class: "btn btn-sm", onclick: () => app.dispatch({ type: "addVocalTrack", role: roleSel.value as VocalRole }) }, "+ Piste vocale")));
     body.append(tracksCard);
+    if (v) {
+      body.append(clipsCard(p, v));
+      const lyrics = h("textarea", { class: "lyrics", rows: 6, placeholder: "Écrivez vos paroles ici (couplets, refrain, ad-libs)… Elles sont enregistrées avec le projet.", "aria-label": `Paroles de ${v.name}` }, v.lyrics ?? "");
+      lyrics.addEventListener("input", () => app.dispatch({ type: "updateVocalTrack", trackId: v.id, patch: { lyrics: lyrics.value.slice(0, 20000) } }, `lyrics:${v.id}`));
+      const words = (v.lyrics ?? "").trim().split(/\s+/).filter(Boolean).length;
+      body.append(h("div", { class: "card" }, h("h3", {}, `Paroles — ${v.name}`), lyrics, h("p", { class: "hint" }, `${words} mot(s) · ${(v.lyrics ?? "").split("\n").filter((l) => l.trim()).length} ligne(s)`)));
+    }
 
     // Take comp results
     if (comp) {
@@ -405,6 +455,14 @@ export function createVocalsView(app: App): View {
       h("div", { class: "row-inline" }, h("h3", {}, `Chaîne vocale temps réel — ${v.name}`),
         h("button", { class: "btn btn-ai btn-big", title: "Analyse la voix (bruit, dynamique, spectre, pitch, sibilances, clipping) et propose une chaîne", onclick: () => void runAutoVoice() }, "✨ AUTO VOICE")),
       renderAnalysis(),
+      h("div", { class: "row-inline presets" }, h("span", { class: "slider-label" }, "PRESETS DE CHAÎNE"),
+        ...VOCAL_CHAIN_PRESETS.map((pr) => h("button", { class: "btn btn-sm", title: `${pr.description} — clic = appliquer (Ctrl+Z pour annuler), Alt+clic = écouter sans appliquer`, onclick: (e: Event) => {
+          if ((e as MouseEvent).altKey) {
+            app.startPreview(`Chaîne ${pr.name}`, chainActions(v, pr));
+            const take = v.takes[v.takes.length - 1];
+            if (take) playTake(v.id, take.id);
+          } else app.applyActions(chainActions(v, pr), `Chaîne « ${pr.name} » appliquée à ${v.name} — tout reste modifiable.`);
+        } }, pr.name))),
       h("p", { class: "hint" }, "MIC → Noise Reduction → Gate → EQ → De-Esser → Compressor → AUTO PITCH → AUTO LEVEL → Saturation → Limiter → envois Reverb / Delay → casque"),
       h("div", { class: "sliders" },
         slider({ label: "Reverb", min: 0, max: 1, step: 0.01, value: ch.sends.reverb, format: fmtPct, onInput: (x) => app.dispatch({ type: "updateChannel", channelId: v.id, patch: { sends: { reverb: x } } }, `rv:${v.id}`) }),
