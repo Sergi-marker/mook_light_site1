@@ -52,6 +52,8 @@ npm run dist:win   # installeur Windows (NSIS) + version portable dans release/
 npm run test:all   # typecheck + tous les tests
 ```
 
+Les tests navigateur utilisent Chromium via Playwright : la première fois, lancez `npx playwright install chromium`.
+
 Conseils audio : utilisez un **casque** pour le monitoring. Pour la latence la plus basse, branchez une interface audio, puis choisissez-la dans SETTINGS → Audio (entrée et sortie) avec « Latence minimale ».
 
 ## Raccourcis
@@ -70,6 +72,9 @@ Dans l'arrangement : S = couper au curseur · Ctrl+C / Ctrl+V = copier / coller 
 | `npm test` | 108 tests unitaires (Node) | ✅ 108/108 |
 | `npm run test:browser` | 12 tests du moteur audio dans Chromium | ✅ 12/12 |
 | `npm run test:e2e` | 26 étapes pilotant l'interface comme un utilisateur | ✅ 26/26 |
+| `npm run test:electron` | 6 vérifications de l'application desktop réelle (Electron) | ✅ 6/6 (Linux) |
+
+Le test Electron ouvre la vraie fenêtre et vérifie : démarrage sans erreur, API du preload, AudioContext actif avec les worklets chargés, son audible, export MP3 192 kbps via l'interface (fichier décodé sans erreur), et l'appel à l'assistant en ligne (le SDK Anthropic répond « clé API invalide » avec une fausse clé). Sous Linux sans écran : `xvfb-run -a npm run test:electron`.
 
 Détail des tests unitaires : DSP (YIN à ±5 cents, LUFS BS.1770 exact à ±0,05, true peak, compresseur, limiteur, gate, de-esser, leveler, pitch live et studio, débruitage), reducer, format de projet v1/v2, WAV, ZIP, générateurs et assistants IA, take comp, outils de notes (accords dans la gamme, arpégiateur, transposition…), découpe / insertion / suppression de mesures dans l'arrangement, routage du mixer, presets d'effets et de chaînes vocales, variations de drums, structures de morceau.
 
@@ -90,16 +95,18 @@ src/audio/           moteur Web Audio : mixer, effets, instruments, séquenceur,
                      enregistreur, worklets DSP, worker studio, export, MIDI
 src/ui/              interface (shell, vues, widgets, persistance)
 electron/            processus principal + preload (assistant en ligne, métriques, permissions)
-tests/               unit/ · browser/ · e2e/
+tests/               unit/ · browser/ · e2e/ · electron/
 docs/ARCHITECTURE.md
 ```
 
 ## Limites connues
 
-- **Desktop Electron non exécuté ici.** L'environnement de développement n'a pas accès à npm : `npm start` et `npm run dist:win` n'ont pas pu être lancés. Toute l'application a été testée dans Chromium, le même moteur qu'Electron. À vérifier en premier sur Windows.
-- **Export MP3** : il utilise l'encodeur LAME du paquet `lamejs`, installé par `npm install`. Il n'a pas pu être testé ici. S'il est absent, l'option MP3 est désactivée avec un message ; le WAV fonctionne toujours.
-- **Assistant en ligne** : passe par le SDK officiel Anthropic dans le processus principal d'Electron. Non testé ici (pas de réseau). L'assistant local, lui, est testé.
+- **Application desktop testée sous Linux, pas encore sous Windows.** `npm start` et le test Electron passent sous Linux (Electron 38) : interface, son, worklets, export MP3 et assistant en ligne. Le comportement propre à Windows reste à vérifier : sortie audio WASAPI, choix des périphériques, micro, boîtes de dialogue d'enregistrement.
+- **Installeur Windows** : `npm run dist:win` empaquette bien l'application pour Windows depuis Linux (`release/win-unpacked/Beatmaker Studio.exe`), mais l'installeur NSIS et la version portable demandent Wine, absent de l'environnement de test. Lancez la commande sur Windows. L'exécutable n'est pas signé : Windows SmartScreen affichera un avertissement au premier lancement. Pas d'icône personnalisée pour l'instant (icône Electron par défaut).
+- **Export MP3** : encodeur LAME (`lamejs` 1.2.1). Testé en 128, 192 et 320 kbps, stéréo et mono, 44,1 et 48 kHz. Les fichiers sont lus et décodés sans erreur par ffmpeg, avec le bon contenu. Si `lamejs` est absent, l'option MP3 est désactivée avec un message ; le WAV fonctionne toujours.
+- **Assistant en ligne** : passe par le SDK officiel Anthropic dans le processus principal d'Electron. Le chemin complet jusqu'à l'API est testé (une fausse clé renvoie « invalid API key ») ; une vraie réponse demande votre clé API.
 - **Latence** : Web Audio sous Windows passe par WASAPI en mode partagé, soit en général 10–40 ms en sortie. Le monitoring vocal reste confortable avec une interface audio, mais il n'y a pas d'ASIO : un moteur natif est prévu (voir l'architecture). AUTO PITCH LIVE ajoute environ 10 ms seulement quand il corrige.
+- **Vitesse d'export** : le rendu hors ligne du morceau complet, avec tous les effets, a pris environ 2,5 à 3 minutes pour le morceau de test (un peu plus de 2 minutes de musique) sur la machine de test, une machine virtuelle lente à 4 cœurs. Le temps sur un PC Windows récent reste à mesurer.
 - **CPU** : la charge DSP des effets est affichée partout. Le CPU des processus ne s'affiche que dans l'application desktop.
 - **Time-stretch** des samples : non disponible. Le pitch change la durée, comme sur un sampler classique.
 - **AI MASTER** : il mesure sur la partie la plus forte du morceau (autour du refrain). L'export affiche le loudness intégré du morceau complet.

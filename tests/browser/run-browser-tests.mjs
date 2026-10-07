@@ -4,19 +4,11 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import assert from "node:assert/strict";
+import { launchChromium } from "../playwright.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const dist = join(root, "dist");
-const require = createRequire(import.meta.url);
-function loadPlaywright() {
-  for (const id of ["playwright", "@playwright/test", "/opt/node22/lib/node_modules/playwright"]) {
-    try { return require(id); } catch { /* next */ }
-  }
-  throw new Error("Playwright not found. Install it with: npm i -D playwright");
-}
-const { chromium } = loadPlaywright();
 
 const types = { ".js": "text/javascript", ".html": "text/html" };
 const server = createServer(async (req, res) => {
@@ -38,7 +30,7 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const port = server.address().port;
 
-const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
+const browser = await launchChromium({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));

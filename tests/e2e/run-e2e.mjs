@@ -9,18 +9,10 @@ import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import assert from "node:assert/strict";
+import { launchChromium } from "../playwright.mjs";
 
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
-const require = createRequire(import.meta.url);
-function loadPlaywright() {
-  for (const id of ["playwright", "/opt/node22/lib/node_modules/playwright"]) {
-    try { return require(id); } catch { /* next */ }
-  }
-  throw new Error("Playwright not found. Install it with: npm i -D playwright");
-}
-const { chromium } = loadPlaywright();
 
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".map": "application/json" };
 const server = createServer(async (req, res) => {
@@ -60,7 +52,7 @@ const tmp = await mkdtemp(join(tmpdir(), "bs-e2e-"));
 const voiceFile = join(tmp, "voice.wav");
 await writeFile(voiceFile, wav(voice, SR));
 
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${voiceFile}`],
 });
 const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1500, height: 950 }, permissions: ["microphone"] });
@@ -520,9 +512,13 @@ await step("16. AI MASTER: analysis, apply, verified true peak ≤ -1 dBTP", asy
 let savedBytes = null;
 await step("17. export WAV master (real file), instrumental and stems (zip)", async () => {
   await nav("PROJECTS");
-  const dl = page.waitForEvent("download", { timeout: 180000 });
+  // Offline render of the whole song with every effect: slow on a small, throttled CI machine
+  // (up to ~3 min seen on 4 vCPUs), so the timeouts leave a wide margin.
+  const t0 = Date.now();
+  const dl = page.waitForEvent("download", { timeout: 600000 });
   await page.click("text=⤓ Exporter");
   const d = await dl;
+  console.log(`     master export rendered in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   assert.match(d.suggestedFilename(), /Master\.wav$/);
   const bytes = await readFile(await d.path());
   assert.equal(bytes.toString("ascii", 0, 4), "RIFF");
@@ -534,7 +530,7 @@ await step("17. export WAV master (real file), instrumental and stems (zip)", as
   for (let o = 44; o + 3 <= bytes.length; o += 3 * 97) { let s = bytes.readIntLE(o, 3) / 8388608; peak = Math.max(peak, Math.abs(s)); sum += s * s; }
   assert.ok(peak > 0.3 && peak < 0.95, `exported peak ${peak}`);
   await page.selectOption('select[aria-label="Que exporter"]', "stems");
-  const dl2 = page.waitForEvent("download", { timeout: 300000 });
+  const dl2 = page.waitForEvent("download", { timeout: 900000 });
   await page.click("text=⤓ Exporter");
   const z = await readFile(await (await dl2).path());
   assert.equal(z.toString("ascii", 0, 2), "PK");
@@ -544,7 +540,7 @@ await step("17. export WAV master (real file), instrumental and stems (zip)", as
   await page.selectOption('select[aria-label="Que exporter"]', "master");
   await page.selectOption('select[aria-label="Étendue"]', "loop");
   const lp = (await state()).arrangement.loop;
-  const dl3 = page.waitForEvent("download", { timeout: 180000 });
+  const dl3 = page.waitForEvent("download", { timeout: 600000 });
   await page.click("text=⤓ Exporter");
   const b3 = await readFile(await (await dl3).path());
   const sec3 = (b3.length - 44) / (3 * 2 * 44100);
