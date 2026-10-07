@@ -3,9 +3,9 @@ import { GENRE_DEFAULTS, type Genre } from "../../core/ai/prompt.ts";
 import { instrumentDef, PITCH_RANGE, STEP_COUNTS, STEPS_PER_BEAT } from "../../core/constants.ts";
 import { currentPattern, getChannel } from "../../core/project.ts";
 import type { Action } from "../../core/reducer.ts";
-import type { Project, StepCount, Track } from "../../core/types.ts";
+import type { Project, Step, StepCount, Track } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
-import { confirmDialog, h } from "../dom.ts";
+import { confirmDialog, h, toast } from "../dom.ts";
 import { patternBar } from "./patternBar.ts";
 import { DEFAULT_SAMPLE_EDIT } from "../../core/project.ts";
 import { drawWaveform, fmtDb, reactive, slider } from "../widgets.ts";
@@ -42,6 +42,44 @@ export function createBeatView(app: App): View {
     app.dispatch({ type: "batch", actions });
   };
 
+  let laneClipboard: Step[] | null = null;
+  const selTrack = (): Track | null => {
+    const p = store.getState();
+    const t = p.tracks.find((x) => x.id === app.selectedTrackId);
+    if (!t) toast("Sélectionnez d'abord une piste (clic sur son nom).", "error");
+    return t ?? null;
+  };
+  const laneSteps = (t: Track) => currentPattern(store.getState()).drums[t.id] ?? [];
+  const shiftLane = (d: number) => {
+    const t = selTrack();
+    if (!t) return;
+    const st = laneSteps(t);
+    const n = st.length;
+    app.dispatch({ type: "setDrumSteps", trackId: t.id, steps: st.map((_, i) => ({ ...st[(i - d + n) % n] })) }, `shift:${t.id}`);
+  };
+  const selName = h("span", { class: "hint" });
+  const laneTools = h("div", { class: "toolbar lane-tools" },
+    h("span", { class: "slider-label" }, "PISTE"), selName,
+    h("button", { class: "btn btn-sm", title: "Décaler la piste d'un step vers la gauche (rotation)", onclick: () => shiftLane(-1) }, "◀ Décaler"),
+    h("button", { class: "btn btn-sm", title: "Décaler la piste d'un step vers la droite (rotation)", onclick: () => shiftLane(1) }, "Décaler ▶"),
+    h("button", { class: "btn btn-sm", title: "Copier les steps de la piste", onclick: () => {
+      const t = selTrack();
+      if (!t) return;
+      laneClipboard = laneSteps(t).map((x) => ({ ...x }));
+      toast(`Piste « ${t.name} » copiée — collez-la sur une autre piste ou un autre pattern.`, "info");
+    } }, "Copier"),
+    h("button", { class: "btn btn-sm", title: "Coller les steps copiés sur la piste sélectionnée", onclick: () => {
+      const t = selTrack();
+      if (!t || !laneClipboard) return;
+      const n = currentPattern(store.getState()).stepCount;
+      app.dispatch({ type: "setDrumSteps", trackId: t.id, steps: Array.from({ length: n }, (_, i) => ({ ...laneClipboard![i % laneClipboard!.length] })) });
+    } }, "Coller"),
+    h("button", { class: "btn btn-sm", title: "Inverser la piste (de la fin vers le début)", onclick: () => {
+      const t = selTrack();
+      if (t) app.dispatch({ type: "setDrumSteps", trackId: t.id, steps: laneSteps(t).slice().reverse().map((x) => ({ ...x })) });
+    } }, "Inverser"),
+  );
+
   const toolbar = h("div", { class: "toolbar" },
     h("h1", {}, "BEAT"),
     stepsSelect,
@@ -59,7 +97,7 @@ export function createBeatView(app: App): View {
   const pbar = patternBar(app);
   const grid = h("div", { class: "grid", role: "grid", "aria-label": "Step sequencer" });
   const editor = h("div", { class: "card sample-editor" });
-  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, help, h("div", { class: "grid-scroll" }, grid), editor);
+  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, laneTools, help, h("div", { class: "grid-scroll" }, grid), editor);
 
   /** SAMPLER panel for the selected drum lane: trim, reverse, fades, gain, loop (non-destructive). */
   function renderEditor(): void {
@@ -183,6 +221,7 @@ export function createBeatView(app: App): View {
     const pat = currentPattern(p);
     pbar.update(p);
     const sel = p.tracks.find((x) => x.id === app.selectedTrackId);
+    selName.textContent = sel ? `« ${sel.name} »` : "(cliquez sur un nom de piste)";
     const es = sel ? `${sel.id}|${sel.sampleId}|${sel.pitch}|${JSON.stringify(sel.sampleEdit ?? null)}|${engine.isReady}` : "";
     if (es !== editorSig) {
       editorSig = es;

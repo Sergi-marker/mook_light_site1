@@ -20,6 +20,8 @@ export interface ExportOptions {
   bitDepth: WavBitDepth;
   sampleRate: 44100 | 48000;
   mp3Kbps?: 128 | 192 | 256 | 320;
+  /** Bars [start, end) to export (song mode only); default = the whole song. */
+  range?: [number, number];
   onProgress?: (label: string, fraction: number) => void;
 }
 
@@ -117,7 +119,7 @@ export async function exportProject(p: Project, media: RenderMedia, o: ExportOpt
   const render = async (muted: Set<string> | undefined, label: string) => {
     // No arrangement yet: export the current pattern looped 4 times.
     const song = songEndStep(p) > 0;
-    const buf = await renderProject(p, media, { mode: song ? "song" : "pattern", loops: 4, sampleRate: o.sampleRate, muted, tail: 4, onProgress: (f) => o.onProgress?.(label, f) });
+    const buf = await renderProject(p, media, { mode: song ? "song" : "pattern", loops: 4, sampleRate: o.sampleRate, muted, tail: 4, range: song ? o.range : undefined, onProgress: (f) => o.onProgress?.(label, f) });
     return trimTail(bufferChannels(buf), o.sampleRate);
   };
   if (o.variant !== "stems") {

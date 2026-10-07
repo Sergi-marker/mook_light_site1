@@ -14,6 +14,7 @@ export function createProjectsView(app: App): View {
   const format = h("select", { "aria-label": "Format" }, h("option", { value: "wav" }, "WAV"), h("option", { value: "mp3" }, "MP3"));
   const bits = h("select", { "aria-label": "Résolution WAV" }, h("option", { value: "16" }, "16-bit"), h("option", { value: "24", selected: true }, "24-bit"), h("option", { value: "32" }, "32-bit float"));
   const rate = h("select", { "aria-label": "Fréquence" }, h("option", { value: "44100" }, "44.1 kHz"), h("option", { value: "48000" }, "48 kHz"));
+  const range = h("select", { "aria-label": "Étendue" }, h("option", { value: "all" }, "Morceau complet"), h("option", { value: "loop" }, "Région de boucle (ARRANGEMENT)"));
   const kbps = h("select", { "aria-label": "Débit MP3" }, ...[320, 256, 192, 128].map((k) => h("option", { value: k }, `${k} kbps`)));
   const mp3Note = h("span", { class: "hint" });
   void mp3Available().then((ok) => {
@@ -35,8 +36,11 @@ export function createProjectsView(app: App): View {
       h("button", { class: "btn", onclick: () => void app.openProject() }, "Ouvrir… (Ctrl+O)"),
       h("button", { class: "btn", onclick: () => void app.newProject("empty") }, "Nouveau projet vide")),
     h("div", { class: "card" }, h("h3", {}, "EXPORT"),
-      h("div", { class: "row-inline" }, variant, format, bits, rate, kbps,
-        h("button", { class: "btn btn-primary", onclick: () => void app.exportAudio({ variant: variant.value as ExportVariant, format: format.value as ExportFormat, bitDepth: Number(bits.value) as WavBitDepth, sampleRate: Number(rate.value) as 44100 | 48000, mp3Kbps: Number(kbps.value) as 320 }) }, "⤓ Exporter")),
+      h("div", { class: "row-inline" }, variant, format, bits, rate, kbps, range,
+        h("button", { class: "btn btn-primary", onclick: () => {
+          const lp = app.store.getState().arrangement.loop;
+          void app.exportAudio({ variant: variant.value as ExportVariant, format: format.value as ExportFormat, bitDepth: Number(bits.value) as WavBitDepth, sampleRate: Number(rate.value) as 44100 | 48000, mp3Kbps: Number(kbps.value) as 320, range: range.value === "loop" ? [lp.start, lp.end] : undefined });
+        } }, "⤓ Exporter")),
       mp3Note,
       h("p", { class: "hint" }, "Le rendu passe par exactement le même moteur que la lecture (instruments, effets, mixer, master). Sans arrangement, le pattern courant est exporté 4 fois en boucle."),
       lastExport),

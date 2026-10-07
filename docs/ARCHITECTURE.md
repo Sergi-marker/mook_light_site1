@@ -52,17 +52,34 @@
 - **Mixer**: `source → input → inserts → pan → fader → meter`, then the bus (DRUM / MUSIC /
   VOCAL), REVERB and DELAY returns, and MASTER → soft-clipper (0 latency, ceiling −0.18 dBFS).
 - **Effects**: EQ, saturation, distortion, reverb (generated IR) and delay (tempo-synced,
-  ping-pong) use native nodes. Compressor, gate, de-esser, limiter, leveler, denoise and
+  ping-pong) and Stereo Width (mid/side gain matrix) use native nodes. Compressor, gate, de-esser, limiter, leveler, denoise and
   AUTO PITCH run as AudioWorklets (`bs-insert`). None of them has look-ahead, hence **no
   added latency** (except AUTO PITCH while it corrects, ≈10 ms). Fast path: silent input is
   not processed. Dynamics are computed at control rate (every 8 samples, interpolated).
 - **Instruments**: piano (additive, inharmonicity), pluck (Karplus-Strong), e-piano and bells
-  (FM), synth/pad/strings/bass (detuned oscillators + filter envelope), monophonic 808 (glide,
+  (FM), synth/pad/strings/bass (1–7 unison oscillators of any waveform + filter envelope, LFO
+  vibrato / filter wobble, optional mono legato with glide, drive stage per instrument), monophonic 808 (glide,
   punch, saturation, distortion, EQ, compression; the compressor's 6 ms look-ahead is
   compensated by early scheduling).
 - **Recording**: `getUserMedia` (with echo cancellation, noise suppression and AGC disabled)
   feeds the `bs-recorder` worklet, which captures timestamped frames. The take is aligned on
   the exact audio frame of the start step, plus the output and input latency compensation.
+
+## Editing model (v3 additions)
+
+- **Pattern clips** carry an optional `offset` (bars into the pattern) and `muted` flag. Splitting a
+  clip at the cursor gives two clips; the right one gets an offset so it keeps playing the right
+  part of the pattern. The sequencer computes the local step as `(pos − start + offset·spb) mod stepCount`.
+- **Audio clips** carry `fadeIn` / `fadeOut` (seconds) and `muted`. The gain envelope is scheduled
+  per clip (min 5 ms ramps) and handles playback that starts in the middle of a clip.
+- **Insert / delete bars** (`insertBars`) shifts or crops pattern clips, sections, the loop region,
+  vocal clips (with take offsets) and automation points in one undoable step.
+- **Routing**: each track channel has an `output` (any bus or the master). The mixer reconnects live.
+- **Note tools** (`src/core/noteTools.ts`): diatonic chords, scale-degree transpose, humanize,
+  legato, strum, reverse, velocity ramps, arpeggiator — pure functions, unit-tested.
+- **Libraries**: `soundLibrary.ts` (36 instrument sounds = preset + overrides) and
+  `effectPresets.ts` (per-effect presets + 7 complete vocal chains, which reuse existing effect ids
+  so live audio nodes are updated rather than rebuilt).
 
 ## Vocal DSP
 
@@ -91,6 +108,12 @@
 - **AI MASTER**: EQ, glue compression, light saturation, limiter (ceiling −1 dBTP). The gain
   is computed for the target, checked on a real render and corrected; the true peak is checked.
 - **Take comp**: per-bar scoring (presence, clipping, SNR, pitch stability, level consistency).
+- **CHORDS / 808 / BASS**: mood progressions (scale degrees, voice-led chords) and a bass line on the
+  chord roots locked to the kick (or sustained / syncopated), with slides.
+- **VARIATIONS** (`ai/variation.ts`): fill, hi-hat rolls, half-time, sparse, busy and drop-out,
+  produced as a new pattern so the original stays intact.
+- **STRUCTURE** (`ai/structure.ts`): 5 song templates mapped onto the user's existing patterns,
+  by name (Intro / Couplet / Refrain / Hook…) or, failing that, by pattern energy.
 
 ## Project format `.bsproj` (v2)
 

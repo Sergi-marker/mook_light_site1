@@ -320,7 +320,7 @@ export function createArrangementView(app: App): View {
     }
 
     // ruler (bars + time every 4 bars)
-    const ruler = h("div", { class: "tl-row tl-ruler", style: `height:22px` }, h("div", { class: "tl-head" }, "Mesure"));
+    const ruler = h("div", { class: "tl-row tl-ruler", style: `height:32px` }, h("div", { class: "tl-head" }, "Mesure"));
     for (let b = 0; b < bars; b++) {
       if (barW >= 18 || b % 4 === 0) ruler.append(h("span", { class: "tl-bar-num", style: `left:${HEAD_W + b * barW}px` }, String(b + 1)));
       if (b % 8 === 0 && barW >= 14) {

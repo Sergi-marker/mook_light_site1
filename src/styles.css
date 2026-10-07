@@ -298,7 +298,7 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .tl-clip.muted, .tl-aclip.muted { opacity: 0.4; filter: grayscale(0.7); }
 .tl-fades { position: absolute; inset: 0; pointer-events: none; }
 .tl-fades polygon { fill: rgba(0, 0, 0, 0.45); stroke: #fbbf24; stroke-width: 1; }
-.tl-time { position: absolute; top: 11px; font-size: 9px; color: #64748b; pointer-events: none; }
+.tl-time { position: absolute; top: 18px; font-size: 9px; color: #64748b; pointer-events: none; }
 .tl-inspector .card { margin: 4px 0 8px; padding: 8px 12px; gap: 12px; flex-wrap: wrap; }
 .tl-inspector .slider-row, .tl-inspector .slider { min-width: 220px; }
 .tl-auto-help { position: absolute; right: 80px; top: 4px; font-size: 10px; pointer-events: none; }
@@ -325,3 +325,4 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .clips-table td.row-inline { gap: 4px; }
 textarea.lyrics { width: 100%; box-sizing: border-box; background: #0f121a; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 14px/1.5 inherit; resize: vertical; }
 .presets { flex-wrap: wrap; row-gap: 6px; }
+.lane-tools { padding: 2px 0; gap: 6px; }

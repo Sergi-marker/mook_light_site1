@@ -160,6 +160,26 @@ await step("SAMPLER: edit a lane's sound (trim, reverse, gain), still audible", 
   assert.ok(peak.len < 0.16, `trimmed ${peak.len}`);
 });
 
+await step("BEAT lane tools: shift, copy / paste a drum lane", async () => {
+  await nav("BEAT");
+  const p0 = await state();
+  const kick = p0.tracks.find((t) => t.instrument === "kick");
+  const clap = p0.tracks.find((t) => t.instrument === "clap");
+  const pat = () => state().then((q) => q.patterns.find((x) => x.id === q.currentPatternId));
+  const before = (await pat()).drums[kick.id].map((x) => x.on);
+  await page.click(`.row-head .track-name:has-text("${kick.name}")`);
+  await page.click('.lane-tools button:has-text("Décaler ▶")');
+  const shifted = (await pat()).drums[kick.id].map((x) => x.on);
+  assert.deepEqual(shifted, before.map((_, i) => before[(i - 1 + before.length) % before.length]));
+  await page.click('.lane-tools button:has-text("Copier")');
+  await page.click(`.row-head .track-name:has-text("${clap.name}")`);
+  await page.click('.lane-tools button:has-text("Coller")');
+  assert.deepEqual((await pat()).drums[clap.id].map((x) => x.on), shifted);
+  await page.keyboard.press("Control+z");
+  await page.keyboard.press("Control+z");
+  assert.deepEqual((await pat()).drums[kick.id].map((x) => x.on), before);
+});
+
 await step("6. melody: piano roll notes (scale lock), audible", async () => {
   await nav("MELODY");
   await page.waitForSelector(".pr-canvas");
@@ -520,6 +540,18 @@ await step("17. export WAV master (real file), instrumental and stems (zip)", as
   assert.equal(z.toString("ascii", 0, 2), "PK");
   const names = z.toString("latin1").match(/[\w -]+\.wav/g) ?? [];
   assert.ok(new Set(names).size >= 4, `stems ${[...new Set(names)].join(", ")}`);
+  // Loop region only (bars start–end of the arrangement loop) + 4 s tail.
+  await page.selectOption('select[aria-label="Que exporter"]', "master");
+  await page.selectOption('select[aria-label="Étendue"]', "loop");
+  const lp = (await state()).arrangement.loop;
+  const dl3 = page.waitForEvent("download", { timeout: 180000 });
+  await page.click("text=⤓ Exporter");
+  const b3 = await readFile(await (await dl3).path());
+  const sec3 = (b3.length - 44) / (3 * 2 * 44100);
+  const loopSec = ((lp.end - lp.start) * 16 * 60) / (140 * 4);
+  // Loop length + the effects tail (trailing silence below −90 dBFS is trimmed, max 4 s).
+  assert.ok(sec3 >= loopSec && sec3 <= loopSec + 4.01, `loop export ${sec3.toFixed(2)} s for a ${loopSec.toFixed(2)} s loop`);
+  await page.selectOption('select[aria-label="Étendue"]', "all");
 });
 
 await step("18. save (.bsproj with audio) → reopen restores takes, processed audio, arrangement", async () => {
