@@ -123,6 +123,14 @@ await check("song mode follows the arrangement; vocal clip at its position; inst
   assert.equal(r.instrumentalOnsets.length, 2);
 });
 
+await check("arrangement: split clip keeps its pattern offset, muted clips are silent, clip fade-in", async () => {
+  const r = await run("clipEditing");
+  assert.ok(r.mutedBar0 < 1e-4, `muted clip sounds ${r.mutedBar0}`);
+  assert.ok(r.rmsBar3 > 0.02, `moved half silent ${r.rmsBar3}`);
+  assert.ok(near(r.pitchBar3, 69, 0.4), `moved right half should play the pattern's bar 2 (A4): ${r.pitchBar3}`);
+  assert.ok(r.fadeStart < r.fadeEnd * 0.2, `fade-in ${r.fadeStart} vs ${r.fadeEnd}`);
+});
+
 await check("factory templates leave headroom before the master chain (true peak < -1 dBTP)", async () => {
   const r = await run("templateHeadroom");
   for (const [id, tp] of Object.entries(r)) assert.ok(tp < -1, `${id}: ${tp}`);

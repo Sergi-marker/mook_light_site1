@@ -188,12 +188,14 @@ export class Sequencer {
       return;
     }
     for (const clip of p.arrangement.clips) {
+      if (clip.muted) continue;
       const start = clip.start * spb;
       const end = start + clip.length * spb;
       if (pos < start || pos >= end) continue;
       const pat = p.patterns.find((x) => x.id === clip.patternId);
       if (!pat) continue;
-      this.schedulePatternStep(p, pat, (pos - start) % pat.stepCount, t, dur);
+      // `offset` (bars) = where in the pattern the clip begins (right half of a split clip).
+      this.schedulePatternStep(p, pat, Math.round(pos - start + (clip.offset ?? 0) * spb) % pat.stepCount, t, dur);
     }
     this.scheduleAudioClips(p, pos, pos + 1, time, dur);
     this.scheduleAutomation(p, pos, time, dur);
@@ -204,7 +206,7 @@ export class Sequencer {
     for (const v of p.vocals) {
       if (this.silenced(v.id)) continue;
       for (const c of v.clips)
-        if (c.start >= from && c.start < to) this.startAudioClip(p, v.id, c, time + (c.start - from) * dur, 0);
+        if (!c.muted && c.start >= from && c.start < to) this.startAudioClip(p, v.id, c, time + (c.start - from) * dur, 0);
     }
   }
 
@@ -214,7 +216,7 @@ export class Sequencer {
       if (this.silenced(v.id)) continue;
       for (const c of v.clips) {
         const into = ((pos - c.start) * 60) / (p.bpm * 4);
-        if (pos > c.start && into < c.duration) this.startAudioClip(p, v.id, c, time, into);
+        if (!c.muted && pos > c.start && into < c.duration) this.startAudioClip(p, v.id, c, time, into);
       }
     }
   }
@@ -230,15 +232,19 @@ export class Sequencer {
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     const g = this.ctx.createGain();
-    g.gain.value = Math.pow(10, c.gainDb / 20);
-    src.connect(g).connect(dest);
+    const level = Math.pow(10, c.gainDb / 20);
     const offset = c.offset + skip;
     const dur = c.duration - skip;
     if (dur <= 0 || offset >= buf.duration) return;
-    // 5 ms fades avoid clicks at clip edges.
-    g.gain.setValueAtTime(0, time);
-    g.gain.linearRampToValueAtTime(Math.pow(10, c.gainDb / 20), time + 0.005);
-    g.gain.setValueAtTime(Math.pow(10, c.gainDb / 20), time + Math.max(0.005, dur - 0.005));
+    src.connect(g).connect(dest);
+    // Clip fades (min 5 ms, avoids clicks at the edges); playback may start mid-clip.
+    const fi = Math.min(c.duration / 2, Math.max(0.005, c.fadeIn ?? 0));
+    const fo = Math.min(c.duration / 2, Math.max(0.005, c.fadeOut ?? 0));
+    const env = (x: number) => level * Math.min(1, x / fi, (c.duration - x) / fo);
+    g.gain.setValueAtTime(skip > 0 ? env(skip) : 0, time);
+    if (skip < fi) g.gain.linearRampToValueAtTime(level, time + (fi - skip));
+    const foStart = c.duration - fo;
+    if (foStart > skip) g.gain.setValueAtTime(level, time + (foStart - skip));
     g.gain.linearRampToValueAtTime(0, time + dur);
     this.activeSources.add(src);
     src.onended = () => {

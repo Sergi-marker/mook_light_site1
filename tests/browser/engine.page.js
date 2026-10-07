@@ -208,6 +208,37 @@ window.tests = {
     const instrumental = await renderProject(p, { samples: new Map(), assets: new Map([["a1", tb]]) }, { mode: "song", tail: 0.5, muted: new Set(p.vocals.map((x) => x.id)) });
     return { onsets: ons, duration: buf.duration, instrumentalOnsets: onsets(instrumental.getChannelData(0), SR, 0.05, 0.3) };
   },
+  async clipEditing() {
+    let p = empty();
+    p = reduce(p, { type: "setBpm", bpm: 120 }); // 1 bar = 2 s
+    p = reduce(p, { type: "setStepCount", stepCount: 32 });
+    p = reduce(p, { type: "addInstrument", preset: "synth" });
+    const ins = p.instruments[p.instruments.length - 1];
+    p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { synth: { wave: "triangle", voices: 1, detune: 0, sustain: 1, filterEnv: 0, cutoff: 12000, drive: 0, release: 0.05 } } });
+    // A3 in bar 1 of the pattern, A4 in bar 2.
+    p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch: 57, start: 0, length: 14, velocity: 100 }, { pitch: 69, start: 16, length: 14, velocity: 100 }] });
+    p = reduce(p, { type: "addClip", clip: { patternId: p.patterns[0].id, lane: 0, start: 0, length: 2 } });
+    p = reduce(p, { type: "splitClips", ids: [p.arrangement.clips[0].id], bar: 1 });
+    const right = p.arrangement.clips.find((c) => c.start === 1);
+    // Move the right half (which starts in the middle of the pattern) to bar 3, mute the left half.
+    p = reduce(p, { type: "updateClip", clipId: right.id, patch: { start: 3 } });
+    p = reduce(p, { type: "updateClip", clipId: p.arrangement.clips.find((c) => c.start === 0).id, patch: { muted: true } });
+    const buf = await renderProject(p, media, { mode: "song", tail: 0.3 });
+    const d = buf.getChannelData(0);
+    const rmsAt = (t0, t1) => { let s = 0; const a = Math.floor(t0 * SR), b = Math.floor(t1 * SR); for (let i = a; i < b; i++) s += d[i] * d[i]; return Math.sqrt(s / (b - a)); };
+    // Vocal clip with a 1 s fade-in.
+    const v = p.vocals[0];
+    const ctx = new OfflineAudioContext(1, 1, SR);
+    const tb = await ctx.decodeAudioData(sineWav(1000, 3).buffer);
+    let q = reduce(empty(), { type: "setBpm", bpm: 120 });
+    q = reduce(q, { type: "setInserts", channelId: q.vocals[0].id, inserts: [] });
+    q = reduce(q, { type: "addTake", trackId: q.vocals[0].id, take: { id: "t1", name: "T", assetId: "a1", startStep: 0, recordedAt: "" }, asset: { id: "a1", name: "T", sampleRate: SR, frames: tb.length, channels: 1 }, clip: { takeId: "t1", start: 0, offset: 0, duration: 3, gainDb: 0, fadeIn: 1 } });
+    const vb = await renderProject(q, { samples: new Map(), assets: new Map([["a1", tb]]) }, { mode: "song", tail: 0.2 });
+    const vd = vb.getChannelData(0);
+    const vr = (t0, t1) => { let s = 0; const a = Math.floor(t0 * SR), b = Math.floor(t1 * SR); for (let i = a; i < b; i++) s += vd[i] * vd[i]; return Math.sqrt(s / (b - a)); };
+    void v;
+    return { mutedBar0: rmsAt(0.1, 1.8), pitchBar3: pitchAt(buf, 6.5, 60, 4096), rmsBar3: rmsAt(6.1, 7.5), fadeStart: vr(0.05, 0.15), fadeEnd: vr(1.5, 2) };
+  },
   async templateHeadroom() {
     const out = {};
     for (const t of TEMPLATES) {

@@ -293,3 +293,14 @@ table.comp { border-collapse: collapse; width: 100%; } table.comp td, table.comp
 .workflow .step { display: flex; flex-direction: column; gap: 4px; }
 .sample-editor { margin-top: 12px; }
 .se-wave { background: #11141c; border-radius: 4px; display: block; margin: 6px 0; width: 520px; height: 70px; }
+
+/* --- arrangement v3: muted clips, fades, inspector, time ruler --- */
+.tl-clip.muted, .tl-aclip.muted { opacity: 0.4; filter: grayscale(0.7); }
+.tl-fades { position: absolute; inset: 0; pointer-events: none; }
+.tl-fades polygon { fill: rgba(0, 0, 0, 0.45); stroke: #fbbf24; stroke-width: 1; }
+.tl-time { position: absolute; top: 11px; font-size: 9px; color: #64748b; pointer-events: none; }
+.tl-inspector .card { margin: 4px 0 8px; padding: 8px 12px; gap: 12px; flex-wrap: wrap; }
+.tl-inspector .slider-row, .tl-inspector .slider { min-width: 220px; }
+.tl-auto-help { position: absolute; right: 80px; top: 4px; font-size: 10px; pointer-events: none; }
+.pr-tools { flex-wrap: wrap; row-gap: 6px; }
+.tl-head { cursor: default; }

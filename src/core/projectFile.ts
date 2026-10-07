@@ -293,7 +293,12 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     const takeIds = new Set(takes.map((t) => t.id));
     const clips = arr(raw.clips).flatMap((c) =>
       isObj(c) && typeof c.takeId === "string" && takeIds.has(c.takeId)
-        ? [{ id: str(c.id, "") || newId("aclip"), takeId: c.takeId, start: Math.max(0, num(c.start, 0)), offset: Math.max(0, num(c.offset, 0)), duration: Math.max(0.01, num(c.duration, 1)), gainDb: clamp(num(c.gainDb, 0), -24, 24) }]
+        ? [{
+            id: str(c.id, "") || newId("aclip"), takeId: c.takeId, start: Math.max(0, num(c.start, 0)), offset: Math.max(0, num(c.offset, 0)), duration: Math.max(0.01, num(c.duration, 1)), gainDb: clamp(num(c.gainDb, 0), -24, 24),
+            ...(num(c.fadeIn, 0) > 0 ? { fadeIn: clamp(num(c.fadeIn, 0), 0, 60) } : {}),
+            ...(num(c.fadeOut, 0) > 0 ? { fadeOut: clamp(num(c.fadeOut, 0), 0, 60) } : {}),
+            ...(c.muted === true ? { muted: true } : {}),
+          }]
         : [],
     );
     const studio = isObj(raw.studio) ? raw.studio : {};
@@ -305,6 +310,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
       clips,
       armed: raw.armed === true,
       playProcessed: raw.playProcessed !== false,
+      ...(typeof raw.lyrics === "string" && raw.lyrics ? { lyrics: raw.lyrics.slice(0, 20000) } : {}),
       studio: {
         pitch: { ...v.studio.pitch, enabled: pitch.enabled === true, preset: str(pitch.preset, v.studio.pitch.preset), correction: clamp(num(pitch.correction, 45), 0, 100), retuneMs: clamp(num(pitch.retuneMs, 120), 0, 1000), humanize: clamp(num(pitch.humanize, 60), 0, 100), formant: clamp(num(pitch.formant, 0), -12, 12) },
         clean: (["off", "low", "medium", "high"] as const).find((x) => x === studio.clean) ?? "off",
@@ -325,7 +331,11 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
   const loopRaw = isObj(arrRaw.loop) ? arrRaw.loop : {};
   const clips = arr(arrRaw.clips).flatMap((c) =>
     isObj(c) && typeof c.patternId === "string" && patternIds.has(c.patternId)
-      ? [{ id: str(c.id, "") || newId("clip"), patternId: c.patternId, lane: Math.round(clamp(num(c.lane, 0), 0, 31)), start: Math.max(0, num(c.start, 0)), length: Math.max(0.25, num(c.length, 1)) }]
+      ? [{
+          id: str(c.id, "") || newId("clip"), patternId: c.patternId, lane: Math.round(clamp(num(c.lane, 0), 0, 31)), start: Math.max(0, num(c.start, 0)), length: Math.max(0.25, num(c.length, 1)),
+          ...(num(c.offset, 0) > 0 ? { offset: num(c.offset, 0) } : {}),
+          ...(c.muted === true ? { muted: true } : {}),
+        }]
       : [],
   );
   const keyRaw = isObj(p.key) ? p.key : {};
@@ -347,6 +357,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
       clips,
       sections: arr(arrRaw.sections).flatMap((s) => (isObj(s) ? [{ id: str(s.id, "") || newId("sec"), name: str(s.name, "Section").slice(0, 30), start: Math.max(0, Math.round(num(s.start, 0))), length: Math.max(1, Math.round(num(s.length, 4))), color: str(s.color, "#7c5cff") }] : [])),
       lanes: Math.round(clamp(num(arrRaw.lanes, 4), Math.max(1, ...clips.map((c) => c.lane + 1)), 32)),
+      ...(Array.isArray(arrRaw.laneNames) ? { laneNames: arrRaw.laneNames.slice(0, 32).map((x) => (typeof x === "string" ? x.slice(0, 30) : "")) } : {}),
       loop: { enabled: loopRaw.enabled === true, start: Math.max(0, Math.round(num(loopRaw.start, 0))), end: Math.max(1, Math.round(num(loopRaw.end, 8))) },
     },
     vocals,

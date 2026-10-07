@@ -2,7 +2,7 @@ import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME
 import type { Key } from "./music.ts";
 import {
   clamp, clampBpm, createInstrument, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
-  instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS,
+  instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS, secondsToSteps, stepsPerBarOf, stepsToSeconds,
 } from "./project.ts";
 import type {
   AudioAsset, AudioClip, AutomationLane, Bass808Params, Channel, Effect, EffectType, InstrumentTrack, MidiMapping,
@@ -78,6 +78,12 @@ export type Action =
   | { type: "removeSection"; sectionId: string }
   | { type: "setLoop"; loop: Partial<Project["arrangement"]["loop"]> }
   | { type: "setLanes"; lanes: number }
+  | { type: "setLaneName"; lane: number; name: string }
+  | { type: "splitClips"; ids: string[]; bar: number }
+  | { type: "splitAudioClips"; trackId: string; ids: string[]; step: number }
+  | { type: "addAudioClips"; trackId: string; clips: Omit<AudioClip, "id">[] }
+  /** Insert (bars > 0) or delete (bars < 0) time at bar `at`, shifting everything after it. */
+  | { type: "insertBars"; at: number; bars: number }
   // Vocals
   | { type: "addVocalTrack"; role: VocalRole; name?: string }
   | { type: "removeVocalTrack"; trackId: string }
@@ -548,6 +554,8 @@ export function reduce(p: Project, a: Action): Project {
         start: Math.max(0, Math.round(a.clip.start * 4) / 4),
         length: Math.max(0.25, Math.round(a.clip.length * 4) / 4),
       };
+      if (a.clip.offset) clip.offset = Math.max(0, Math.round(a.clip.offset * 4) / 4);
+      if (a.clip.muted) clip.muted = true;
       const lanes = Math.max(p.arrangement.lanes, clip.lane + 1);
       return { ...p, arrangement: { ...p.arrangement, lanes, clips: [...p.arrangement.clips, clip] } };
     }
@@ -557,6 +565,10 @@ export function reduce(p: Project, a: Action): Project {
         n.start = Math.max(0, Math.round(n.start * 4) / 4);
         n.length = Math.max(0.25, Math.round(n.length * 4) / 4);
         n.lane = Math.round(clamp(n.lane, 0, 31));
+        if (n.offset !== undefined) n.offset = Math.max(0, Math.round(n.offset * 4) / 4);
+        if (!n.offset) delete n.offset;
+        if (!n.muted) delete n.muted;
+        if (!p.patterns.some((x) => x.id === n.patternId)) n.patternId = c.patternId;
         return sameShallow(c, n) ? c : n;
       });
       if (clips === p.arrangement.clips) return p;
@@ -599,6 +611,33 @@ export function reduce(p: Project, a: Action): Project {
       loop.start = Math.max(0, Math.round(loop.start));
       loop.end = Math.max(loop.start + 1, Math.round(loop.end));
       return sameShallow(p.arrangement.loop, loop) ? p : { ...p, arrangement: { ...p.arrangement, loop } };
+    }
+    case "setLaneName": {
+      const lane = Math.round(a.lane);
+      if (lane < 0 || lane >= 32) return p;
+      const laneNames = [...(p.arrangement.laneNames ?? [])];
+      while (laneNames.length <= lane) laneNames.push("");
+      laneNames[lane] = a.name.trim().slice(0, 30);
+      return { ...p, arrangement: { ...p.arrangement, laneNames } };
+    }
+    case "splitClips": {
+      const ids = new Set(a.ids);
+      const bar = Math.round(a.bar * 4) / 4;
+      let changed = false;
+      const clips = p.arrangement.clips.flatMap((c): PatternClip[] => {
+        if (!ids.has(c.id) || bar <= c.start || bar >= c.start + c.length) return [c];
+        changed = true;
+        const left = bar - c.start;
+        const right: PatternClip = { ...c, id: newId("clip"), start: bar, length: c.length - left, offset: (c.offset ?? 0) + left };
+        return [{ ...c, length: left }, right];
+      });
+      return changed ? { ...p, arrangement: { ...p.arrangement, clips } } : p;
+    }
+    case "insertBars": {
+      const at = Math.max(0, Math.round(a.at * 4) / 4);
+      const n = Math.round(a.bars * 4) / 4;
+      if (!n) return p;
+      return n > 0 ? insertTime(p, at, n) : deleteTime(p, at, -n);
     }
     case "setLanes": {
       const lanes = Math.round(clamp(a.lanes, Math.max(1, ...p.arrangement.clips.map((c) => c.lane + 1)), 32));
@@ -674,6 +713,11 @@ export function reduce(p: Project, a: Action): Project {
           n.offset = Math.max(0, n.offset);
           n.duration = Math.max(0.01, n.duration);
           n.gainDb = clamp(n.gainDb, -24, 24);
+          if (n.fadeIn !== undefined) n.fadeIn = clamp(n.fadeIn, 0, n.duration);
+          if (n.fadeOut !== undefined) n.fadeOut = clamp(n.fadeOut, 0, n.duration);
+          if (!n.fadeIn) delete n.fadeIn;
+          if (!n.fadeOut) delete n.fadeOut;
+          if (!n.muted) delete n.muted;
           return sameShallow(c, n) ? c : n;
         }),
       }));
@@ -683,6 +727,27 @@ export function reduce(p: Project, a: Action): Project {
         const clips = v.clips.filter((c) => !ids.has(c.id));
         return clips.length === v.clips.length ? v : { ...v, clips };
       });
+    case "splitAudioClips":
+      return withVocal(p, a.trackId, (v) => {
+        const ids = new Set(a.ids);
+        let changed = false;
+        const clips = v.clips.flatMap((c): AudioClip[] => {
+          const t = stepsToSeconds(a.step - c.start, p.bpm);
+          if (!ids.has(c.id) || t <= 0.01 || t >= c.duration - 0.01) return [c];
+          changed = true;
+          const left: AudioClip = { ...c, duration: t };
+          delete left.fadeOut;
+          const right: AudioClip = { ...c, id: newId("aclip"), start: a.step, offset: c.offset + t, duration: c.duration - t };
+          delete right.fadeIn;
+          return [left, right];
+        });
+        return changed ? { ...v, clips } : v;
+      });
+    case "addAudioClips":
+      return withVocal(p, a.trackId, (v) => ({
+        ...v,
+        clips: [...v.clips, ...a.clips.filter((c) => v.takes.some((t) => t.id === c.takeId)).map((c) => ({ ...c, id: newId("aclip"), start: Math.max(0, c.start) }))],
+      }));
     case "setAudioClips":
       return withVocal(p, a.trackId, (v) => ({ ...v, clips: a.clips.map((c) => ({ id: newId("aclip"), ...c })) }));
 
@@ -711,3 +776,88 @@ function overlaps(c: AudioClip, n: Omit<AudioClip, "id">, bpm: number): boolean 
 }
 
 export { PATTERN_COLORS };
+
+
+// --- time insertion / deletion (arrangement) --------------------------------------------
+
+function insertTime(p: Project, at: number, n: number): Project {
+  const spb = stepsPerBarOf(p);
+  const atStep = at * spb;
+  const clips = p.arrangement.clips.flatMap((c): PatternClip[] => {
+    if (c.start >= at) return [{ ...c, start: c.start + n }];
+    if (c.start + c.length <= at) return [c];
+    // Clip spans the insertion point: split it, the right part moves.
+    const left = at - c.start;
+    return [{ ...c, length: left }, { ...c, id: newId("clip"), start: at + n, length: c.length - left, offset: (c.offset ?? 0) + left }];
+  });
+  const sections = p.arrangement.sections.map((s) => (s.start >= at ? { ...s, start: s.start + n } : s.start + s.length > at ? { ...s, length: s.length + n } : s));
+  const loop = { ...p.arrangement.loop };
+  if (loop.start >= at) loop.start += n;
+  if (loop.end > at) loop.end += n;
+  const vocals = p.vocals.map((v) => ({
+    ...v,
+    takes: v.takes.map((t) => (t.startStep >= atStep ? { ...t, startStep: t.startStep + n * spb } : t)),
+    clips: v.clips.flatMap((c): AudioClip[] => {
+      if (c.start >= atStep) return [{ ...c, start: c.start + n * spb }];
+      const t = stepsToSeconds(atStep - c.start, p.bpm);
+      if (t >= c.duration) return [c];
+      const left: AudioClip = { ...c, duration: t };
+      delete left.fadeOut;
+      const right: AudioClip = { ...c, id: newId("aclip"), start: atStep + n * spb, offset: c.offset + t, duration: c.duration - t };
+      delete right.fadeIn;
+      return [left, right];
+    }),
+  }));
+  const automation = p.automation.map((l) => ({ ...l, points: l.points.map((pt) => (pt.bar >= at ? { ...pt, bar: pt.bar + n } : pt)) }));
+  return { ...p, arrangement: { ...p.arrangement, clips, sections, loop }, vocals, automation };
+}
+
+function deleteTime(p: Project, at: number, n: number): Project {
+  const spb = stepsPerBarOf(p);
+  const end = at + n;
+  const clips = p.arrangement.clips.flatMap((c): PatternClip[] => {
+    const cEnd = c.start + c.length;
+    if (cEnd <= at) return [c];
+    if (c.start >= end) return [{ ...c, start: c.start - n }];
+    if (c.start >= at && cEnd <= end) return [];
+    if (c.start < at && cEnd > end) return [{ ...c, length: c.length - n }];
+    if (c.start < at) return [{ ...c, length: at - c.start }];
+    // starts inside the deleted range, ends after it
+    return [{ ...c, start: at, length: cEnd - end, offset: (c.offset ?? 0) + (end - c.start) }];
+  });
+  const sections = p.arrangement.sections.flatMap((s): Section[] => {
+    const sEnd = s.start + s.length;
+    if (sEnd <= at) return [s];
+    if (s.start >= end) return [{ ...s, start: s.start - n }];
+    const length = Math.max(0, Math.min(sEnd, at) - s.start) + Math.max(0, sEnd - Math.max(s.start, end));
+    return length >= 1 ? [{ ...s, start: Math.min(s.start, at), length }] : [];
+  });
+  const shift = (x: number) => (x >= end ? x - n : x > at ? at : x);
+  const loop = { ...p.arrangement.loop, start: shift(p.arrangement.loop.start), end: shift(p.arrangement.loop.end) };
+  if (loop.end <= loop.start) loop.end = loop.start + 1;
+  const atStep = at * spb, endStep = end * spb;
+  const vocals = p.vocals.map((v) => ({
+    ...v,
+    takes: v.takes.map((t) => ({ ...t, startStep: t.startStep >= endStep ? t.startStep - n * spb : t.startStep })),
+    clips: v.clips.flatMap((c): AudioClip[] => {
+      const cEnd = c.start + secondsToSteps(c.duration, p.bpm);
+      if (cEnd <= atStep) return [c];
+      if (c.start >= endStep) return [{ ...c, start: c.start - n * spb }];
+      const out: AudioClip[] = [];
+      if (c.start < atStep) {
+        const left: AudioClip = { ...c, duration: stepsToSeconds(atStep - c.start, p.bpm) };
+        delete left.fadeOut;
+        out.push(left);
+      }
+      if (cEnd > endStep) {
+        const skip = stepsToSeconds(endStep - c.start, p.bpm);
+        const right: AudioClip = { ...c, id: out.length ? newId("aclip") : c.id, start: atStep, offset: c.offset + skip, duration: c.duration - skip };
+        delete right.fadeIn;
+        out.push(right);
+      }
+      return out;
+    }),
+  }));
+  const automation = p.automation.map((l) => ({ ...l, points: l.points.filter((pt) => pt.bar < at || pt.bar >= end).map((pt) => (pt.bar >= end ? { ...pt, bar: pt.bar - n } : pt)) }));
+  return { ...p, arrangement: { ...p.arrangement, clips, sections, loop }, vocals, automation };
+}
