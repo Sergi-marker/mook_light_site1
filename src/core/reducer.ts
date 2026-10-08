@@ -15,7 +15,7 @@ export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "so
 export type NoteUpdate = { id: string } & Partial<Omit<Note, "id">>;
 export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params> };
 export type VocalPatch = Partial<Pick<VocalTrack, "name" | "armed" | "playProcessed" | "role" | "lyrics">> & { studio?: Partial<VocalTrack["studio"]> };
-export type ProjectPatch = Partial<Pick<Project, "bpm" | "swing" | "key" | "patterns" | "currentPatternId" | "arrangement" | "instruments" | "channels" | "name">>;
+export type ProjectPatch = Partial<Pick<Project, "bpm" | "swing" | "key" | "patterns" | "currentPatternId" | "arrangement" | "instruments" | "channels" | "name" | "tracks">>;
 
 export type Action =
   // Project

@@ -7,13 +7,15 @@ import { songEndStep } from "../../audio/sequencer.ts";
 import { measureMix } from "../../audio/studio.ts";
 import { askAssistant, projectSummaryForRemote, type AssistantAnswer } from "../../core/ai/assistant.ts";
 import { generateSong, melodyOptions } from "../../core/ai/beat.ts";
+import { STYLE_FAMILIES, STYLES, styleById } from "../../core/ai/styles.ts";
+import { SOUND_LIBRARY } from "../../core/soundLibrary.ts";
 import { generateDrums } from "../../core/ai/drums.ts";
 import { generateBass, generateChords, progressionsFor } from "../../core/ai/melody.ts";
 import { buildStructure, STRUCTURES } from "../../core/ai/structure.ts";
 import { drumVariation, VARIATIONS, type VariationKind } from "../../core/ai/variation.ts";
 import { MASTER_TARGETS, proposeMaster, refineLimiterGain, type MasterTarget } from "../../core/ai/master.ts";
 import { analyzeMix, type GroupMeasure, type Suggestion } from "../../core/ai/mix.ts";
-import { GENRE_DEFAULTS, parseBeatPrompt, type Genre, type Mood } from "../../core/ai/prompt.ts";
+import { parseBeatPrompt, type Mood } from "../../core/ai/prompt.ts";
 import type { MixMeasurements } from "../../core/dsp/loudness.ts";
 import { bandBalance } from "../../core/dsp/spectrum.ts";
 import { degreeToMidi, keyLabel, NOTE_NAMES, SCALES, type ScaleId } from "../../core/music.ts";
@@ -42,60 +44,80 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
   let tab = lastTab;
 
   const field = (label: string, input: HTMLElement) => h("label", { class: "field" }, h("span", { class: "slider-label" }, label), input);
-  const genreSelect = (value: Genre) => h("select", {}, ...(Object.keys(GENRE_DEFAULTS) as Genre[]).map((g) => h("option", { value: g, selected: g === value }, GENRE_DEFAULTS[g].label)));
+  /** Style picker grouped by family (value = style id). */
+  const styleSelect = (value: string) => h("select", { "aria-label": "Style" }, ...STYLE_FAMILIES.map((fam) => h("optgroup", { label: fam },
+    ...STYLES.filter((x) => x.family === fam).map((x) => h("option", { value: x.id, selected: x.id === value }, x.label)))));
   const moodSelect = (value: Mood) => h("select", {}, ...MOODS.map((m) => h("option", { value: m, selected: m === value }, m)));
   const range = (min: number, max: number, step: number, value: number) => h("input", { type: "range", min, max, step, value });
 
   // --- BEAT -----------------------------------------------------------------------------
-  let beatState: { prompt: string; seed: number; result: ReturnType<typeof generateSong> | null; understood: string[] } = { prompt: store.getState().ai.lastBeatPrompt || "Dark trap beat, 140 BPM, F minor, melancholic, heavy 808.", seed: 1, result: null, understood: [] };
+  type BeatResult = { seed: number; req: ReturnType<typeof parseBeatPrompt>; song: ReturnType<typeof generateSong> };
+  let beatState: { prompt: string; style: string; results: BeatResult[]; understood: string[] } = {
+    prompt: store.getState().ai.lastBeatPrompt || "140 BPM, F minor, melancholic, heavy 808.", style: "trap", results: [], understood: [],
+  };
   function beatTab(): HTMLElement {
     const ta = h("textarea", { class: "prompt", rows: 2, "aria-label": "Décrivez le beat" }, beatState.prompt);
-    const gen = (newSeed: boolean) => {
+    const st = styleById(beatState.style);
+    const gen = (count: number) => {
       beatState.prompt = ta.value;
-      if (newSeed || !beatState.result) beatState.seed = Math.floor(Math.random() * 1e6);
-      const req = parseBeatPrompt(ta.value);
+      const req = parseBeatPrompt(ta.value, beatState.style, store.getState().key.root);
       beatState.understood = req.understood;
-      beatState.result = generateSong(store.getState(), req, beatState.seed);
+      // A style named in the text wins over the picked one; show it as selected.
+      beatState.style = req.style;
+      beatState.results = Array.from({ length: count }, (_, i) => {
+        const seed = Math.floor(Math.random() * 1e6) + i * 7919;
+        return { seed, req, song: generateSong(store.getState(), req, seed, i) };
+      });
       app.cancelPreview();
       render();
     };
-    const r = beatState.result;
-    return h("div", {},
-      h("p", {}, "Décrivez le morceau (genre, BPM, tonalité, humeur, 808…). Exemple : « Dark trap, 140 BPM, F minor, melancholic, heavy 808 »."),
-      ta,
+    const families = STYLE_FAMILIES.map((fam) => h("div", { class: "style-family" },
+      h("span", { class: "slider-label" }, fam),
+      h("div", { class: "style-chips" }, ...STYLES.filter((x) => x.family === fam).map((x) => h("button", {
+        class: `style-chip ${x.id === beatState.style ? "active" : ""}`, title: `${x.description} (${x.bpm[0]}–${x.bpm[2]} BPM)`,
+        onclick: () => { beatState.style = x.id; render(); },
+      }, x.label)))));
+    const resultCard = (res: BeatResult, i: number) => h("div", { class: "card" },
+      h("h3", {}, beatState.results.length > 1 ? `Version ${i + 1}` : "Proposition"),
+      h("ul", {}, ...res.song.summary.map((x) => h("li", {}, x))),
       h("div", { class: "button-row" },
-        h("button", { class: "btn btn-ai", onclick: () => gen(true) }, "✨ GENERATE BEAT"),
-        r ? h("button", { class: "btn", onclick: () => gen(true) }, "↻ Autre version") : null),
+        h("button", { class: "btn", onclick: async () => {
+          app.startPreview(`AI BEAT ${i + 1}`, reduce(store.getState(), { type: "patchProject", patch: res.song.patch }));
+          app.engine.setMode("song");
+          const chorus = res.song.patch.arrangement?.sections.find((x) => /chorus|hook/i.test(x.name));
+          app.engine.seek((chorus?.start ?? 0) * 16);
+          if (!app.engine.isPlaying) await app.togglePlay();
+        } }, "▶ Écouter le refrain"),
+        h("button", { class: "btn btn-primary", onclick: () => {
+          app.engine.stop();
+          app.applyActions([{ type: "patchProject", patch: res.song.patch }, { type: "setAiSettings", ai: { lastBeatPrompt: beatState.prompt } }], `${styleById(res.req.style).label} généré : tout est éditable dans BEAT, MELODY et ARRANGEMENT (Ctrl+Z pour annuler).`);
+          beatState.results = [];
+          navigate("arrangement");
+        } }, "Appliquer au projet")));
+    return h("div", {},
+      h("p", {}, "1. Choisissez un style  2. Ajoutez des détails si vous voulez (BPM, tonalité, humeur, « 808 lourde »…)  3. Générez une ou trois versions et écoutez-les."),
+      ...families,
+      h("p", { class: "style-desc" }, h("strong", {}, `${st.label} — `), st.description, h("span", { class: "hint" }, `  · ${st.bpm[0]}–${st.bpm[2]} BPM · sons : ${[st.sounds.lead, st.sounds.chords, st.sounds.bass].map((id) => SOUND_LIBRARY.find((x) => x.id === id)?.name ?? id).join(", ")}`)),
+      ta,
+      h("p", { class: "hint" }, "Vous pouvez aussi écrire le style directement : « love drill en Bb minor », « mumble rap triste 150 BPM », « drift phonk », « amapiano », « Pop Smoke type beat »…"),
+      h("div", { class: "button-row" },
+        h("button", { class: "btn btn-ai", onclick: () => gen(1) }, "✨ GENERATE BEAT"),
+        h("button", { class: "btn btn-ai", title: "Trois versions différentes du même style, à comparer", onclick: () => gen(3) }, "✨ 3 versions"),
+        beatState.results.length ? h("button", { class: "btn", onclick: () => { app.cancelPreview(); app.engine.stop(); } }, "■ Stop / annuler la preview") : null),
       beatState.understood.length ? h("p", { class: "hint" }, `Compris : ${beatState.understood.join(" · ")}`) : null,
-      r ? h("div", { class: "card" },
-        h("h3", {}, "Proposition"),
-        h("ul", {}, ...r.summary.map((s) => h("li", {}, s))),
-        h("p", { class: "hint" }, "Créé : patterns Intro / Verse / Chorus / Bridge / Outro (drums, 808, accords, mélodie séparés), instruments et arrangement complet. Les patterns existants sont conservés."),
-        h("div", { class: "button-row" },
-          h("button", { class: "btn", onclick: async () => {
-            app.startPreview("AI BEAT", reduce(store.getState(), { type: "patchProject", patch: r.patch }));
-            app.engine.setMode("song");
-            app.engine.seek(0);
-            if (!app.engine.isPlaying) await app.togglePlay();
-          } }, "▶ Écouter (preview)"),
-          h("button", { class: "btn btn-primary", onclick: () => {
-            app.engine.stop();
-            app.applyActions([{ type: "patchProject", patch: r.patch }, { type: "setAiSettings", ai: { lastBeatPrompt: beatState.prompt } }], "Beat généré : tout est éditable dans BEAT, MELODY et ARRANGEMENT (Ctrl+Z pour annuler).");
-            beatState.result = null;
-            navigate("arrangement");
-          } }, "Appliquer au projet"),
-          h("button", { class: "btn", onclick: () => { app.cancelPreview(); app.engine.stop(); } }, "Stop / annuler la preview"))) : null,
+      beatState.results.length ? h("div", { class: "options" }, ...beatState.results.map(resultCard)) : null,
+      beatState.results.length ? h("p", { class: "hint" }, "Chaque version crée les patterns Intro / Verse / Chorus / Bridge / Outro, les instruments du style et l'arrangement complet. Vos patterns existants sont conservés.") : null,
     );
   }
 
   // --- MELODY ---------------------------------------------------------------------------
-  let melState: { options: ReturnType<typeof melodyOptions> | null; target: string; genre: Genre; mood: Mood; complexity: number } = { options: null, target: "", genre: "trap", mood: "dark", complexity: 0.6 };
+  let melState: { options: ReturnType<typeof melodyOptions> | null; target: string; style: string; mood: Mood; complexity: number } = { options: null, target: "", style: "trap", mood: "dark", complexity: 0.6 };
   function melodyTab(): HTMLElement {
     const p = store.getState();
     const pat = currentPattern(p);
     const melodic = p.instruments.filter((i) => i.preset !== "808");
     if (!melState.target || !p.instruments.some((i) => i.id === melState.target)) melState.target = melodic[0]?.id ?? p.instruments[0]?.id ?? "";
-    const g = genreSelect(melState.genre);
+    const g = styleSelect(melState.style);
     const m = moodSelect(melState.mood);
     const cx = range(0, 1, 0.05, melState.complexity);
     const rootSel = h("select", {}, ...NOTE_NAMES.map((n, i) => h("option", { value: i, selected: i === p.key.root }, n)));
@@ -109,10 +131,10 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     };
     return h("div", {},
       h("div", { class: "row-inline" },
-        field("Genre", g), field("BPM", h("span", { class: "val" }, String(p.bpm))), field("Key", rootSel), field("Scale", scaleSel), field("Humeur", m), field("Complexité", cx), field("Instrument", target)),
+        field("Style", g), field("BPM", h("span", { class: "val" }, String(p.bpm))), field("Key", rootSel), field("Scale", scaleSel), field("Humeur", m), field("Complexité", cx), field("Instrument", target)),
       h("div", { class: "button-row" }, h("button", { class: "btn btn-ai", onclick: () => {
-        melState = { ...melState, genre: g.value as Genre, mood: m.value as Mood, complexity: Number(cx.value), target: target.value };
-        melState.options = melodyOptions({ key: { root: Number(rootSel.value), scale: scaleSel.value as ScaleId }, genre: melState.genre, mood: melState.mood, complexity: melState.complexity, stepCount: pat.stepCount, count: 4 });
+        melState = { ...melState, style: g.value, mood: m.value as Mood, complexity: Number(cx.value), target: target.value };
+        melState.options = melodyOptions({ key: { root: Number(rootSel.value), scale: scaleSel.value as ScaleId }, genre: styleById(melState.style).genre, style: melState.style, mood: melState.mood, complexity: melState.complexity, stepCount: pat.stepCount, count: 4 });
         render();
       } }, "✨ Générer 4 options")),
       melState.options ? h("div", { class: "options" }, ...melState.options.map((o) => h("div", { class: "card option" },
@@ -131,22 +153,28 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
   }
 
   // --- DRUMS ------------------------------------------------------------------------------
-  let drumState = { genre: "trap" as Genre, energy: 0.7, complexity: 0.5, swing: 0 };
+  let drumState = { style: "trap", energy: 0.7, complexity: 0.5, swing: 0 };
   function drumsTab(): HTMLElement {
-    const g = genreSelect(drumState.genre);
+    const g = styleSelect(drumState.style);
+    g.addEventListener("change", () => {
+      const st = styleById(g.value);
+      drumState = { ...drumState, style: st.id, swing: st.swing, energy: st.energy, complexity: st.complexity };
+      render();
+    });
     const en = range(0, 1, 0.05, drumState.energy);
     const cx = range(0, 1, 0.05, drumState.complexity);
     const sw = range(0, 100, 1, drumState.swing);
     const make = (): Action[] => {
-      drumState = { genre: g.value as Genre, energy: Number(en.value), complexity: Number(cx.value), swing: Number(sw.value) };
+      drumState = { style: g.value, energy: Number(en.value), complexity: Number(cx.value), swing: Number(sw.value) };
       const p = store.getState();
       const pat = currentPattern(p);
-      const d = generateDrums({ ...drumState, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
+      const st = styleById(drumState.style);
+      const d = generateDrums({ genre: st.genre, style: st, energy: drumState.energy, complexity: drumState.complexity, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
       return [...p.tracks.map((t): Action => ({ type: "setDrumSteps", trackId: t.id, steps: d[t.instrument] })), { type: "setSwing", swing: drumState.swing }];
     };
     let pending: Action[] | null = null;
     return h("div", {},
-      h("div", { class: "row-inline" }, field("Genre", g), field("BPM", h("span", { class: "val" }, String(store.getState().bpm))), field("Énergie", en), field("Complexité", cx), field("Swing", sw)),
+      h("div", { class: "row-inline" }, field("Style", g), field("BPM", h("span", { class: "val" }, `${store.getState().bpm} (conseillé : ${styleById(drumState.style).bpm[0]}–${styleById(drumState.style).bpm[2]})`)), field("Énergie", en), field("Complexité", cx), field("Swing", sw)),
       h("p", { class: "hint" }, `Cible : pattern « ${currentPattern(store.getState()).name} » (${currentPattern(store.getState()).stepCount} steps).`),
       h("div", { class: "button-row" },
         h("button", { class: "btn btn-ai", onclick: async () => {
@@ -229,13 +257,14 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
   }
 
   // --- 808 / BASS -----------------------------------------------------------------------------
-  let bassState = { mood: "dark" as Mood, prog: 0, rhythm: "kick" as "kick" | "sustain" | "bounce", slides: true, target: "", genre: "trap" as Genre, seed: 1 };
+  let bassState = { mood: "dark" as Mood, prog: 0, rhythm: "kick" as "kick" | "sustain" | "bounce", slides: true, target: "", style: "trap", seed: 1 };
   function bassTab(): HTMLElement {
     const p = store.getState();
     const pat = currentPattern(p);
     const m = moodSelect(bassState.mood);
-    const g = genreSelect(bassState.genre);
-    const progs = progressionsFor(bassState.mood);
+    const g = styleSelect(bassState.style);
+    g.addEventListener("change", () => { bassState.style = g.value; bassState.mood = styleById(g.value).mood; bassState.prog = 0; render(); });
+    const progs = [...styleById(bassState.style).progressions, ...progressionsFor(bassState.mood)];
     const progSel = h("select", { "aria-label": "Progression" }, ...progs.map((pr, i) => h("option", { value: i, selected: i === bassState.prog }, pr.map((d) => ["I", "II", "III", "IV", "V", "VI", "VII"][d % 7]).join(" – "))));
     const rhy = h("select", { "aria-label": "Rythme" }, ...([["kick", "Suit le kick"], ["sustain", "Notes longues (1 par mesure)"], ["bounce", "Rebond (syncopé)"]] as const).map(([v, l]) => h("option", { value: v, selected: v === bassState.rhythm }, l)));
     const slides = h("input", { type: "checkbox", checked: bassState.slides, "aria-label": "Slides" });
@@ -243,7 +272,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     const target = targetSelect(["808", "bass"], bassState.target || def);
     m.addEventListener("change", () => { bassState.mood = m.value as Mood; bassState.prog = 0; render(); });
     const make = () => {
-      bassState = { ...bassState, mood: m.value as Mood, genre: g.value as Genre, prog: Number(progSel.value), rhythm: rhy.value as typeof bassState.rhythm, slides: slides.checked, target: target.value };
+      bassState = { ...bassState, mood: m.value as Mood, style: g.value, prog: Number(progSel.value), rhythm: rhy.value as typeof bassState.rhythm, slides: slides.checked, target: target.value };
       const kickTrack = p.tracks.find((t) => t.instrument === "kick");
       const kickSteps = kickTrack ? pat.drums[kickTrack.id] : undefined;
       const rhythm = Array.from({ length: pat.stepCount }, (_, i) => {
@@ -251,12 +280,12 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
         return { on, velocity: 110 };
       });
       if (!rhythm.some((s) => s.on)) for (let i = 0; i < pat.stepCount; i += 16) rhythm[i] = { on: true, velocity: 110 };
-      return generateBass({ key: p.key, progression: progs[bassState.prog] ?? progs[0], stepCount: pat.stepCount, rhythm, genre: bassState.genre, seed: bassState.seed, slides: bassState.slides });
+      return generateBass({ key: p.key, progression: progs[bassState.prog] ?? progs[0], stepCount: pat.stepCount, rhythm, genre: styleById(bassState.style).genre, seed: bassState.seed, slides: bassState.slides, slideAmount: Math.max(0.15, styleById(bassState.style).slides) });
     };
     const presetOf = () => (target.value.startsWith("new:") ? (target.value.slice(4) as SynthPreset) : "808");
     return h("div", {},
       h("p", {}, `Ligne de 808 / basse sur les fondamentales des accords, en ${keyLabel(p.key)}, calée sur le kick du pattern « ${pat.name} ». Les slides (glissés) sont éditables avec la touche L dans le piano roll.`),
-      h("div", { class: "row-inline" }, field("Genre", g), field("Humeur", m), field("Progression", progSel), field("Rythme", rhy), h("label", { class: "field" }, slides, " Slides"), field("Instrument", target)),
+      h("div", { class: "row-inline" }, field("Style", g), field("Humeur", m), field("Progression", progSel), field("Rythme", rhy), h("label", { class: "field" }, slides, " Slides"), field("Instrument", target)),
       h("div", { class: "button-row" },
         h("button", { class: "btn", onclick: () => void previewNotes(target.value, make(), presetOf()) }, "▶ Écouter"),
         h("button", { class: "btn btn-primary", onclick: () => { app.stopPreviewPlayback(); writeNotes(target.value, make(), "808"); render(); } }, "Appliquer au pattern"),

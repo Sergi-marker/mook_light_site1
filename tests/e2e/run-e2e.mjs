@@ -118,7 +118,7 @@ await step("2–4. new project, 140 BPM, F minor", async () => {
 });
 
 await step("5. drums: AI drum generator + manual edits, rolls; PLAY is audible", async () => {
-  await page.selectOption('select[aria-label="Genre du générateur"]', "trap");
+  await page.selectOption('select[aria-label="Style du générateur"]', "trap");
   await page.click("text=✨ Générer drums");
   const p = await state();
   const pat = p.patterns.find((x) => x.id === p.currentPatternId);
@@ -610,6 +610,28 @@ await step("MIDI: keyboard plays the selected instrument; REC MIDI writes notes;
   const p = await state();
   assert.ok(p.midiMappings.some((m) => m.source === "cc:0:7" && m.target === "master:volume"));
   assert.ok(Math.abs(p.channels.find((c) => c.id === "master").volume - (64 / 127) * 1.5) < 0.01);
+});
+
+await step("AI styles: pick Love drill, 3 versions, apply one (tempo, sounds, structure follow the style)", async () => {
+  await nav("AI");
+  await page.click('.tab:has-text("BEAT GENERATOR")');
+  await page.click('.style-chip:has-text("Love drill")');
+  await page.fill("textarea.prompt", "Bb minor, romantique");
+  await page.click('button:has-text("✨ 3 versions")');
+  assert.equal(await page.locator('.ai-panel .options .card').count(), 3);
+  await page.locator('.ai-panel .options .card').nth(1).locator('button:has-text("Appliquer au projet")').click();
+  await page.waitForSelector(".arrangement-view");
+  const p = await state();
+  assert.equal(p.bpm, 142);
+  assert.deepEqual(p.key, { root: 10, scale: "minor" });
+  const lead = p.instruments.find((i) => i.name === "Melody");
+  assert.equal(lead.preset, "synth", "whistle lead");
+  assert.equal(p.instruments.find((i) => i.name === "Chords").preset, "epiano", "R&B Rhodes chords");
+  assert.equal(p.arrangement.sections[1].name, "Hook", "hook-first structure");
+  await evalApp(() => { window.__app.engine.setMode("song"); window.__app.engine.seek(4 * 16); });
+  await page.click(".btn-play");
+  assert.ok((await maxPeak(1500)) > 0.05, "love drill audible");
+  await page.click(".btn-play");
 });
 
 await step("no page errors during the whole session", async () => {

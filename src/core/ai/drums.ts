@@ -4,6 +4,7 @@
 import type { InstrumentKind, Step } from "../types.ts";
 import type { Genre } from "./prompt.ts";
 import { rng } from "./rng.ts";
+import { parseGrid, type StyleDef } from "./styles.ts";
 
 export interface DrumGenOptions {
   genre: Genre;
@@ -13,6 +14,8 @@ export interface DrumGenOptions {
   seed: number;
   /** Variation used for chorus / verse differences (0 = base). */
   variation?: number;
+  /** Precise sub-genre: its own grids, hat rolls and 808 rhythm override the genre's. */
+  style?: StyleDef;
 }
 
 type Grid = Partial<Record<InstrumentKind, number[]>>; // 16 probabilities per lane (one bar)
@@ -97,7 +100,9 @@ const BACKBONE = 0.95;
 
 export function generateDrums(o: DrumGenOptions): Record<InstrumentKind, Step[]> {
   const r = rng(o.seed * 7 + (o.variation ?? 0) * 101);
-  const grid = GRIDS[o.genre];
+  const st = o.style;
+  const grid: Grid = st ? Object.fromEntries(Object.entries(st.drums).map(([k, g]) => [k, parseGrid(g)])) : GRIDS[o.genre];
+  if (st && !st.drums["808"]) grid["808"] = st.bassGrid ? parseGrid(st.bassGrid) : grid.kick;
   const bars = o.stepCount / 16;
   const out = {} as Record<InstrumentKind, Step[]>;
   const kinds: InstrumentKind[] = ["kick", "snare", "clap", "closedHat", "openHat", "perc", "808"];
@@ -118,9 +123,10 @@ export function generateDrums(o: DrumGenOptions): Record<InstrumentKind, Step[]>
         let velocity = Math.round((accent ? 108 : 88) + (r() - 0.5) * 22 * o.complexity);
         if (k === "closedHat" && !accent) velocity -= 12;
         const s: Step = { on, velocity: Math.max(30, Math.min(127, velocity)) };
-        if (on && k === "closedHat" && (o.genre === "trap" || o.genre === "drill")) {
-          const rollChance = 0.03 + o.complexity * 0.18 * (i >= 12 ? 1.6 : 1);
-          if (r() < rollChance) s.roll = r() < 0.65 ? 2 : r() < 0.6 ? 3 : 4;
+        const rollAmount = st ? st.hatRolls : o.genre === "trap" || o.genre === "drill" ? 0.5 : 0;
+        if (on && k === "closedHat" && rollAmount > 0) {
+          const rollChance = (0.03 + o.complexity * 0.18 * (i >= 12 ? 1.6 : 1)) * rollAmount * 2;
+          if (r() < rollChance) s.roll = st?.tripletRolls ? (r() < 0.7 ? 3 : 2) : r() < 0.65 ? 2 : r() < 0.6 ? 3 : 4;
         }
         steps.push(s);
       }
@@ -128,7 +134,7 @@ export function generateDrums(o: DrumGenOptions): Record<InstrumentKind, Step[]>
     out[k] = steps;
   }
   // 808 and kick share hits in trap/drill most of the time (classic pattern), fills aside.
-  if (o.genre === "trap") for (let i = 0; i < out.kick.length; i++) if (out.kick[i].on && r() < 0.8) out["808"][i] = { ...out["808"][i], on: true };
+  if (st ? !st.bassGrid && st.genre === "trap" : o.genre === "trap") for (let i = 0; i < out.kick.length; i++) if (out.kick[i].on && r() < 0.8) out["808"][i] = { ...out["808"][i], on: true };
   // Open hat chokes: never on the same step as a closed hat.
   for (let i = 0; i < out.openHat.length; i++) if (out.openHat[i].on) out.closedHat[i] = { ...out.closedHat[i], on: false };
   return out;

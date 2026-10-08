@@ -27,6 +27,10 @@ export const SOUND_LIBRARY: LibrarySound[] = [
   { id: "flute", name: "Soft Flute", category: "Leads", preset: "synth", synth: { wave: "triangle", voices: 1, attack: 0.06, sustain: 0.8, cutoff: 3000, filterEnv: 0, resonance: 0.5, lfoDepth: 18, lfoRate: 5 } },
   { id: "whistle", name: "Whistle", category: "Leads", preset: "synth", synth: { wave: "sine", voices: 1, octave: 1, attack: 0.03, sustain: 0.9, filterEnv: 0, lfoDepth: 20, lfoRate: 6, mono: true, glide: 0.05 } },
   { id: "afro-lead", name: "Afro Lead", category: "Leads", preset: "synth", synth: { wave: "square", voices: 2, detune: 6, decay: 0.25, sustain: 0.3, cutoff: 3500, filterEnv: 0.6 } },
+  { id: "rage-lead", name: "Rage Lead (synth saturé)", category: "Leads", preset: "synth", synth: { wave: "square", voices: 4, detune: 24, octave: 1, attack: 0.005, decay: 0.2, sustain: 0.55, release: 0.12, cutoff: 6500, resonance: 2, filterEnv: 0.4, drive: 0.6 } },
+  { id: "supersaw", name: "Supersaw (hyperpop)", category: "Leads", preset: "synth", synth: { wave: "sawtooth", voices: 7, detune: 30, octave: 1, attack: 0.005, decay: 0.3, sustain: 0.7, release: 0.2, cutoff: 9000, filterEnv: 0.2, drive: 0.35 } },
+  { id: "plugg-lead", name: "Plugg Lead (doux)", category: "Leads", preset: "synth", synth: { wave: "triangle", voices: 2, detune: 8, octave: 1, attack: 0.002, decay: 0.25, sustain: 0.2, release: 0.25, cutoff: 5000, filterEnv: 0.5, lfoDepth: 6, lfoRate: 5 } },
+  { id: "cowbell", name: "Cowbell (phonk)", category: "Leads", preset: "synth", synth: { wave: "square", voices: 2, detune: 35, octave: 1, attack: 0.001, decay: 0.12, sustain: 0.05, release: 0.08, cutoff: 3500, resonance: 6, filterEnv: 0.3, drive: 0.3 } },
   // Pads
   { id: "warm-pad", name: "Warm Pad", category: "Pads", preset: "pad" },
   { id: "dark-pad", name: "Dark Pad", category: "Pads", preset: "pad", synth: { cutoff: 1200, lfoFilter: 0.3, lfoRate: 0.2 } },
@@ -50,6 +54,7 @@ export const SOUND_LIBRARY: LibrarySound[] = [
   { id: "synth-bass", name: "Synth Bass", category: "Bass", preset: "bass" },
   { id: "reese", name: "Reese Bass", category: "Bass", preset: "bass", synth: { voices: 4, detune: 22, cutoff: 700, lfoFilter: 0.2, lfoRate: 0.5 } },
   { id: "sub-sine", name: "Sub Sine", category: "Bass", preset: "bass", synth: { wave: "sine", voices: 1, cutoff: 600, filterEnv: 0, resonance: 0.5, drive: 0.1 } },
+  { id: "log-drum", name: "Log Drum (amapiano)", category: "Bass", preset: "bass", synth: { wave: "sine", voices: 1, detune: 0, attack: 0.001, decay: 0.22, sustain: 0.1, release: 0.1, cutoff: 1400, resonance: 3, filterEnv: 0.8, drive: 0.45, mono: false } },
   { id: "afro-bass", name: "Afro Log Bass", category: "Bass", preset: "bass", synth: { wave: "triangle", voices: 1, decay: 0.25, sustain: 0.3, cutoff: 1100, filterEnv: 0.7, drive: 0.35 } },
   // 808
   { id: "808-clean", name: "808 Clean", category: "808", preset: "808", bass808: { distortion: 0, saturation: 0.15, punch: 0.3 } },

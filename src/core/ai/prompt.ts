@@ -2,11 +2,14 @@
 // heavy 808". Works offline (keyword parsing in French and English).
 
 import { parseNoteName, type Key, type ScaleId } from "../music.ts";
+import { detectStyle, styleById, styleForGenre } from "./styles.ts";
 
 export type Genre = "trap" | "drill" | "afrobeat" | "boombap" | "rnb" | "lofi" | "dancehall" | "pop";
 export type Mood = "dark" | "sad" | "happy" | "aggressive" | "chill" | "epic" | "romantic";
 
 export interface BeatRequest {
+  /** Precise sub-genre (see styles.ts). */
+  style: string;
   genre: Genre;
   bpm: number;
   key: Key;
@@ -53,26 +56,36 @@ const MOOD_WORDS: [Mood, RegExp][] = [
   ["romantic", /\b(love|amour|romantic|romantique|sensual|sensuel)\b/],
 ];
 
-export function parseBeatPrompt(text: string): BeatRequest {
+/**
+ * @param fallbackStyle style used when the text names none (the style picked in the UI).
+ */
+export function parseBeatPrompt(text: string, fallbackStyle?: string, defaultRoot = 9): BeatRequest {
   const t = ` ${text.toLowerCase().replace(/[,.;!?]/g, " ")} `;
   const understood: string[] = [];
-  let genre: Genre = "trap";
-  for (const [g, re] of GENRE_WORDS) if (re.test(t)) { genre = g; understood.push(`genre: ${GENRE_DEFAULTS[g].label}`); break; }
-  const d = GENRE_DEFAULTS[genre];
+  let style = detectStyle(text);
+  if (!style) {
+    for (const [g, re] of GENRE_WORDS) if (re.test(t)) { style = styleForGenre(g); break; }
+  }
+  if (style) understood.push(`style: ${style.label}`);
+  else style = styleById(fallbackStyle ?? "trap");
+  const genre: Genre = style.genre;
+  const d = { bpm: style.bpm[1], scale: style.scales[0] };
   let bpm = d.bpm;
   const bpmM = t.match(/(\d{2,3})\s*(bpm|b\.p\.m)/) ?? t.match(/\b(?:tempo|à)\s*(\d{2,3})\b/);
   if (bpmM) {
     bpm = Math.min(220, Math.max(40, parseInt(bpmM[1], 10)));
     understood.push(`BPM: ${bpm}`);
   }
-  let key: Key = { root: 9, scale: d.scale };
+  // No key in the text → the project's current root with the style's scale colour.
+  let key: Key = { root: defaultRoot, scale: d.scale };
   const keyM = text.match(/\b([A-G])\s*([#♯b♭]?)\s*(minor|min|mineur|m(?![a-z])|major|maj|majeur)?\b/);
   const solfege = t.match(/\b(do|ré|re|mi|fa|sol|la|si)\s*(#|dièse|bémol|b)?\s*(mineur|majeur|minor|major)\b/);
   if (keyM && (keyM[3] || /key|tonalit|gamme|scale/i.test(text))) {
     const root = parseNoteName(keyM[1] + (keyM[2] === "♯" ? "#" : keyM[2] === "♭" ? "b" : keyM[2]));
     if (root !== null) {
       const minor = !keyM[3] || /min|mineur|^m$/i.test(keyM[3]);
-      key = { root, scale: minor ? (d.scale === "major" ? "minor" : d.scale) : "major" };
+      // An explicit "minor" / "major" wins over the style's own scale colour.
+      key = { root, scale: minor ? (keyM[3] ? "minor" : d.scale === "major" ? "minor" : d.scale) : "major" };
       understood.push(`tonalité: ${keyM[1]}${keyM[2] ?? ""} ${minor ? "minor" : "major"}`);
     }
   } else if (solfege) {
@@ -84,15 +97,15 @@ export function parseBeatPrompt(text: string): BeatRequest {
     key = { root, scale: minor ? "minor" : "major" };
     understood.push(`tonalité: ${solfege[0]}`);
   }
-  let mood: Mood = genre === "afrobeat" || genre === "dancehall" || genre === "pop" ? "happy" : genre === "rnb" || genre === "lofi" ? "chill" : "dark";
+  let mood: Mood = style.mood;
   for (const [m, re] of MOOD_WORDS) if (re.test(t)) { mood = m; understood.push(`humeur: ${m}`); break; }
   if ((mood === "happy" || mood === "romantic") && !/minor|mineur|\bm\b/.test(t) && key.scale !== "major" && !keyM?.[3]) key = { ...key, scale: genre === "rnb" ? "major" : key.scale };
   const heavy808 = /\b(heavy|lourde?|big|grosse?|hard|distorted|saturée?)\s*808\b|\b808\s*(heavy|lourde?|saturée?)\b/.test(t);
   if (heavy808) understood.push("808 lourde");
-  let energy = mood === "aggressive" ? 0.85 : mood === "chill" || mood === "sad" ? 0.45 : 0.65;
+  let energy = style.energy + (mood === "aggressive" ? 0.1 : mood === "chill" || mood === "sad" ? -0.1 : 0);
   if (/\b(energetic|énergique|hype|banger|turn ?up)\b/.test(t)) energy = 0.9;
-  let complexity = 0.5;
+  let complexity = style.complexity;
   if (/\b(simple|minimal|minimaliste|sparse)\b/.test(t)) { complexity = 0.25; understood.push("simple"); }
   if (/\b(complex|complexe|busy|technique|crazy)\b/.test(t)) { complexity = 0.85; understood.push("complexe"); }
-  return { genre, bpm, key, mood, energy, complexity, heavy808, swing: d.swing, understood };
+  return { style: style.id, genre, bpm, key, mood, energy: Math.max(0.2, Math.min(1, energy)), complexity, heavy808: heavy808 || !!style.heavy808, swing: style.swing, understood };
 }

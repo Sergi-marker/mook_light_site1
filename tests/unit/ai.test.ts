@@ -29,7 +29,8 @@ test("prompt: French, other genres and keys", () => {
   assert.deepEqual([b.genre, b.mood, b.key.root, b.key.scale], ["afrobeat", "happy", 9, "major"]);
   const c = parseBeatPrompt("boom bap 90s jazzy");
   assert.equal(c.genre, "boombap");
-  assert.equal(c.bpm, 90);
+  assert.equal(c.style, "jazz-rap", "jazzy boom bap → the more precise jazz rap style");
+  assert.ok(c.bpm >= 86 && c.bpm <= 98);
   assert.equal(parseBeatPrompt("something").genre, "trap", "sensible default");
 });
 

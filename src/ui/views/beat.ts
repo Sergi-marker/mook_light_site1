@@ -1,5 +1,5 @@
 import { generateDrums } from "../../core/ai/drums.ts";
-import { GENRE_DEFAULTS, type Genre } from "../../core/ai/prompt.ts";
+import { STYLE_FAMILIES, STYLES, styleById } from "../../core/ai/styles.ts";
 import { instrumentDef, PITCH_RANGE, STEP_COUNTS, STEPS_PER_BEAT } from "../../core/constants.ts";
 import { currentPattern, getChannel } from "../../core/project.ts";
 import type { Action } from "../../core/reducer.ts";
@@ -28,17 +28,18 @@ export function createBeatView(app: App): View {
   const { store, engine } = app;
   const stepsSelect = h("select", { "aria-label": "Nombre de steps", onchange: () => app.dispatch({ type: "setStepCount", stepCount: Number(stepsSelect.value) as StepCount }) },
     ...STEP_COUNTS.map((n) => h("option", { value: n }, `${n} steps`)));
-  const genreSel = h("select", { "aria-label": "Genre du générateur" }, ...(Object.keys(GENRE_DEFAULTS) as Genre[]).map((g) => h("option", { value: g }, GENRE_DEFAULTS[g].label)));
+  const genreSel = h("select", { "aria-label": "Style du générateur" }, ...STYLE_FAMILIES.map((fam) => h("optgroup", { label: fam },
+    ...STYLES.filter((x) => x.family === fam).map((x) => h("option", { value: x.id }, x.label)))));
   const humanAmt = h("input", { type: "range", min: 0, max: 1, step: 0.05, value: 0.5, "aria-label": "Quantité d'humanisation", title: "Quantité d'humanisation" });
 
   const generate = async () => {
     const p = store.getState();
     const pat = currentPattern(p);
     if (Object.values(pat.drums).some((s) => s.some((x) => x.on)) && !(await confirmDialog("Remplacer les drums ?", "Le générateur va remplacer les drums de ce pattern (annulable avec Ctrl+Z).", "Générer", "Annuler"))) return;
-    const g = genreSel.value as Genre;
-    const drums = generateDrums({ genre: g, energy: 0.75, complexity: 0.55, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
+    const st = styleById(genreSel.value);
+    const drums = generateDrums({ genre: st.genre, style: st, energy: st.energy, complexity: st.complexity, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
     const actions: Action[] = p.tracks.map((t) => ({ type: "setDrumSteps", trackId: t.id, steps: drums[t.instrument] }));
-    if (p.swing === 0 && GENRE_DEFAULTS[g].swing) actions.push({ type: "setSwing", swing: GENRE_DEFAULTS[g].swing });
+    if (p.swing === 0 && st.swing) actions.push({ type: "setSwing", swing: st.swing });
     app.dispatch({ type: "batch", actions });
   };
 
@@ -91,7 +92,7 @@ export function createBeatView(app: App): View {
     } }, "Effacer"),
     h("span", { class: "sep" }),
     genreSel,
-    h("button", { class: "btn btn-ai", title: "AI DRUM GENERATOR : pattern éditable du genre choisi", onclick: () => void generate() }, "✨ Générer drums"),
+    h("button", { class: "btn btn-ai", title: "AI DRUM GENERATOR : pattern éditable du style choisi", onclick: () => void generate() }, "✨ Générer drums"),
   );
   const help = h("p", { class: "hint" }, "Clic = note · Molette / Shift+glisser = vélocité · Alt+clic = roll (×2, ×3, ×4) · Clic sur le nom = écouter et sélectionner (M/S)");
   const pbar = patternBar(app);

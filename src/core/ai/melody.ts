@@ -6,6 +6,7 @@ import { degreeToMidi, inScale, SCALES, snapToScale, type Key } from "../music.t
 import type { Note, Step } from "../types.ts";
 import type { Genre, Mood } from "./prompt.ts";
 import { pick, rng, weighted } from "./rng.ts";
+import { gridOnsets, type MelodyMode } from "./styles.ts";
 
 export type GenNote = Omit<Note, "id">;
 
@@ -110,6 +111,10 @@ export interface MelodyGenOptions {
   seed: number;
   /** Lowest / highest MIDI note. */
   range?: [number, number];
+  /** Writing style (from the sub-genre). Default "motif". */
+  mode?: MelodyMode;
+  /** Rhythm templates (16-char grids) overriding the genre's. */
+  rhythms?: string[];
 }
 
 /**
@@ -121,8 +126,11 @@ export function generateMelody(o: MelodyGenOptions): GenNote[] {
   const [lo, hi] = o.range ?? [62, 81];
   const hk = harmonyKey(o.key);
   const bars = Math.max(1, o.stepCount / 16);
+  const mode = o.mode ?? "motif";
+  if (mode === "arp") return arpMelody(o, r, lo, hi, bars);
   // Rhythm: base template, densified with complexity.
-  let rhythm = pick(r, RHYTHMS[o.genre]).slice();
+  let rhythm = (o.rhythms?.length ? gridOnsets(pick(r, o.rhythms)) : pick(r, RHYTHMS[o.genre])).slice();
+  if (mode === "sparse" || mode === "sustain") rhythm = rhythm.filter((x, i) => i === 0 || x % 4 === 0 || r() < (mode === "sparse" ? 0.35 : 0.2));
   if (o.complexity > 0.6) rhythm = [...new Set([...rhythm, ...rhythm.map((x) => x + 1).filter((x) => x < 16 && r() < (o.complexity - 0.5)) ])].sort((a, b) => a - b);
   if (o.complexity < 0.35) rhythm = rhythm.filter((_, i) => i % 2 === 0 || r() < 0.3);
   const descend = o.mood === "dark" || o.mood === "sad";
@@ -158,8 +166,11 @@ export function generateMelody(o: MelodyGenOptions): GenNote[] {
       const start = b * 16 + rhy[i];
       const next = i + 1 < rhy.length ? rhy[i + 1] : 16;
       let len = Math.max(1, next - rhy[i]);
-      if (r() < 0.25 && len > 2) len -= 1; // staccato variety
+      if (mode === "bounce") len = Math.min(len, r() < 0.7 ? 1 : 2); // short, plucked, bouncy
+      else if (r() < 0.25 && len > 2 && mode !== "sustain") len -= 1; // staccato variety
       let pitch = degreeToMidi(chordDeg + degs[i], hk, center - 5);
+      // Bounce styles (plugg, phonk…) jump an octave now and then.
+      if (mode === "bounce" && i % 3 === 2 && r() < 0.35) pitch += 12;
       while (pitch > hi) pitch -= 12;
       while (pitch < lo) pitch += 12;
       pitch = snapToScale(pitch, o.key);
@@ -176,6 +187,34 @@ export function generateMelody(o: MelodyGenOptions): GenNote[] {
   return notes;
 }
 
+/**
+ * Arpeggiated lead (rage, hyperpop): chord tones in 16ths/8ths, up and down, with octave
+ * jumps on accents — the bar's chord changes with the progression.
+ */
+function arpMelody(o: MelodyGenOptions, r: () => number, lo: number, hi: number, bars: number): GenNote[] {
+  const hk = harmonyKey(o.key);
+  const notes: GenNote[] = [];
+  const rate = o.complexity > 0.55 ? 1 : 2;
+  const shape = pick(r, [[0, 1, 2, 1], [0, 1, 2, 3, 2, 1], [0, 2, 1, 2], [2, 1, 0, 1]]);
+  for (let b = 0; b < bars; b++) {
+    const deg = o.progression[b % o.progression.length];
+    const center = Math.round((lo + hi) / 2);
+    const tones = [0, 2, 4, 7].map((k) => {
+      let p = degreeToMidi(deg + k, hk, center - 6);
+      while (p > hi) p -= 12;
+      while (p < lo) p += 12;
+      return snapToScale(p, o.key);
+    });
+    for (let i = 0, n = 0; i < 16; i += rate, n++) {
+      if (rate === 1 && i % 4 === 3 && r() < 0.3) continue; // breathing gaps
+      let pitch = tones[shape[n % shape.length] % tones.length];
+      if (i % 8 === 0 && r() < 0.4 && pitch + 12 <= hi + 5) pitch += 12;
+      notes.push({ pitch, start: b * 16 + i, length: rate * 0.9, velocity: i % 4 === 0 ? 108 : 88 });
+    }
+  }
+  return notes;
+}
+
 export interface BassGenOptions {
   key: Key;
   progression: number[];
@@ -186,6 +225,8 @@ export interface BassGenOptions {
   seed: number;
   /** Allow 808 slides. */
   slides: boolean;
+  /** 0–1 slide probability (style); default 0.35 drill / 0.2 other. */
+  slideAmount?: number;
 }
 
 /** 808 / bass line on the chord roots, rhythm from the kick/808 lane, with slides. */
@@ -205,7 +246,7 @@ export function generateBass(o: BassGenOptions): GenNote[] {
     while (pitch > 43) pitch -= 12;
     let slide = false;
     // Occasional slide up to the octave / fifth before the next chord (trap/drill signature).
-    if (o.slides && h > 0 && r() < (o.genre === "drill" ? 0.35 : 0.2)) {
+    if (o.slides && h > 0 && r() < (o.slideAmount ?? (o.genre === "drill" ? 0.35 : 0.2))) {
       pitch = r() < 0.6 ? pitch + 12 : degreeToMidi(deg + 4, hk, pitch);
       slide = true;
     }
