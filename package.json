@@ -1,29 +1,63 @@
 {
-  "name": "mook",
-  "version": "1.0.0",
+  "name": "beatmaker-studio",
+  "productName": "Beatmaker Studio",
+  "version": "0.2.0",
+  "description": "Beatmaker & Vocal Studio — beats, melodies, 808, arrangement, vocal recording & processing, mixing, AI, export",
   "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && node scripts/serve.mjs",
+    "start": "node scripts/build.mjs && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"tests/unit/*.test.ts\"",
+    "test:browser": "node scripts/build.mjs && node tests/browser/run-browser-tests.mjs",
+    "test:e2e": "node scripts/build.mjs && node tests/e2e/run-e2e.mjs",
+    "test:electron": "node scripts/build.mjs && node tests/electron/run-electron-smoke.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:electron",
+    "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable"
   },
-  "dependencies": {
-    "framer-motion": "^10.12.16",
-    "lucide-react": "^0.276.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.1",
-    "i18next": "^23.10.0",
-    "react-i18next": "^13.2.2"
+  "engines": {
+    "node": ">=22.18"
   },
   "devDependencies": {
-    "@types/react": "^18.0.28",
-    "@types/react-dom": "^18.0.11",
-    "autoprefixer": "^10.4.14",
-    "postcss": "^8.4.24",
-    "tailwindcss": "^3.3.2",
-    "typescript": "^5.1.6",
-    "vite": "^4.4.9",
-    "@vitejs/plugin-react": "^4.0.0"
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "playwright": "^1.56.0",
+    "typescript": "^5.9.0"
+  },
+  "build": {
+    "appId": "com.beatmakerstudio.app",
+    "productName": "Beatmaker Studio",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "node_modules/@anthropic-ai/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "fileAssociations": [
+      {
+        "ext": "bsproj",
+        "name": "Beatmaker Studio Project"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": ">=0.60.0",
+    "lamejs": "^1.2.1"
   }
 }
