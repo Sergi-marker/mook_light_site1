@@ -60,6 +60,8 @@ export class AudioEngine {
   /** DSP load reported by our worklets (0–1 of real time). */
   dspLoad = 0;
   metronomeForced = false;
+  /** While recording, playback must not stop at the end of the song (the take would be cut). */
+  holdAtSongEnd = false;
   /** Called when playback stops by itself (end of song). */
   onEnded: (() => void) | null = null;
 
@@ -187,7 +189,7 @@ export class AudioEngine {
     this.seq!.scheduleStep(p, this.mode, pos, time);
     this.stepQueue.push({ pos, time });
     for (const fn of this.stepListeners) fn(pos, time);
-    if (this.mode === "song" && !p.arrangement.loop.enabled && pos >= Math.max(1, songEndStep(p)) && !this.endTimer) {
+    if (this.mode === "song" && !this.holdAtSongEnd && !p.arrangement.loop.enabled && pos >= Math.max(1, songEndStep(p)) && !this.endTimer) {
       const ms = Math.max(0, (time - this.ctx!.currentTime) * 1000);
       this.endTimer = setTimeout(() => {
         this.endTimer = null;

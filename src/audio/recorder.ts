@@ -207,6 +207,7 @@ export class Recorder {
     this.engine.stop();
     this.engine.setMode("song");
     this.engine.metronomeForced = p.metronome.enabled;
+    this.engine.holdAtSongEnd = !o.punch;
     await this.engine.play(o.startStep - o.countInBars * spb);
   }
 
@@ -215,6 +216,7 @@ export class Recorder {
   }
 
   private stopCapture(): void {
+    this.engine.holdAtSongEnd = false;
     this.tap?.port.postMessage({ record: false });
     this.unsubscribe?.();
     this.unsubscribe = null;

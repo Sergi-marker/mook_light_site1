@@ -386,6 +386,8 @@ export class App {
     const loop = p.arrangement.loop;
     const punch: [number, number] | undefined = opts.punch && loop.enabled ? [loop.start * spb, loop.end * spb] : undefined;
     const start = punch ? Math.max(0, punch[0] - spb) : Math.round(this.engine.cursor);
+    if (!p.arrangement.clips.length)
+      toast("L'arrangement est vide : vous enregistrez sur le métronome seul. Pour entendre votre beat pendant la prise, placez vos patterns dans ARRANGEMENT.", "info", 8000);
     try {
       await this.recorder.start({ trackId: track.id, startStep: start, countInBars: punch ? 0 : p.metronome.countInBars, punch });
       this.emit();
