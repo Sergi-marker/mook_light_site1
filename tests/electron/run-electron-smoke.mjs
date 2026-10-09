@@ -1,8 +1,10 @@
 // Smoke test of the real desktop app (Electron), driven by Playwright:
 // window opens without errors, preload API, AudioContext + worklets running, audible playback,
+// microphone through Electron's permission handler (simulated mic = a slightly out-of-tune voice),
+// recording a take, STUDIO vocal processing (pitch correction + AI VOICE CLEAN),
 // MP3 export through the UI (LAME), and the online assistant's IPC path (Anthropic SDK loads).
 // Usage: npm run test:electron   (on Linux without a display: xvfb-run -a npm run test:electron)
-import { readFile, mkdtemp } from "node:fs/promises";
+import { readFile, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -14,7 +16,26 @@ const root = fileURLToPath(new URL("../../", import.meta.url));
 const tmp = await mkdtemp(join(tmpdir(), "bs-electron-"));
 // Chromium refuses to run as root with its sandbox (containers / CI); never needed on Windows.
 // A fresh profile: no autosave from a previous run (crash-recovery prompt), no saved settings.
-const args = [`--user-data-dir=${join(tmp, "profile")}`, root];
+// Simulated microphone: a harmonic "voice" at 452 Hz (A4 +46 cents) in phrases, with light hiss.
+const SR = 48000;
+let seed = 7;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296) * 2 - 1;
+const voice = new Int16Array(SR * 12).map((_, i) => {
+  const t = i / SR;
+  let v = 0;
+  if (Math.floor(t / 0.9) % 3 !== 2) for (let k = 1; k <= 7; k++) v += Math.sin(2 * Math.PI * 452 * k * t) / k;
+  return Math.round(Math.max(-1, Math.min(1, 0.22 * v + 0.004 * rnd())) * 32767);
+});
+const wavHeader = Buffer.alloc(44);
+wavHeader.write("RIFF", 0); wavHeader.writeUInt32LE(36 + voice.length * 2, 4); wavHeader.write("WAVEfmt ", 8);
+wavHeader.writeUInt32LE(16, 16); wavHeader.writeUInt16LE(1, 20); wavHeader.writeUInt16LE(1, 22);
+wavHeader.writeUInt32LE(SR, 24); wavHeader.writeUInt32LE(SR * 2, 28); wavHeader.writeUInt16LE(2, 32); wavHeader.writeUInt16LE(16, 34);
+wavHeader.write("data", 36); wavHeader.writeUInt32LE(voice.length * 2, 40);
+const voiceFile = join(tmp, "voice.wav");
+await writeFile(voiceFile, Buffer.concat([wavHeader, Buffer.from(voice.buffer)]));
+// Chromium switches: fake capture device fed by the file. No permission switch: the app's own
+// permission handler (electron/main.cjs) must grant the microphone.
+const args = ["--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${voiceFile}`, `--user-data-dir=${join(tmp, "profile")}`, root];
 if (process.platform === "linux" && process.getuid?.() === 0) args.unshift("--no-sandbox");
 
 const app = await electron.launch({ args, cwd: root, env: { ...process.env, ELECTRON_ENABLE_LOGGING: "1" } });
@@ -80,6 +101,49 @@ await step("audio: AudioContext running, worklets loaded, drums audible", async 
   assert.equal(a.state, "running");
   assert.equal(a.worklet, true, a.err);
   assert.ok(peak > 0.05, `drums audible (peak ${peak})`);
+});
+
+await step("microphone + recording: permission granted by the app, monitoring, take recorded at the cursor", async () => {
+  await evalApp(() => window.__app.dispatch({ type: "setKey", key: { root: 5, scale: "minor" } }));
+  await page.click('.nav-item:has-text("VOCALS")');
+  await page.click("text=🎙 Activer le micro");
+  await page.waitForFunction(() => window.__app.recorder.isOpen, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__app.recorder.level > 0.05, null, { timeout: 15000 });
+  await page.click("text=🎧 Monitoring");
+  await evalApp(() => window.__app.engine.seek(16));
+  await page.click("text=● REC");
+  await page.waitForFunction(() => window.__app.engine.currentPosition() > 16 + 16 * 2, null, { timeout: 30000 });
+  await page.click("text=■ STOP");
+  await page.waitForFunction(() => window.__app.store.getState().vocals.some((v) => v.takes.length), null, { timeout: 15000 });
+  const v = await evalApp(() => window.__app.store.getState().vocals.find((x) => x.takes.length));
+  console.log(`  # take: ${v.clips[0].duration.toFixed(2)} s at step ${v.clips[0].start}, monitoring ≈ ${(await evalApp(() => window.__app.recorder.monitoringLatencyMs())).toFixed(0)} ms`);
+  assert.equal(v.clips[0].start, 16);
+  assert.ok(v.clips[0].duration > 3, `duration ${v.clips[0].duration}`);
+  await evalApp(() => window.__app.recorder.setMonitoring(null));
+});
+
+await step("vocal processing: STUDIO pitch correction puts the voice in key, AI VOICE CLEAN applied", async () => {
+  await page.click('button:has-text("STUDIO")');
+  await page.click('.presets button:has-text("Hard Tune")'); // 100 % correction
+  await page.click('.row-inline button:has-text("MEDIUM")');
+  await page.click("text=Appliquer le traitement STUDIO");
+  await page.waitForFunction(() => window.__app.store.getState().vocals.some((x) => x.takes.some((t) => t.processedAssetId)), null, { timeout: 120000 });
+  await page.waitForFunction(() => !window.__app.busy, null, { timeout: 120000 });
+  const res = await evalApp(async () => {
+    const { pitchTrack, freqToMidi } = await import("/app/core/dsp/yin.js");
+    const t = window.__app.store.getState().vocals.find((x) => x.takes.length).takes[0];
+    const out = { processedWith: t.processedWith };
+    for (const [k, id] of [["raw", t.assetId], ["processed", t.processedAssetId]]) {
+      const b = window.__app.engine.getAsset(id);
+      const tr = pitchTrack(b.getChannelData(0), b.sampleRate).filter((r) => r.freq > 0 && r.confidence > 0.8).map((r) => freqToMidi(r.freq)).sort((a, c) => a - c);
+      out[k] = tr[Math.floor(tr.length / 2)];
+    }
+    return out;
+  });
+  console.log(`  # raw voice MIDI ${res.raw.toFixed(2)} → processed ${res.processed.toFixed(2)} (F minor: nearest note B♭ = 70) · ${res.processedWith}`);
+  assert.ok(Math.abs(res.raw - 69.46) < 0.2, `raw ${res.raw}`);
+  assert.ok(Math.abs(res.processed - 70) < 0.15, `processed ${res.processed}`);
+  assert.match(res.processedWith, /"clean":"medium"/);
 });
 
 await step("export MP3 192 kbps through the UI (LAME), decodable file", async () => {

@@ -45,6 +45,32 @@ npm install        # Electron, encodeur MP3 (lamejs), SDK Anthropic (assistant e
 npm start          # lance l'application desktop
 ```
 
+### Si `npm start` affiche « Electron failed to install correctly »
+
+Electron (≈ 136 Mo) est téléchargé depuis GitHub pendant `npm install`. Si la connexion est coupée en
+cours de route (box, antivirus, Wi-Fi), son installeur recommence de zéro et finit par échouer : il manque
+alors `node_modules\electron\dist\electron.exe`. Réparation, sans toucher au code ni aux projets :
+
+```bash
+npm run setup:electron
+```
+
+Le téléchargement **reprend là où il s'est arrêté** après chaque coupure, le fichier est vérifié avec la
+somme SHA-256 officielle d'Electron, puis installé et testé. Si GitHub coupe encore :
+
+```bash
+npm run setup:electron -- --mirror      # copie npmmirror.com, vérifiée avec la même somme officielle
+```
+
+Ou, avec une archive `electron-v38.8.6-win32-x64.zip` téléchargée autrement (navigateur, autre réseau) :
+
+```bash
+npm run setup:electron -- --zip C:\chemin\vers\electron-v38.8.6-win32-x64.zip
+```
+
+`npm start` vérifie désormais l'installation d'Electron et affiche la commande de réparation si besoin.
+`npm run dist:win` réutilise cet Electron (`electronDist`) au lieu de le retélécharger.
+
 Autres commandes :
 
 ```bash

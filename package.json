@@ -9,14 +9,15 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && node scripts/serve.mjs",
-    "start": "node scripts/build.mjs && electron .",
+    "start": "node scripts/build.mjs && node scripts/setup-electron.mjs --check && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"tests/unit/*.test.ts\"",
     "test:browser": "node scripts/build.mjs && node tests/browser/run-browser-tests.mjs",
     "test:e2e": "node scripts/build.mjs && node tests/e2e/run-e2e.mjs",
-    "test:electron": "node scripts/build.mjs && node tests/electron/run-electron-smoke.mjs",
+    "test:electron": "node scripts/build.mjs && node scripts/setup-electron.mjs --check && node tests/electron/run-electron-smoke.mjs",
     "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:electron",
-    "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable"
+    "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable",
+    "setup:electron": "node scripts/setup-electron.mjs"
   },
   "engines": {
     "node": ">=22.18"
@@ -54,7 +55,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "electronDist": "node_modules/electron/dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": ">=0.60.0",
