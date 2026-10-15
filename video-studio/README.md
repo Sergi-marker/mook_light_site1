@@ -5,9 +5,21 @@ Collez un texte : il devient une vidéo animée, avec un ou deux personnages « 
 Application web sans installation ni compilation : elle tourne dans Chrome, Edge ou Firefox, sur ordinateur et sur téléphone.
 
 ```bash
-npm run video          # http://127.0.0.1:5174/
-node scripts/serve-video.mjs 5174 --host 0.0.0.0   # pour l'ouvrir depuis un téléphone du même Wi-Fi
+npm run server:dev     # version complète (comptes, offres, partage) : http://localhost:8080
+npm run video          # version locale, sans compte ni limites : http://127.0.0.1:5174/
 ```
+
+Pour la mise en ligne (comptes, abonnements Stripe, publicité, pages légales), voir [server/README.md](../server/README.md).
+
+## Offres
+
+| Offre | Prix | Vidéos | Publicité |
+|---|---|---|---|
+| Gratuit | 0 € | 3 par jour, 30 s maximum | oui |
+| Premium | 5 € / mois | illimitées | oui |
+| Premium sans pub | 10 € / mois | illimitées | non |
+
+Après l'export, **Partager (lien)** met la vidéo en ligne et donne un lien public (page avec lecteur et boutons WhatsApp, Telegram, Facebook, X).
 
 ## Utilisation
 
@@ -25,7 +37,9 @@ node scripts/serve-video.mjs 5174 --host 0.0.0.0   # pour l'ouvrir depuis un té
    - **Votre propre audio** : importez une voix off ou une musique (MP3, WAV, M4A), mixée dans l'export ; ou enregistrez votre voix au micro pendant l'export.
 6. **Exporter** : enregistre un fichier MP4 (ou WebM selon le navigateur), à télécharger ou partager directement.
 
-## Animations
+## Personnage et animations
+
+Le personnage a un contour net et un halo de contre-jour qui le détachent du décor, un léger modelé (lumière du projecteur), des mains, des pieds et des épaules arrondies. Ses mouvements ont de l'inertie (la tête et les bras suivent le corps avec un léger retard), il s'étire dans les sauts, et les changements de scène se font avec un petit rebond.
 
 30 animations : repos, réfléchit, perdu, idée, triste, pleure, seul, fatigué, marche, court, rit, surpris, en colère, amour, joie, hausse les épaules, tombe, salue, assis sur un banc, téléphone, lit une histoire, musculation, squats, médite, et à deux personnages : se moque, dispute, parle, accuse, ignore, câlin. Elles bougent en continu (respiration, clignement des yeux, gestes), passent en douceur d'une scène à l'autre, et la caméra varie (zoom lent, léger décalage, personnage tourné d'un côté ou de l'autre) pour que deux scènes ne soient jamais identiques.
 
@@ -56,6 +70,8 @@ L'animation est choisie à partir des mots de la phrase, en français, allemand,
 | `js/voice.js` | Voix naturelle (Piper) : génération, lecture, mixage ; piste audio importée |
 | `js/export.js` | Enregistrement vidéo (MediaRecorder) |
 | `js/translate.js` | Traduction et mise en scène par Claude |
+| `js/account.js` | Compte, offres, quota d'export, partage, publicité |
 | `js/app.js`, `js/i18n.js` | Interface et textes FR / DE / EN |
+| `../server/` | Serveur : comptes, abonnements Stripe, quotas, partage (voir server/README.md) |
 
 Tests : `node --test tests/unit/videoStudio.test.ts` (découpage, détection, poses) et `npm run test:video` (interface dans Chromium et export d'une vraie vidéo).

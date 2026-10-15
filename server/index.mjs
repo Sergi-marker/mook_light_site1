@@ -22,7 +22,7 @@ const cfg = {
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     prices: { plus: env.STRIPE_PRICE_PLUS, pro: env.STRIPE_PRICE_PRO },
   },
-  devBilling: env.DEV_BILLING === "1",
+  devBilling: env.DEV_BILLING === "1" || process.argv.includes("--dev"),
   ads: env.ADSENSE_CLIENT ? { client: env.ADSENSE_CLIENT, slot: env.ADSENSE_SLOT } : null,
   resendKey: env.RESEND_API_KEY,
   mailFrom: env.MAIL_FROM ?? "Vidéo Studio <no-reply@example.com>",
