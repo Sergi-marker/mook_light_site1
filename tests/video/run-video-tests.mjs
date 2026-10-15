@@ -194,6 +194,28 @@ await step("voix naturelle : génération, durée des scènes calée sur la voix
   }
 });
 
+await step("voix HD Kokoro (française) : générée hors de l'interface, scène calée sur la voix", async () => {
+  await page.evaluate(() => {
+    const p = window.__videoStudio.project;
+    p.scenes = [{ id: "k1", kind: "scene", text: "Le *silence* fait plus de bruit que les mots.", action: "alone", seed: 1 }];
+    p.settings.voiceMode = "neural";
+    p.settings.voiceLang = "fr";
+    p.settings.neuralVoice = "";
+    window.__videoStudio.rebuild();
+  });
+  assert.equal(await page.evaluate(() => window.__videoStudio.voiceOf(window.__videoStudio.project.scenes[0])), "kokoro:ff_siwis");
+  await page.getByRole("tab", { name: "Voix & musique" }).click();
+  await page.getByRole("button", { name: /Générer la voix/ }).click();
+  // Pendant la génération, l'interface doit rester réactive (le modèle tourne dans un worker).
+  const t0 = Date.now();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+  assert.ok(Date.now() - t0 < 2000, "interface bloquée");
+  await page.getByText(/Voix prête/).waitFor({ timeout: 300000 });
+  const it = await page.evaluate(() => window.__videoStudio.timeline.items[0]);
+  assert.ok(it.voiceDur > 1.5 && it.voiceDur < 8, `durée de voix ${it.voiceDur}`);
+  console.log(`  voix HD : ${it.voiceDur.toFixed(2)} s`);
+});
+
 await step("export d'une vraie vidéo 16:9 avec la voix dans le fichier", async () => {
   await page.evaluate(() => {
     const p = window.__videoStudio.project;
