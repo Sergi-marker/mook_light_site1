@@ -1,12 +1,13 @@
 // Interface de Vidéo Studio.
 
-import { parseScript, timeline, sceneAt } from "./script.js";
+import { parseScript, timeline, sceneAt, withBrand } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";
-import { drawFigure, PRESETS, morphFrom } from "./figure.js";
-import { renderFrame, FORMATS, THEMES } from "./renderer.js";
+import { drawFigure, PRESETS, SKIN_TONES, morphFrom } from "./figure.js";
+import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS } from "./renderer.js";
+import { BUILTIN_STYLES, styleFrom, applyStyle } from "./styles.js";
 import { MusicPlayer, MOODS, LANGS, voicesFor, speak, stopSpeaking } from "./audio.js";
 import { recordVideo, bestMimeType } from "./export.js";
-import { NEURAL_VOICES, defaultVoice, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
+import { NEURAL_VOICES, defaultVoice, voiceByGender, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
 import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi } from "./account.js";
@@ -26,9 +27,12 @@ function defaultProject() {
       uiLang: "fr", format: "9:16", theme: "nuit", captionStyle: "words", uppercase: true, captionScale: 1,
       accent: "#ffd84d", handle: "", progressBar: false, wps: 2.4,
       characters: [{ ...PRESETS.penseur.morph }, { ...PRESETS.gris.morph }],
-      voiceMode: "neural", neuralVoice: "", voiceVol: 1, trackVol: 0.8,
+      voiceMode: "neural", neuralVoice: "", charVoice0: "", charVoice1: "", voiceRate: 1, voiceVol: 1, trackVol: 0.8,
       voiceLang: "fr", voice: "", rate: 1, pitch: 1,
       music: "melancolie", musicVol: 0.35, mic: false,
+      // Décor, sous-titres et marque.
+      backdrop: "none", bgImage: "", captionFont: "montserrat", captionPos: "top", captionBox: "none", captionColor: "#ffffff",
+      speakerLabels: true, hook: "", outro: "", logo: "", logoPos: "tr", logoSize: 0.14,
     },
   };
 }
@@ -51,8 +55,14 @@ function load() {
 let project = load();
 const voiceId = () => project.settings.neuralVoice || defaultVoice(project.settings.voiceLang);
 const neuralOn = () => project.settings.voiceMode === "neural" && !!voiceId();
+/** Voix qui lit une scène : celle du personnage qui parle (dialogue), sinon celle du narrateur. */
+const charVoice = (i) => project.settings[`charVoice${i}`] || voiceByGender(project.settings.voiceLang, i === 0 ? "m" : "f");
+const voiceOf = (sc) => (sc.speaker === 0 || sc.speaker === 1 ? charVoice(sc.speaker) : voiceId());
+/** Scènes de la vidéo : accroche + scènes du texte + écran de fin. */
+const allScenes = () => withBrand(project.scenes, project.settings);
 function computeTimeline() {
-  return timeline(project.scenes, project.settings.wps, neuralOn() ? voiceDurations(project.scenes, voiceId()) : null);
+  const scenes = allScenes();
+  return timeline(scenes, project.settings.wps, neuralOn() ? voiceDurations(scenes, voiceOf, project.settings.voiceRate) : null);
 }
 let tl = computeTimeline();
 let saveTimer = 0;
@@ -159,7 +169,7 @@ function startAudio(offset) {
   music.setVolume(s.musicVol);
   music.start(s.music, offset);
   voices.setVolume(s.voiceVol);
-  if (neuralOn()) voices.start(tl.items, voiceId(), offset);
+  if (neuralOn()) voices.start(tl.items, voiceOf, offset, 0.05, s.voiceRate);
   track.setVolume(s.trackVol);
   track.start(offset);
 }
@@ -269,6 +279,30 @@ function buildFromText() {
   toast(`${project.scenes.length} ${t("tabScenes").toLowerCase()} · ${fmtTime(tl.total)}`);
 }
 
+/** Lit un script depuis un fichier : texte, Markdown, sous-titres .srt ou document Word (.docx). */
+async function readScriptFile(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".docx")) {
+    if (!window.mammoth) {
+      await new Promise((resolve, reject) => {
+        const sc = document.createElement("script");
+        sc.src = "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
+        sc.onload = resolve;
+        sc.onerror = () => reject(new Error(t("importError")));
+        document.head.append(sc);
+      });
+    }
+    const { value } = await window.mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return value.replace(/\n{3,}/g, "\n\n").trim();
+  }
+  let text = await file.text();
+  if (name.endsWith(".srt") || name.endsWith(".vtt")) {
+    // Sous-titres : on garde seulement les lignes de texte (pas les numéros ni les horaires).
+    text = text.split(/\r?\n/).filter((l) => l.trim() && !/^\d+$/.test(l.trim()) && !/-->/.test(l) && !/^WEBVTT/.test(l)).join("\n");
+  }
+  return text.trim();
+}
+
 function textPanel() {
   const ta = h("textarea", { id: "script", rows: 12, spellcheck: "true", oninput: (e) => { project.text = e.target.value; save(); } });
   ta.value = project.text;
@@ -277,7 +311,7 @@ function textPanel() {
     project.text = EXAMPLES[key][lang];
     ta.value = project.text;
     buildFromText();
-  } }, t({ psy: "exPsy", sport: "exSport", story: "exStory" }[key]));
+  } }, t({ psy: "exPsy", sport: "exSport", story: "exStory", dialogue: "exDialogue" }[key]));
 
   const keyInput = h("input", { type: "password", autocomplete: "off", placeholder: "sk-ant-…", value: getKey(), onchange: (e) => setKey(e.target.value.trim()) });
   let target = project.settings.voiceLang !== project.textLang ? project.settings.voiceLang : (project.textLang === "fr" ? "de" : "fr");
@@ -292,11 +326,11 @@ function textPanel() {
     const lines = project.scenes.map((s) => s.text);
     const out = await translateLines(getKey(), lines, target, (d, n) => { status.textContent = `${t("working")} ${d}/${n}`; });
     project.scenes = project.scenes.map((s, i) => ({ ...s, text: out[i] }));
-    project.text = project.scenes.map((s) => (s.kind === "title" ? `# ${s.text}` : `[${s.action}] ${s.text}`)).join("\n");
+    project.text = project.scenes.map((s) => (s.kind === "title" ? `# ${s.text}` : s.kind === "pause" ? `[pause ${s.duration ?? 1}]` : `${s.speakerName ? `${s.speakerName} : ` : ""}[${s.action}] ${s.text}`)).join("\n");
     project.textLang = target;
     project.settings.voiceLang = target;
     project.settings.voice = "";
-    project.settings.neuralVoice = "";
+    project.settings.neuralVoice = ""; project.settings.charVoice0 = ""; project.settings.charVoice1 = "";
     ta.value = project.text;
     rebuildTimeline();
   }) }, t("translate"));
@@ -310,8 +344,19 @@ function textPanel() {
     field(t("textLabel"), ta, t("textHelp")),
     h("div", { class: "row" },
       h("button", { class: "btn primary", onclick: buildFromText }, t("build")),
-      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; project.settings.neuralVoice = ""; rebuildTimeline(); }))),
-    h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("examples")), ex("psy"), ex("sport"), ex("story")),
+      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; project.settings.neuralVoice = ""; project.settings.charVoice0 = ""; project.settings.charVoice1 = ""; rebuildTimeline(); }))),
+    h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("examples")), ex("psy"), ex("sport"), ex("story"), ex("dialogue")),
+    h("div", { class: "row wrap" },
+      h("label", { class: "btn sm" }, `📄 ${t("importScript")}`, h("input", { type: "file", accept: ".txt,.md,.srt,.docx,text/plain", hidden: true, onchange: async (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        try {
+          project.text = await readScriptFile(f);
+          ta.value = project.text;
+          buildFromText();
+        } catch (err) { toast(errText(err), "error"); }
+      } })),
+      h("small", { class: "help" }, t("importHelp"))),
     h("section", { class: "card" },
       h("h3", {}, t("translateTitle")),
       h("p", { class: "help" }, t("translateHelp")),
@@ -330,30 +375,52 @@ function actionOptions() {
 function scenesPanel() {
   if (!project.scenes.length) return h("p", { class: "help" }, t("scenesEmpty"));
   const list = h("div", { class: "scenes" });
-  tl.items.forEach((it, i) => {
-    const s = it.scene;
-    const update = (patch) => { project.scenes[i] = { ...project.scenes[i], ...patch }; rebuildTimeline(); timeCell.textContent = `${fmtTime(tl.items[i].start)} · ${tl.items[i].duration.toFixed(1)}${t("seconds")}`; };
-    const timeCell = h("span", { class: "muted" }, `${fmtTime(it.start)} · ${it.duration.toFixed(1)}${t("seconds")}`);
+  const itemOf = (id) => tl.items.findIndex((it) => it.scene.id === id);
+  const timeText = (id) => {
+    const it = tl.items[itemOf(id)];
+    return it ? `${fmtTime(it.start)} · ${it.duration.toFixed(1)}${t("seconds")}` : "";
+  };
+  const opts = (obj) => Object.entries(obj).map(([k, v]) => [k, pick(v)]);
+  const bgOptions = [["auto", t("bgStyle")], ...Object.entries(BACKDROPS).filter(([k]) => k !== "image" || project.settings.bgImage).map(([k, v]) => [k, `${t("decor")} · ${pick(v)}`]), ...Object.entries(THEMES).map(([k, v]) => [k, `${t("color")} · ${pick(v.label)}`])];
+  project.scenes.forEach((s, i) => {
+    const update = (patch) => {
+      project.scenes[i] = { ...project.scenes[i], ...patch };
+      rebuildTimeline();
+      timeCell.textContent = timeText(s.id);
+    };
+    const timeCell = h("span", { class: "muted" }, timeText(s.id));
+    const kindLabel = s.kind === "title" ? t("title") : s.kind === "pause" ? t("pause") : s.speakerName ? `${t("scene")} · ${s.speakerName}` : t("scene");
     const ta = h("textarea", { rows: 2, oninput: (e) => update({ text: e.target.value }) });
     ta.value = s.text;
     const duo = s.figures ? s.figures === 2 : DUO_ACTIONS.has(s.action);
-    list.append(h("div", { class: `scene-card ${s.kind}`, "data-i": String(i) },
-      h("div", { class: "row between" },
-        h("strong", {}, `${i + 1}. ${s.kind === "title" ? t("title") : t("scene")}`), timeCell),
-      ta,
-      h("div", { class: "row wrap" },
-        select(s.action, actionOptions(), (v) => update({ action: v, auto: false, figures: undefined })),
+    list.append(h("div", { class: `scene-card ${s.kind}`, "data-i": String(itemOf(s.id)) },
+      h("div", { class: "row between" }, h("strong", {}, `${i + 1}. ${kindLabel}`), timeCell),
+      s.kind === "pause" ? null : ta,
+      s.kind === "pause" ? null : h("div", { class: "row wrap" },
+        select(s.action, actionOptions(), (v) => update({ action: v, auto: false })),
         select(String(duo ? 2 : 1), [["1", `1 ${t("figures").toLowerCase()}`], ["2", `2 ${t("figures").toLowerCase()}`]], (v) => update({ figures: Number(v) })),
-        h("input", { type: "number", min: "1", max: "30", step: "0.5", class: "num", placeholder: t("auto"), value: s.duration ?? "", title: t("duration"),
+        s.figures === 2 || s.speaker != null ? select(String(s.speaker ?? ""), [["", t("speakerNone")], ["0", `${t("speaker")} 1`], ["1", `${t("speaker")} 2`]], (v) => update({ speaker: v === "" ? undefined : Number(v), speakerName: v === "" ? undefined : s.speakerName ?? `${t("speaker")} ${Number(v) + 1}` })) : null),
+      s.kind === "pause" ? null : h("div", { class: "row wrap" },
+        h("label", { class: "mini-field" }, h("span", {}, "🎥"), select(s.camera ?? "auto", opts(CAMERAS), (v) => update({ camera: v }))),
+        h("label", { class: "mini-field" }, h("span", {}, "🖼"), select(s.bg ?? "auto", bgOptions, (v) => update({ bg: v }))),
+        duo ? null : h("label", { class: "mini-field" }, h("span", {}, "↔"), select(s.pos ?? "auto", opts(POSITIONS), (v) => update({ pos: v })))),
+      h("div", { class: "row wrap" },
+        h("input", { type: "number", min: "0.5", max: "30", step: "0.5", class: "num", placeholder: t("auto"), value: s.duration ?? "", title: t("duration"),
           onchange: (e) => update({ duration: e.target.value ? Math.max(0.5, Number(e.target.value)) : undefined }) }),
-        h("button", { class: "btn sm", onclick: () => { seek(tl.items[i].start); if (!playing) play(); } }, t("fromHere")),
+        h("button", { class: "btn sm", onclick: () => { const it = tl.items[itemOf(s.id)]; if (it) seek(it.start); if (!playing) play(); } }, t("fromHere")),
         h("button", { class: "btn sm ghost", onclick: () => { project.scenes.splice(i, 1); rebuildTimeline(); renderPanel(); } }, t("remove")))));
   });
-  list.append(h("button", { class: "btn", onclick: () => {
-    project.scenes.push({ id: `s${Date.now()}`, kind: "scene", text: "…", action: "think", auto: false, seed: (Math.random() * 2 ** 32) >>> 0 });
-    rebuildTimeline();
-    renderPanel();
-  } }, t("addScene")));
+  list.append(h("div", { class: "row wrap" },
+    h("button", { class: "btn", onclick: () => {
+      project.scenes.push({ id: `s${Date.now()}`, kind: "scene", text: "…", action: "think", auto: false, seed: (Math.random() * 2 ** 32) >>> 0 });
+      rebuildTimeline();
+      renderPanel();
+    } }, t("addScene")),
+    h("button", { class: "btn", onclick: () => {
+      project.scenes.push({ id: `p${Date.now()}`, kind: "pause", text: "", action: "idle", auto: false, duration: 1, seed: 1 });
+      rebuildTimeline();
+      renderPanel();
+    } }, t("addPause"))));
   return h("div", { class: "stack" }, h("p", { class: "help" }, t("scenesHelp")), list);
 }
 
@@ -382,34 +449,63 @@ function runMiniPreviews() {
   tick();
 }
 
+/** Petites listes gardées dans ce navigateur (mes personnages, mes styles). */
+function loadList(key) {
+  try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; }
+}
+function saveList(key, list) {
+  try { localStorage.setItem(key, JSON.stringify(list)); } catch { toast(t("storageFull"), "error"); }
+}
+const MY_CHARS = "videoStudio.myCharacters";
+
 function charEditor(index) {
   const m = morphFrom(project.settings.characters[index]);
-  const set = (patch) => {
+  const set = (patch, rerender = false) => {
     project.settings.characters[index] = { ...project.settings.characters[index], ...patch };
     draw();
     save();
+    if (rerender) renderPanel();
   };
   const mini = h("canvas", { width: 220, height: 260, class: "mini" });
   minis.push({ canvas: mini, index });
   const slider = (key, min, max) => field(t(key === "build" ? "bodyBuild" : key), range(m[key], min, max, 0.01, (v) => set({ [key]: v })));
+  const color = (key) => h("input", { type: "color", value: m[key], oninput: (e) => set({ [key]: e.target.value }) });
+  const mine = loadList(MY_CHARS);
   return h("section", { class: "card" },
     h("h3", {}, t(index === 0 ? "charMain" : "charSecond")),
     h("div", { class: "char" },
       mini,
       h("div", { class: "stack" },
         h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("presets")),
-          ...Object.entries(PRESETS).map(([id, pr]) => h("button", { class: "chip", onclick: () => {
-            project.settings.characters[index] = { ...pr.morph };
-            draw(); save(); renderPanel();
-          } }, pick(pr.label)))),
-        slider("height", 0.6, 1.25), slider("build", 0.6, 1.8), slider("belly", 0, 1), slider("headSize", 0.75, 1.5),
-        slider("legs", 0.75, 1.25), slider("arms", 0.8, 1.25), slider("torso", 0.85, 1.2),
+          ...Object.entries(PRESETS).map(([, pr]) => h("button", { class: "chip", onclick: () => { project.settings.characters[index] = { ...pr.morph }; draw(); save(); renderPanel(); } }, pick(pr.label)))),
+        h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("myCharacters")),
+          ...mine.map((c, ci) => h("span", { class: "chip-group" },
+            h("button", { class: "chip", onclick: () => { project.settings.characters[index] = { ...c.morph }; draw(); save(); renderPanel(); } }, c.name),
+            h("button", { class: "chip x", "aria-label": t("remove"), onclick: () => { mine.splice(ci, 1); saveList(MY_CHARS, mine); renderPanel(); } }, "×"))),
+          (() => {
+            const name = h("input", { type: "text", class: "name-input", maxlength: "30", placeholder: t("charName"), "aria-label": t("charName") });
+            return h("span", { class: "row" }, name, h("button", { class: "chip add", onclick: () => {
+              const n = name.value.trim() || `${t("charMain")} ${mine.length + 1}`;
+              mine.push({ name: n.slice(0, 30), morph: { ...project.settings.characters[index] } });
+              saveList(MY_CHARS, mine);
+              renderPanel();
+            } }, `+ ${t("saveCharacter")}`));
+          })()),
+        h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("skin")),
+          ...SKIN_TONES.map((c) => h("button", { class: `swatch ${m.color === c ? "on" : ""}`, style: `background:${c}`, "aria-label": c, onclick: () => set({ color: c }, true) })),
+          color("color")),
+        h("div", { class: "grid2" },
+          field(t("top"), h("div", { class: "row" }, select(m.top, [["none", t("none")], ["tshirt", t("tshirt")], ["hoodie", t("hoodie")], ["shirt", t("shirt")], ["dress", t("dress")]], (v) => set({ top: v })), color("topColor"))),
+          field(t("bottom"), h("div", { class: "row" }, select(m.bottom, [["none", t("none")], ["pants", t("pants")], ["shorts", t("shorts")]], (v) => set({ bottom: v })), color("bottomColor"))),
+          field(t("hair"), h("div", { class: "row" }, select(m.hair, [["none", t("hairNone")], ["short", t("hairShort")], ["long", t("hairLong")], ["bun", t("hairBun")], ["curly", t("hairCurly")], ["ponytail", t("hairPonytail")], ["spiky", t("hairSpiky")]], (v) => set({ hair: v })), color("detail"))),
+          field(t("eyes"), select(m.eyes, [["dots", t("eyesDots")], ["big", t("eyesBig")], ["lashes", t("eyesLashes")], ["sleepy", t("eyesSleepy")]], (v) => set({ eyes: v })))),
         h("div", { class: "row wrap" },
-          field(t("color"), h("input", { type: "color", value: m.color, oninput: (e) => set({ color: e.target.value }) })),
-          field(t("detail"), h("input", { type: "color", value: m.detail, oninput: (e) => set({ detail: e.target.value }) })),
-          field(t("hair"), select(m.hair, [["none", t("hairNone")], ["short", t("hairShort")], ["long", t("hairLong")], ["bun", t("hairBun")]], (v) => set({ hair: v })))),
-        h("div", { class: "row wrap" },
-          ...["glasses", "beard", "cap", "headband", "skirt", "tie"].map((k) => toggle(t(k), m[k], (v) => set({ [k]: v })))))));
+          ...["glasses", "beard", "cap", "headband", "skirt", "tie"].map((k) => toggle(t(k), m[k], (v) => set({ [k]: v })))),
+        h("details", {},
+          h("summary", {}, t("bodyShape")),
+          h("div", { class: "stack" },
+            slider("height", 0.6, 1.25), slider("build", 0.6, 1.8), slider("belly", 0, 1), slider("headSize", 0.75, 1.5),
+            slider("legs", 0.75, 1.25), slider("arms", 0.8, 1.25), slider("torso", 0.85, 1.2))))));
 }
 
 function charsPanel() {
@@ -420,21 +516,114 @@ function charsPanel() {
 
 // ---------- Style ----------
 
+const MY_STYLES = "videoStudio.myStyles";
+
+/** Image choisie par l'utilisateur → data URL réduite (le projet et les styles restent légers). */
+function imageToDataUrl(file, maxSide, type = "image/jpeg") {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * k);
+      c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL(type, 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(t("imageError"))); };
+    img.src = url;
+  });
+}
+
+function imagePicker(label, onPick, maxSide, type) {
+  return h("label", { class: "btn sm" }, label, h("input", { type: "file", accept: "image/*", hidden: true, onchange: async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try { onPick(await imageToDataUrl(f, maxSide, type)); } catch (err) { toast(errText(err), "error"); }
+  } }));
+}
+
 function stylePanel() {
   const s = project.settings;
   const set = (patch, rebuild = false) => { Object.assign(s, patch); if (rebuild) rebuildTimeline(); else { draw(); save(); } };
+  const setAndRender = (patch, rebuild = false) => { set(patch, rebuild); renderPanel(); };
+  const mine = loadList(MY_STYLES);
+  const useStyle = (style) => {
+    applyStyle(s, style);
+    ensureFont(s.captionFont).then(draw);
+    rebuildTimeline();
+    renderPanel();
+  };
+  const styleName = h("input", { type: "text", class: "name-input", maxlength: "30", placeholder: t("styleName"), "aria-label": t("styleName") });
+
   return h("div", { class: "stack" },
-    h("div", { class: "grid2" },
-      field(t("format"), select(s.format, Object.entries(FORMATS).map(([k, v]) => [k, v.label]), (v) => set({ format: v }))),
-      field(t("theme"), select(s.theme, Object.entries(THEMES).map(([k, v]) => [k, pick(v.label)]), (v) => set({ theme: v }))),
-      field(t("captionStyle"), select(s.captionStyle, [["words", t("capWords")], ["karaoke", t("capKaraoke")], ["full", t("capFull")]], (v) => set({ captionStyle: v }))),
-      field(t("captionScale"), range(s.captionScale, 0.6, 1.5, 0.05, (v) => set({ captionScale: v }))),
-      field(t("wps"), range(s.wps, 1.2, 4, 0.1, (v) => set({ wps: v }, true))),
-      field(t("accent"), h("input", { type: "color", value: s.accent, oninput: (e) => set({ accent: e.target.value }) })),
-      field(t("handle"), h("input", { type: "text", value: s.handle, placeholder: "@Homme.Penseur", oninput: (e) => set({ handle: e.target.value.trim() }) }))),
-    h("div", { class: "row wrap" },
-      toggle(t("uppercase"), s.uppercase, (v) => set({ uppercase: v })),
-      toggle(t("progressBar"), s.progressBar, (v) => set({ progressBar: v }))));
+    // Styles de chaîne.
+    h("section", { class: "card" },
+      h("h3", {}, t("channelStyles")),
+      h("p", { class: "help" }, t("channelStylesHelp")),
+      h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("readyStyles")),
+        ...Object.values(BUILTIN_STYLES).map((st) => h("button", { class: "chip", onclick: () => useStyle(st.settings) }, pick(st.label)))),
+      h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("myStyles")),
+        ...mine.map((st, i) => h("span", { class: "chip-group" },
+          h("button", { class: "chip", onclick: () => useStyle(st.settings) }, st.name),
+          h("button", { class: "chip x", "aria-label": t("remove"), onclick: () => { mine.splice(i, 1); saveList(MY_STYLES, mine); renderPanel(); } }, "×"))),
+        mine.length ? null : h("span", { class: "muted" }, t("noStyles"))),
+      h("div", { class: "row wrap" }, styleName, h("button", { class: "btn sm primary", onclick: () => {
+        const name = styleName.value.trim() || `${t("myStyle")} ${mine.length + 1}`;
+        mine.push({ name: name.slice(0, 30), settings: styleFrom(s) });
+        saveList(MY_STYLES, mine);
+        toast(`${t("styleSaved")} : ${name}`);
+        renderPanel();
+      } }, t("saveStyle")))),
+
+    // Image et décor.
+    h("section", { class: "card" },
+      h("h3", {}, t("decorTitle")),
+      h("div", { class: "grid2" },
+        field(t("format"), select(s.format, Object.entries(FORMATS).map(([k, v]) => [k, v.label]), (v) => set({ format: v }))),
+        field(t("bgColors"), select(s.theme, Object.entries(THEMES).map(([k, v]) => [k, pick(v.label)]), (v) => set({ theme: v }))),
+        field(t("decor"), select(s.backdrop ?? "none", Object.entries(BACKDROPS).filter(([k]) => k !== "image" || s.bgImage).map(([k, v]) => [k, pick(v)]), (v) => set({ backdrop: v })))),
+      h("div", { class: "row wrap" },
+        imagePicker(t("bgImport"), (url) => setAndRender({ bgImage: url, backdrop: "image" }), 1920, "image/jpeg"),
+        s.bgImage ? h("button", { class: "btn sm ghost", onclick: () => setAndRender({ bgImage: "", backdrop: "none" }) }, t("bgRemove")) : null)),
+
+    // Sous-titres.
+    h("section", { class: "card" },
+      h("h3", {}, t("captionsTitle")),
+      h("div", { class: "grid2" },
+        field(t("font"), select(s.captionFont ?? "montserrat", Object.entries(FONTS).map(([k, v]) => [k, v.label]), (v) => { set({ captionFont: v }); ensureFont(v).then(draw); })),
+        field(t("captionPos"), select(s.captionPos ?? "top", [["top", t("posTop")], ["middle", t("posMiddle")], ["bottom", t("posBottom")]], (v) => set({ captionPos: v }))),
+        field(t("captionStyle"), select(s.captionStyle, [["words", t("capWords")], ["karaoke", t("capKaraoke")], ["full", t("capFull")]], (v) => set({ captionStyle: v }))),
+        field(t("captionBox"), select(s.captionBox ?? "none", [["none", t("boxNone")], ["box", t("boxBand")], ["word", t("boxWord")]], (v) => set({ captionBox: v }))),
+        field(t("captionScale"), range(s.captionScale, 0.6, 1.5, 0.05, (v) => set({ captionScale: v }))),
+        field(t("wps"), range(s.wps, 1.2, 4, 0.1, (v) => set({ wps: v }, true))),
+        field(t("textColor"), h("input", { type: "color", value: s.captionColor ?? "#ffffff", oninput: (e) => set({ captionColor: e.target.value }) })),
+        field(t("accent"), h("input", { type: "color", value: s.accent, oninput: (e) => set({ accent: e.target.value }) }))),
+      h("p", { class: "help" }, t("highlightHelp")),
+      h("div", { class: "row wrap" },
+        toggle(t("uppercase"), s.uppercase, (v) => set({ uppercase: v })),
+        toggle(t("speakerLabels"), s.speakerLabels !== false, (v) => set({ speakerLabels: v })),
+        toggle(t("progressBar"), s.progressBar, (v) => set({ progressBar: v })))),
+
+    // Marque : accroche, fin, signature, logo.
+    h("section", { class: "card" },
+      h("h3", {}, t("brandTitle")),
+      field(t("hook"), h("input", { type: "text", value: s.hook ?? "", maxlength: "90", placeholder: t("hookPlaceholder"), onchange: (e) => set({ hook: e.target.value }, true) }), t("hookHelp")),
+      field(t("outroText"), h("input", { type: "text", value: s.outro ?? "", maxlength: "90", placeholder: t("outroPlaceholder"), onchange: (e) => set({ outro: e.target.value }, true) }), t("outroHelp")),
+      field(t("handle"), h("input", { type: "text", value: s.handle, placeholder: "@Homme.Penseur", oninput: (e) => set({ handle: e.target.value.trim() }) })),
+      h("div", { class: "row wrap" },
+        imagePicker(t("logoImport"), (url) => setAndRender({ logo: url }), 400, "image/png"),
+        s.logo ? h("img", { src: s.logo, class: "logo-preview", alt: "" }) : null,
+        s.logo ? select(s.logoPos ?? "tr", [["tl", t("cornerTL")], ["tr", t("cornerTR")], ["bl", t("cornerBL")], ["br", t("cornerBR")]], (v) => set({ logoPos: v })) : null,
+        s.logo ? h("button", { class: "btn sm ghost", onclick: () => setAndRender({ logo: "" }) }, t("remove")) : null)));
+}
+
+/** Charge une police de sous-titres avant de dessiner (le canvas n'attend pas les polices tout seul). */
+function ensureFont(id) {
+  if (!document.fonts?.load) return Promise.resolve();
+  return document.fonts.load(fontCss(id, 60)).catch(() => {});
 }
 
 // ---------- Voix & musique ----------
@@ -443,11 +632,11 @@ let voiceAbort = null;
 
 /** Génère les voix manquantes. Renvoie "ok", "aborted" (annulé par l'utilisateur) ou "failed". */
 async function ensureVoices(status) {
-  if (!neuralOn() || !missingCount(project.scenes, voiceId())) return "ok";
+  if (!neuralOn() || !missingCount(allScenes(), voiceOf)) return "ok";
   ensureAudio();
   voiceAbort = new AbortController();
   try {
-    await generateVoices(audioCtx, project.scenes, voiceId(), (p) => {
+    await generateVoices(audioCtx, allScenes(), voiceOf, (p) => {
       status.textContent = p.phase === "download" ? `${t("voiceDownload")} ${p.percent ?? 0} %` : `${t("voiceGenerating")} ${p.done}/${p.total}`;
     }, voiceAbort.signal);
     rebuildTimeline();
@@ -465,8 +654,8 @@ async function ensureVoices(status) {
 }
 
 function voiceStatusText() {
-  const n = project.scenes.filter((sc) => sc.text.trim()).length;
-  const missing = missingCount(project.scenes, voiceId());
+  const n = allScenes().filter((sc) => sc.kind !== "pause" && sc.text.trim()).length;
+  const missing = missingCount(allScenes(), voiceOf);
   return missing ? `${n - missing}/${n} ${t("voiceScenesReady")}` : `${t("voiceReady")} · ${fmtTime(tl.total)}`;
 }
 
@@ -490,7 +679,10 @@ function soundPanel() {
     neuralBox.replaceChildren(
       list
         ? h("div", { class: "grid2" },
-          field(t("voice"), select(voiceId(), list, (v) => { set({ neuralVoice: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          field(t("voiceNarrator"), select(voiceId(), list, (v) => { set({ neuralVoice: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          field(`${t("voiceOfChar")} 1`, select(charVoice(0), list, (v) => { set({ charVoice0: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          field(`${t("voiceOfChar")} 2`, select(charVoice(1), list, (v) => { set({ charVoice1: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          field(t("voiceSpeed"), range(s.voiceRate, 0.8, 1.25, 0.05, (v) => { set({ voiceRate: v }); rebuildTimeline(); })),
           field(t("volume"), range(s.voiceVol, 0, 1.5, 0.05, (v) => { set({ voiceVol: v }); voices?.setVolume(v); })))
         : h("p", { class: "help" }, t("voiceNoNeural")),
       list ? h("div", { class: "row wrap" }, genBtn, stopBtn) : null,
@@ -544,7 +736,7 @@ function soundPanel() {
           rebuildTimeline();
         })),
         field(t("voiceLang"), select(s.voiceLang, langOptions(), (v) => {
-          set({ voiceLang: v, voice: "", neuralVoice: "" });
+          set({ voiceLang: v, voice: "", neuralVoice: "", charVoice0: "", charVoice1: "" });
           fillVoices();
           fillNeural();
           rebuildTimeline();
@@ -599,6 +791,8 @@ function exportPanel() {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
         audioCtx.createMediaStreamSource(micStream).connect(dest);
       }
+      // Images et police prêtes avant la première image enregistrée.
+      await Promise.all([preloadImage(project.settings.bgImage), preloadImage(project.settings.logo), ensureFont(project.settings.captionFont)]);
       exporting = true;
       applyFormat();
       startAudio(0);
@@ -690,7 +884,9 @@ document.addEventListener("keydown", (e) => {
 });
 
 // La police des sous-titres peut arriver après le premier rendu.
-document.fonts?.ready.then(draw);
+document.fonts?.ready.then(() => ensureFont(project.settings.captionFont)).then(draw);
+// Les images du projet (décor, logo) arrivent après le premier rendu.
+Promise.all([preloadImage(project.settings.bgImage), preloadImage(project.settings.logo)]).then(draw);
 renderAll();
 initAccount({
   h,
@@ -702,4 +898,4 @@ initAccount({
 });
 
 // Pour les tests automatisés.
-window.__videoStudio = { get project() { return project; }, get timeline() { return tl; }, seek, play, pause, rebuild: rebuildTimeline, renderFrame: (tt) => renderFrame(ctx, project, tl, tt) };
+window.__videoStudio = { get project() { return project; }, get timeline() { return tl; }, seek, play, pause, rebuild: rebuildTimeline, voiceOf, renderFrame: (tt) => renderFrame(ctx, project, tl, tt) };

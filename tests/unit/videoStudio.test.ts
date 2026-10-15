@@ -102,3 +102,54 @@ test("avec une voix off, chaque scène dure le temps de sa voix (sauf durée imp
   assert.equal(tl.items[1].duration, 2.2); // pas encore de voix : vitesse de lecture
   assert.equal(tl.items[2].duration, 4);
 });
+
+// @ts-ignore
+import { withBrand, plainText, splitSpeaker } from "../../video-studio/js/script.js";
+// @ts-ignore
+import { captionWords } from "../../video-studio/js/renderer.js";
+// @ts-ignore
+import { BUILTIN_STYLES, styleFrom, applyStyle, STYLE_KEYS } from "../../video-studio/js/styles.js";
+
+test("dialogues : « Nom : réplique », deux personnages, narrateur en voix off", () => {
+  const s = parseScript("Lui : Tu es là ?\nElle : Oui.\nNarrateur : Le temps passe.\nLui : [rire] Enfin !\nElle : Je sais.");
+  assert.deepEqual(s.map((x: any) => [x.speaker, x.speakerName, x.text]), [
+    [0, "Lui", "Tu es là ?"], [1, "Elle", "Oui."], [undefined, undefined, "Le temps passe."], [0, "Lui", "Enfin !"], [1, "Elle", "Je sais."],
+  ]);
+  assert.equal(s[0].figures, 2);
+  assert.equal(s[3].action, "laugh");
+  assert.equal(s[4].action, "speak"); // pas de mot-clé : celui qui parle fait des gestes
+});
+
+test("« Règle numéro un : … » n'est pas pris pour un personnage", () => {
+  const s = parseScript("Règle numéro un : échauffe-toi.\nRègle numéro deux : bois de l'eau.");
+  assert.equal(s[0].speaker, undefined);
+  assert.match(s[0].text, /^Règle numéro un/);
+  assert.equal(splitSpeaker("Une phrase sans deux-points"), null);
+});
+
+test("[pause 2] crée un silence ; *mot* est mis en couleur et lu sans étoiles", () => {
+  const s = parseScript("Avant.\n[pause 2]\nLe *grand silence* arrive.");
+  assert.equal(s[1].kind, "pause");
+  assert.equal(s[1].duration, 2);
+  assert.equal(timeline(s, 2.4).items[1].duration, 2);
+  assert.equal(plainText(s[2].text), "Le grand silence arrive.");
+  assert.deepEqual(captionWords("Le *grand silence* arrive.").map((w: any) => [w.text, w.hot]), [["LE", false], ["GRAND", true], ["SILENCE", true], ["ARRIVE.", false]]);
+});
+
+test("accroche et écran de fin ajoutés autour des scènes", () => {
+  const s = parseScript("Une phrase.");
+  const all = withBrand(s, { hook: "Écoute bien", outro: "Abonne-toi" });
+  assert.deepEqual(all.map((x: any) => x.kind), ["hook", "scene", "outro"]);
+  assert.equal(withBrand(s, {}).length, 1);
+});
+
+test("styles : appliquer puis ré-extraire donne les mêmes réglages", () => {
+  const settings: any = { theme: "nuit", hook: "garde-moi" };
+  applyStyle(settings, BUILTIN_STYLES.sport.settings);
+  assert.equal(settings.theme, "energie");
+  assert.equal(settings.captionFont, "anton");
+  assert.equal(settings.hook, "garde-moi"); // l'accroche appartient à la vidéo, pas au style
+  const st = styleFrom(settings);
+  assert.ok(Object.keys(st).every((k) => STYLE_KEYS.includes(k)));
+  assert.equal(st.characters[0].top, "tshirt");
+});

@@ -17,17 +17,67 @@ export const THEMES = {
   foret: { label: ["Forêt", "Wald", "Forest"], top: "#13291f", mid: "#0a1812", edge: "#020604", floor: "rgba(190,255,215,", tint: [30, 90, 60] },
   bordeaux: { label: ["Bordeaux", "Bordeaux", "Burgundy"], top: "#33121b", mid: "#1d0a10", edge: "#060203", floor: "rgba(255,200,210,", tint: [110, 30, 50] },
   aube: { label: ["Aube (clair)", "Morgen (hell)", "Dawn (light)"], top: "#4a4f7a", mid: "#2b2e52", edge: "#0b0c1c", floor: "rgba(255,240,220,", tint: [120, 120, 180] },
+  energie: { label: ["Énergie (orange)", "Energie (orange)", "Energy (orange)"], top: "#4a2310", mid: "#24100a", edge: "#080302", floor: "rgba(255,190,140,", tint: [150, 70, 20] },
 };
 
-/** Géométrie de la mise en page selon le format. */
-export function layout(W, H) {
+/** Décors dessinés derrière les personnages (silhouettes discrètes, dans la teinte du thème). */
+export const BACKDROPS = {
+  none: ["Aucun (projecteur)", "Keiner (Scheinwerfer)", "None (spotlight)"],
+  room: ["Chambre", "Zimmer", "Room"],
+  street: ["Rue de nuit", "Straße bei Nacht", "Night street"],
+  park: ["Parc", "Park", "Park"],
+  gym: ["Salle de sport", "Fitnessstudio", "Gym"],
+  sky: ["Ciel étoilé", "Sternenhimmel", "Starry sky"],
+  image: ["Mon image", "Mein Bild", "My image"],
+};
+
+export const CAMERAS = {
+  auto: ["Auto (varié)", "Auto (abwechselnd)", "Auto (varied)"],
+  wide: ["Plan large", "Totale", "Wide shot"],
+  close: ["Gros plan", "Nahaufnahme", "Close-up"],
+  zoomIn: ["Zoom avant", "Zoom hinein", "Zoom in"],
+  zoomOut: ["Zoom arrière", "Zoom heraus", "Zoom out"],
+};
+
+export const POSITIONS = {
+  auto: ["Auto", "Auto", "Auto"],
+  left: ["À gauche", "Links", "Left"],
+  center: ["Au centre", "Mitte", "Center"],
+  right: ["À droite", "Rechts", "Right"],
+};
+
+/** Polices des sous-titres (chargées depuis Google Fonts dans index.html). */
+export const FONTS = {
+  montserrat: { label: "Montserrat", css: '900 {size}px "Montserrat", "Arial Black", sans-serif' },
+  anton: { label: "Anton", css: '400 {size}px "Anton", "Impact", sans-serif' },
+  bebas: { label: "Bebas Neue", css: '400 {size}px "Bebas Neue", "Impact", sans-serif', scale: 1.15 },
+  bangers: { label: "Bangers (BD)", css: '400 {size}px "Bangers", "Comic Sans MS", cursive' },
+  marker: { label: "Permanent Marker", css: '400 {size}px "Permanent Marker", "Comic Sans MS", cursive', scale: 0.9 },
+  poppins: { label: "Poppins", css: '800 {size}px "Poppins", "Arial", sans-serif' },
+  serif: { label: "Playfair (élégant)", css: '800 {size}px "Playfair Display", Georgia, serif', scale: 0.95 },
+};
+
+export function fontCss(id, size) {
+  const f = FONTS[id] ?? FONTS.montserrat;
+  return f.css.replace("{size}", String(Math.round(size * (f.scale ?? 1))));
+}
+
+/** Couleur d'étiquette de chaque personnage (nom au-dessus de sa réplique). */
+const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7"];
+
+/** Géométrie de la mise en page selon le format et la position des sous-titres. */
+export function layout(W, H, captionPos = "top") {
   const portrait = H > W * 1.2, landscape = W > H * 1.2;
+  const groundY = H * (portrait ? 0.665 : landscape ? 0.86 : 0.8);
+  const topY = H * (portrait ? 0.29 : landscape ? 0.16 : 0.18);
+  const captionY = captionPos === "bottom" ? (portrait ? groundY + H * 0.13 : H * 0.93) : captionPos === "middle" ? H * (portrait ? 0.36 : 0.3) : topY;
   return {
-    groundY: H * (portrait ? 0.665 : landscape ? 0.86 : 0.8),
+    groundY,
     figH: H * (portrait ? 0.25 : landscape ? 0.46 : 0.36),
-    captionY: H * (portrait ? 0.29 : landscape ? 0.16 : 0.18),
+    captionY,
     captionSize: Math.round(Math.min(W, H) * (portrait ? 0.068 : landscape ? 0.062 : 0.06)),
     captionWidth: W * (portrait ? 0.84 : 0.8),
+    portrait,
   };
 }
 
@@ -49,7 +99,30 @@ function noise(W, H) {
   return c;
 }
 
-function drawBackground(ctx, W, H, L, theme, t) {
+// Images de l'utilisateur (décor, logo), décodées une fois.
+const images = new Map();
+function image(src) {
+  if (!src) return null;
+  let e = images.get(src);
+  if (!e) {
+    const img = new Image();
+    e = { img, ok: false };
+    img.onload = () => { e.ok = true; };
+    img.src = src;
+    images.set(src, e);
+  }
+  return e.ok ? e.img : null;
+}
+
+/** Précharge une image (avant un export) ; résout quand elle est prête. */
+export function preloadImage(src) {
+  if (!src) return Promise.resolve();
+  image(src);
+  const e = images.get(src);
+  return e.ok ? Promise.resolve() : new Promise((r) => { e.img.addEventListener("load", r, { once: true }); e.img.addEventListener("error", r, { once: true }); });
+}
+
+function drawBackground(ctx, W, H, L, theme, t, backdrop, bgImage) {
   const th = THEMES[theme] ?? THEMES.nuit;
   const g = ctx.createRadialGradient(W / 2, H * 0.38, Math.min(W, H) * 0.05, W / 2, H * 0.45, Math.max(W, H) * 0.75);
   g.addColorStop(0, th.top);
@@ -57,10 +130,25 @@ function drawBackground(ctx, W, H, L, theme, t) {
   g.addColorStop(1, th.edge);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  // Texture « papier / mur » légère qui bouge à peine.
-  ctx.globalAlpha = 1;
-  const n = noise(W, H);
-  ctx.drawImage(n, 0, 0);
+
+  const img = backdrop === "image" ? image(bgImage) : null;
+  if (img) {
+    // Image en plein cadre, assombrie pour que le personnage et le texte restent lisibles.
+    const s = Math.max(W / img.width, H / img.height);
+    const dw = img.width * s, dh = img.height * s;
+    ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = "rgba(4,4,12,0.5)";
+    ctx.fillRect(0, 0, W, H);
+    const v = ctx.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.2, W / 2, H * 0.45, Math.max(W, H) * 0.7);
+    v.addColorStop(0, "rgba(0,0,0,0)");
+    v.addColorStop(1, "rgba(0,0,0,0.65)");
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    ctx.drawImage(noise(W, H), 0, 0);
+    if (backdrop && backdrop !== "none" && backdrop !== "image") drawBackdrop(ctx, W, H, L, th, backdrop, t);
+  }
+
   // Faisceau du projecteur.
   const [tr, tg, tb] = th.tint;
   const cone = ctx.createLinearGradient(0, 0, 0, L.groundY);
@@ -74,7 +162,7 @@ function drawBackground(ctx, W, H, L, theme, t) {
   ctx.lineTo(W * 0.1, L.groundY);
   ctx.closePath();
   ctx.fill();
-  // Sol lumineux (comme sur les vidéos d'exemple).
+  // Sol lumineux.
   const floor = ctx.createLinearGradient(0, L.groundY - H * 0.01, 0, L.groundY + H * 0.07);
   floor.addColorStop(0, `${th.floor}0)`);
   floor.addColorStop(0.15, `${th.floor}0.75)`);
@@ -89,101 +177,292 @@ function drawBackground(ctx, W, H, L, theme, t) {
   ctx.fillRect(0, 0, W, H);
 }
 
+/** Décors en silhouettes : présents mais discrets, pour ne pas voler la vedette au personnage. */
+function drawBackdrop(ctx, W, H, L, th, kind, t) {
+  const gy = L.groundY;
+  const ink = `${th.floor}0.10)`, ink2 = `${th.floor}0.18)`, light = `${th.floor}0.35)`;
+  const S = Math.min(W, H);
+  ctx.save();
+  if (kind === "room") {
+    // Fenêtre avec clair de lune, cadre, lampe sur pied.
+    const ww = S * 0.42, wh = S * 0.5, wx = W * 0.5 - ww * 1.05, wy = gy - wh - H * 0.12;
+    ctx.fillStyle = ink2;
+    ctx.fillRect(wx, wy, ww, wh);
+    ctx.strokeStyle = `${th.floor}0.28)`;
+    ctx.lineWidth = S * 0.012;
+    ctx.strokeRect(wx, wy, ww, wh);
+    ctx.beginPath();
+    ctx.moveTo(wx + ww / 2, wy); ctx.lineTo(wx + ww / 2, wy + wh);
+    ctx.moveTo(wx, wy + wh / 2); ctx.lineTo(wx + ww, wy + wh / 2);
+    ctx.stroke();
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.arc(wx + ww * 0.72, wy + wh * 0.25, S * 0.04, 0, Math.PI * 2);
+    ctx.fill();
+    // Cadre au mur.
+    ctx.strokeStyle = `${th.floor}0.2)`;
+    ctx.strokeRect(W * 0.66, gy - S * 0.62, S * 0.16, S * 0.2);
+    // Lampe.
+    ctx.fillStyle = ink2;
+    ctx.fillRect(W * 0.86, gy - S * 0.45, S * 0.012, S * 0.45);
+    ctx.beginPath();
+    ctx.moveTo(W * 0.86 - S * 0.06, gy - S * 0.45);
+    ctx.lineTo(W * 0.86 + S * 0.07, gy - S * 0.45);
+    ctx.lineTo(W * 0.86 + S * 0.04, gy - S * 0.55);
+    ctx.lineTo(W * 0.86 - S * 0.03, gy - S * 0.55);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === "street") {
+    // Immeubles avec fenêtres allumées, réverbère.
+    const r = rng(42);
+    let x = -S * 0.05;
+    while (x < W) {
+      const bw = S * (0.16 + r() * 0.14), bh = S * (0.35 + r() * 0.5);
+      ctx.fillStyle = ink;
+      ctx.fillRect(x, gy - bh, bw, bh);
+      for (let wy = gy - bh + S * 0.04; wy < gy - S * 0.08; wy += S * 0.07) {
+        for (let wx = x + S * 0.025; wx < x + bw - S * 0.04; wx += S * 0.05) {
+          if (r() < 0.3) { ctx.fillStyle = `${th.floor}${0.12 + 0.1 * r()})`; ctx.fillRect(wx, wy, S * 0.025, S * 0.035); }
+        }
+      }
+      x += bw + S * 0.02;
+    }
+    ctx.fillStyle = ink2;
+    ctx.fillRect(W * 0.12, gy - S * 0.62, S * 0.014, S * 0.62);
+    ctx.fillRect(W * 0.12, gy - S * 0.62, S * 0.08, S * 0.012);
+    const lamp = ctx.createRadialGradient(W * 0.12 + S * 0.075, gy - S * 0.6, 0, W * 0.12 + S * 0.075, gy - S * 0.6, S * 0.25);
+    lamp.addColorStop(0, `${th.floor}0.35)`);
+    lamp.addColorStop(1, `${th.floor}0)`);
+    ctx.fillStyle = lamp;
+    ctx.fillRect(0, 0, W, gy);
+  } else if (kind === "park") {
+    const tree = (x, s) => {
+      ctx.fillStyle = ink2;
+      ctx.fillRect(x - S * 0.012 * s, gy - S * 0.3 * s, S * 0.024 * s, S * 0.3 * s);
+      ctx.fillStyle = ink;
+      for (const [ox, oy, rr] of [[0, -0.42, 0.14], [-0.09, -0.34, 0.1], [0.09, -0.34, 0.1], [0, -0.3, 0.11]]) {
+        ctx.beginPath();
+        ctx.arc(x + ox * S * s, gy + oy * S * s, rr * S * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+    tree(W * 0.12, 1.1); tree(W * 0.88, 0.95); tree(W * 0.72, 0.6); tree(W * 0.3, 0.55);
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.arc(W * 0.78, gy - S * 0.85, S * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "gym") {
+    ctx.strokeStyle = ink2;
+    ctx.lineWidth = S * 0.01;
+    // Espalier.
+    for (let i = 0; i <= 8; i++) {
+      ctx.beginPath();
+      ctx.moveTo(W * 0.04, gy - i * S * 0.07);
+      ctx.lineTo(W * 0.04 + S * 0.22, gy - i * S * 0.07);
+      ctx.stroke();
+    }
+    ctx.fillStyle = ink2;
+    // Râtelier d'haltères.
+    const rx = W - S * 0.32;
+    ctx.fillRect(rx, gy - S * 0.22, S * 0.28, S * 0.015);
+    ctx.fillRect(rx, gy - S * 0.12, S * 0.28, S * 0.015);
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.arc(rx + S * 0.035 + i * S * 0.07, gy - S * 0.24, S * 0.025, 0, Math.PI * 2);
+      ctx.arc(rx + S * 0.035 + i * S * 0.07, gy - S * 0.14, S * 0.025, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Miroir.
+    ctx.strokeRect(W * 0.38, gy - S * 0.7, S * 0.3, S * 0.4);
+  } else if (kind === "sky") {
+    const r = rng(9);
+    for (let i = 0; i < 90; i++) {
+      const x = r() * W, y = r() * gy * 0.85, tw = 0.5 + 0.5 * Math.sin(t * (1 + r() * 2) + i);
+      ctx.fillStyle = `${th.floor}${0.15 + 0.35 * tw * r()})`;
+      ctx.beginPath();
+      ctx.arc(x, y, S * (0.002 + r() * 0.004), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.arc(W * 0.75, gy - S * 0.95, S * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = THEMES.nuit.mid;
+    ctx.beginPath();
+    ctx.arc(W * 0.75 + S * 0.025, gy - S * 0.95 - S * 0.015, S * 0.055, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function wrapWords(ctx, words, maxW) {
   const lines = [];
   let cur = [];
   for (const w of words) {
-    const test = [...cur, w].join(" ");
+    const test = [...cur, w.text].join(" ");
     if (cur.length && ctx.measureText(test).width > maxW) { lines.push(cur); cur = [w]; } else cur.push(w);
   }
   if (cur.length) lines.push(cur);
   return lines;
 }
 
-const FONT = '"Montserrat", "Arial Black", "Helvetica Neue", Arial, sans-serif';
+/** Mots du sous-titre ; les passages entre *étoiles* sont mis en couleur. */
+export function captionWords(text, upper = true) {
+  const out = [];
+  let hot = false;
+  for (const raw of String(text).split(/\s+/).filter(Boolean)) {
+    let w = raw;
+    let open = false, close = false;
+    if (w.startsWith("*")) { open = true; w = w.slice(1); }
+    if (/\*[.,!?…;:»"”)]*$/.test(w)) { close = true; w = w.replace(/\*([.,!?…;:»"”)]*)$/, "$1"); }
+    if (open) hot = true;
+    w = w.replace(/\*/g, "");
+    if (w) out.push({ text: upper ? w.toUpperCase() : w, hot });
+    if (close) hot = false;
+  }
+  return out;
+}
 
-/** Sous-titres animés. style : words (mot par mot), karaoke (mot surligné), full (phrase entière). */
-function drawCaption(ctx, text, local, duration, W, H, L, settings, alpha, voiceDur = null) {
-  const upper = settings.uppercase !== false;
-  const words = (upper ? text.toUpperCase() : text).split(/\s+/).filter(Boolean);
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/**
+ * Sous-titres animés.
+ * style : words (mot par mot), karaoke (mot prononcé en couleur), full (phrase entière).
+ * box : none, box (bandeau sombre derrière le texte), word (pastille de couleur sous le mot prononcé).
+ */
+function drawCaption(ctx, scene, local, duration, W, H, L, settings, alpha, voiceDur = null) {
+  const words = captionWords(scene.text, settings.uppercase !== false);
   if (!words.length) return;
   const size = L.captionSize * (settings.captionScale ?? 1);
+  const accent = settings.accent ?? "#ffd84d";
+  const textColor = settings.captionColor ?? "#ffffff";
   ctx.save();
-  ctx.font = `900 ${size}px ${FONT}`;
+  ctx.font = fontCss(settings.captionFont, size);
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   const lines = wrapWords(ctx, words, L.captionWidth);
-  const lineH = size * 1.18;
+  const lineH = size * 1.2;
   const total = lines.length * lineH;
   const style = settings.captionStyle ?? "words";
+  const box = settings.captionBox ?? "none";
   const wps = settings.wps ?? 2.4;
   // Moment d'apparition de chaque mot : proportionnel au nombre de lettres déjà prononcées,
   // calé sur la voix off quand elle existe, sinon sur la vitesse de lecture.
   const lead = voiceDur != null ? VOICE_LEAD : 0;
   const span = voiceDur != null ? voiceDur * 0.94 : Math.min(duration * 0.75, words.length / (wps * 1.25));
-  const weights = words.map((w) => w.length + 2);
+  const weights = words.map((w) => w.text.length + 2);
   const totalW = weights.reduce((a, b) => a + b, 0);
   const starts = [];
   weights.reduce((acc, w) => { starts.push(lead + (acc / totalW) * span); return acc + w; }, 0);
   starts.push(lead + span);
+  const space = ctx.measureText(" ").width;
+  const top = L.captionY - total / 2;
+
+  // Nom de celui qui parle (dialogues).
+  if (scene.speakerName && settings.speakerLabels !== false) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = fontCss("montserrat", size * 0.5);
+    ctx.textAlign = "center";
+    ctx.fillStyle = SPEAKER_COLORS[scene.speaker] ?? accent;
+    ctx.shadowColor = "rgba(0,0,0,0.8)";
+    ctx.shadowBlur = size * 0.15;
+    ctx.fillText(scene.speakerName.toUpperCase(), W / 2, top - size * 0.55);
+    ctx.restore();
+  }
+
+  if (box === "box") {
+    const maxW = Math.max(...lines.map((l) => ctx.measureText(l.map((w) => w.text).join(" ")).width));
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.62;
+    ctx.fillStyle = "#05050c";
+    roundRect(ctx, W / 2 - maxW / 2 - size * 0.4, top - size * 0.25, maxW + size * 0.8, total + size * 0.5, size * 0.3);
+    ctx.fill();
+    ctx.restore();
+  }
+
   let wi = 0;
   lines.forEach((line, li) => {
-    const lineText = line.join(" ");
-    const lw = ctx.measureText(lineText).width;
+    const lw = ctx.measureText(line.map((w) => w.text).join(" ")).width;
     let x = W / 2 - lw / 2;
-    const y = L.captionY - total / 2 + li * lineH + lineH / 2;
+    const y = top + li * lineH + lineH / 2;
     for (const w of line) {
-      const appear = starts[wi];
-      let a = alpha, scale = 1, color = "#ffffff";
+      const appear = starts[wi], next = starts[wi + 1];
+      const speaking = local >= appear && local < next;
+      let a = alpha, scale = 1, color = w.hot ? accent : textColor;
       if (style === "words") {
         const k = Math.min(1, Math.max(0, (local - appear) / 0.18));
         a *= k;
         scale = 0.7 + 0.3 * (1 - Math.pow(1 - k, 3)) + (k < 1 ? 0.08 * Math.sin(k * Math.PI) : 0);
-      } else if (style === "karaoke") {
-        const next = starts[wi + 1];
-        if (local >= appear && local < next) color = settings.accent ?? "#ffd84d";
+      } else if (style === "karaoke" && speaking) {
+        color = accent;
       }
-      const ww = ctx.measureText(w).width;
+      const ww = ctx.measureText(w.text).width;
       if (a > 0.001) {
         ctx.save();
         ctx.globalAlpha = a;
         ctx.translate(x + ww / 2, y);
         ctx.scale(scale, scale);
-        ctx.shadowColor = "rgba(0,0,0,0.85)";
-        ctx.shadowBlur = size * 0.18;
-        ctx.shadowOffsetY = size * 0.05;
-        ctx.lineWidth = size * 0.12;
-        ctx.strokeStyle = "#000";
-        ctx.lineJoin = "round";
-        ctx.strokeText(w, -ww / 2, 0);
-        ctx.shadowColor = "transparent";
+        if (box === "word" && speaking) {
+          ctx.fillStyle = accent;
+          roundRect(ctx, -ww / 2 - size * 0.14, -size * 0.6, ww + size * 0.28, size * 1.16, size * 0.18);
+          ctx.fill();
+          color = "#14120a";
+        }
+        if (box !== "word" || !speaking) {
+          ctx.shadowColor = "rgba(0,0,0,0.85)";
+          ctx.shadowBlur = size * 0.18;
+          ctx.shadowOffsetY = size * 0.05;
+          ctx.lineWidth = size * 0.12;
+          ctx.strokeStyle = "#000";
+          ctx.lineJoin = "round";
+          ctx.strokeText(w.text, -ww / 2, 0);
+          ctx.shadowColor = "transparent";
+        }
         ctx.fillStyle = color;
-        ctx.fillText(w, -ww / 2, 0);
+        ctx.fillText(w.text, -ww / 2, 0);
         ctx.restore();
       }
-      x += ww + ctx.measureText(" ").width;
+      x += ww + space;
       wi++;
     }
   });
   ctx.restore();
 }
 
-function drawTitle(ctx, text, local, W, H, L, settings, alpha) {
+function drawTitle(ctx, scene, local, W, H, L, settings, alpha) {
   const k = Math.min(1, local / 0.6) * alpha;
   const size = L.captionSize * 1.35 * (settings.captionScale ?? 1);
   ctx.save();
   ctx.globalAlpha = k;
-  ctx.font = `900 ${size}px ${FONT}`;
+  ctx.font = fontCss(settings.captionFont, size);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const words = (settings.uppercase !== false ? text.toUpperCase() : text).split(/\s+/);
+  const words = captionWords(scene.text, settings.uppercase !== false);
   const lines = wrapWords(ctx, words, L.captionWidth);
   const lineH = size * 1.15;
   const y0 = L.captionY - (lines.length * lineH) / 2 + lineH / 2;
   ctx.shadowColor = "rgba(0,0,0,0.8)";
   ctx.shadowBlur = size * 0.2;
-  ctx.fillStyle = "#fff";
-  lines.forEach((l, i) => ctx.fillText(l.join(" "), W / 2, y0 + i * lineH + (1 - k) * 20));
+  lines.forEach((l, i) => {
+    // Ligne mot par mot pour garder les *mots* en couleur.
+    const full = l.map((w) => w.text).join(" ");
+    let x = W / 2 - ctx.measureText(full).width / 2;
+    ctx.textAlign = "left";
+    for (const w of l) {
+      ctx.fillStyle = w.hot ? settings.accent ?? "#ffd84d" : settings.captionColor ?? "#fff";
+      ctx.fillText(w.text, x, y0 + i * lineH + (1 - k) * 20);
+      x += ctx.measureText(`${w.text} `).width;
+    }
+  });
   ctx.shadowBlur = 0;
   ctx.fillStyle = settings.accent ?? "#ffd84d";
   const lw = W * 0.18 * Math.min(1, local / 0.9);
@@ -191,16 +470,118 @@ function drawTitle(ctx, text, local, W, H, L, settings, alpha) {
   ctx.restore();
 }
 
+/** Accroche d'ouverture : gros texte qui « frappe » (zoom + léger tremblement) pour retenir dès la 1re seconde. */
+function drawHook(ctx, scene, local, W, H, L, settings, alpha) {
+  const size = L.captionSize * 1.55 * (settings.captionScale ?? 1);
+  const punch = local < 0.35 ? 1.35 - 0.35 * (local / 0.35) : 1 + 0.015 * Math.sin(local * 9);
+  const shake = local < 0.5 ? (1 - local / 0.5) * size * 0.04 * Math.sin(local * 80) : 0;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(W / 2 + shake, L.captionY);
+  ctx.scale(punch, punch);
+  ctx.font = fontCss(settings.captionFont, size);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const words = captionWords(scene.text, true);
+  const lines = wrapWords(ctx, words, L.captionWidth * 0.95);
+  const lineH = size * 1.12;
+  lines.forEach((l, i) => {
+    const y = (i - (lines.length - 1) / 2) * lineH;
+    const full = l.map((w) => w.text).join(" ");
+    let x = -ctx.measureText(full).width / 2;
+    ctx.textAlign = "left";
+    for (const w of l) {
+      ctx.lineWidth = size * 0.14;
+      ctx.strokeStyle = "#000";
+      ctx.lineJoin = "round";
+      ctx.strokeText(w.text, x, y);
+      ctx.fillStyle = w.hot || l === lines[0] ? settings.accent ?? "#ffd84d" : "#fff";
+      ctx.fillText(w.text, x, y);
+      x += ctx.measureText(`${w.text} `).width;
+    }
+  });
+  ctx.restore();
+}
+
+/** Écran de fin : appel à s'abonner avec la signature de la chaîne. */
+function drawOutro(ctx, scene, local, W, H, L, settings, alpha) {
+  const size = L.captionSize * 1.2 * (settings.captionScale ?? 1);
+  const k = Math.min(1, local / 0.5);
+  ctx.save();
+  ctx.globalAlpha = alpha * k;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = fontCss(settings.captionFont, size);
+  ctx.shadowColor = "rgba(0,0,0,0.8)";
+  ctx.shadowBlur = size * 0.2;
+  ctx.fillStyle = "#fff";
+  const words = captionWords(scene.text, settings.uppercase !== false);
+  const lines = wrapWords(ctx, words, L.captionWidth);
+  lines.forEach((l, i) => ctx.fillText(l.map((w) => w.text).join(" "), W / 2, L.captionY + (i - (lines.length - 1) / 2) * size * 1.15));
+  const handle = settings.handle ? (settings.handle.startsWith("@") ? settings.handle : `@${settings.handle}`) : "";
+  // Bouton « s'abonner » qui pulse.
+  const by = L.captionY + (lines.length / 2) * size * 1.15 + size * 0.9;
+  const pulse = 1 + 0.05 * Math.sin(local * 6);
+  ctx.save();
+  ctx.translate(W / 2, by);
+  ctx.scale(pulse, pulse);
+  ctx.font = fontCss("montserrat", size * 0.55);
+  const label = handle || "♥";
+  const bw = ctx.measureText(label).width + size * 1.2;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = settings.accent ?? "#ffd84d";
+  roundRect(ctx, -bw / 2, -size * 0.45, bw, size * 0.9, size * 0.45);
+  ctx.fill();
+  ctx.fillStyle = "#14120a";
+  ctx.fillText(label, 0, size * 0.03);
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawLogo(ctx, W, H, settings) {
+  const img = image(settings.logo);
+  if (!img) return;
+  const S = Math.min(W, H) * (settings.logoSize ?? 0.14);
+  const s = S / Math.max(img.width, img.height);
+  const w = img.width * s, h = img.height * s, m = Math.min(W, H) * 0.04;
+  const pos = settings.logoPos ?? "tr";
+  const x = pos.includes("l") ? m : W - w - m;
+  const y = pos.includes("t") ? m + (H > W ? H * 0.04 : 0) : H - h - m - (H > W ? H * 0.12 : 0);
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.restore();
+}
+
+const TALKING_FACES = new Set(["neutral", "happy", "talk", "angry", "closed"]);
+
+/** Bouche qui bouge pendant que le personnage parle (dialogue). */
+function talking(p, local, voiceStart, voiceEnd) {
+  if (local < voiceStart || local > voiceEnd || !TALKING_FACES.has(p.face)) return p;
+  const m = Math.abs(Math.sin(local * 11)) * 0.7 + Math.abs(Math.sin(local * 4.3)) * 0.3;
+  return { ...p, face: p.face === "angry" ? "angry" : "talk", mouthOpen: m };
+}
+
 /** Poses des deux personnages pour un élément de la timeline à son temps local. */
 function scenePoses(item, local) {
   const s = item.scene;
   const r = rng(s.seed)();
-  const flip = !DUO_ACTIONS.has(s.action) && s.kind !== "title" && rng(s.seed + 11)() < 0.35 && s.action !== "walk" && s.action !== "run" && s.action !== "alone";
-  const action = s.kind === "title" ? (s.action === "idle" ? "wave" : s.action) : s.action;
-  const p0 = livelyPose(action, local, r, 0);
-  const duo = s.figures ? s.figures === 2 : DUO_ACTIONS.has(s.action);
-  const p1 = duo ? livelyPose(action, local + 0.37, (r * 7.3) % 1, 1) : null;
-  return { p0, p1, duo, flip };
+  const action = s.kind === "title" || s.kind === "outro" ? (s.action === "idle" ? "wave" : s.action) : s.kind === "pause" ? "idle" : s.action;
+  const duo = s.figures ? s.figures === 2 : DUO_ACTIONS.has(action);
+  const pos = s.pos && s.pos !== "auto" ? s.pos : null;
+  const flip = !duo && !pos && s.kind !== "title" && rng(s.seed + 11)() < 0.35 && !["walk", "run", "alone"].includes(action);
+  // L'acteur joue l'action ; l'autre personnage réagit (rôle 2 des actions à deux) ou écoute.
+  const actor = livelyPose(action, local, r, 0);
+  const other = duo ? livelyPose(DUO_ACTIONS.has(action) || action === "speak" ? action : "listen", local + 0.37, (r * 7.3) % 1, 1) : null;
+  let p0 = actor, p1 = other;
+  if (duo && s.speaker === 1) { p0 = other; p1 = actor; }
+  // Celui qui parle remue la bouche pendant sa réplique.
+  if (s.speaker === 0 || s.speaker === 1) {
+    const vs = VOICE_LEAD, ve = item.voiceDur != null ? VOICE_LEAD + item.voiceDur : item.duration * 0.8;
+    if (s.speaker === 0) p0 = talking(p0, local, vs, ve);
+    else if (p1) p1 = talking(p1, local, vs, ve);
+  }
+  return { p0, p1, duo, flip, pos };
 }
 
 /**
@@ -228,23 +609,54 @@ function easeOutBack(x, c = 1.25) {
   return 1 + (c + 1) * y * y * y + c * y * y;
 }
 
+const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+
 function orient(p, facing) {
   return { ...p, dir: (p.dir ?? 1) * facing, dx: (p.dx ?? 0) * facing };
 }
 
+/** Position horizontale du personnage seul. */
+function soloX(W, pos) {
+  return pos === "left" ? W * 0.3 : pos === "right" ? W * 0.7 : W / 2;
+}
+
+/** Caméra de la scène : zoom et point visé. */
+function camera(item, local, W, H, L, focusX) {
+  const s = item.scene;
+  const u = smooth(Math.min(1, local / item.duration));
+  const headY = L.groundY - L.figH * 0.82;
+  const midY = L.groundY - L.figH * 0.5;
+  switch (s.camera) {
+    case "wide": return { zoom: 0.86 + 0.02 * u, x: W / 2, y: midY };
+    case "close": return { zoom: 1.75 + 0.06 * u, x: focusX, y: headY };
+    case "zoomIn": return { zoom: 1 + 0.6 * u, x: W / 2 + (focusX - W / 2) * u, y: midY + (headY - midY) * u };
+    case "zoomOut": return { zoom: 1.6 - 0.6 * u, x: focusX + (W / 2 - focusX) * u, y: headY + (midY - headY) * u };
+    default: {
+      // Auto : léger zoom lent et dérive, différents à chaque scène.
+      const rr = rng(s.seed + 3);
+      const zoomFrom = 1 + rr() * 0.04, zoomTo = zoomFrom + 0.03 + rr() * 0.04;
+      return { zoom: zoomFrom + (zoomTo - zoomFrom) * u, x: W / 2 + (rr() - 0.5) * W * 0.03 * u, y: midY };
+    }
+  }
+}
+
 /**
  * Dessine l'image à l'instant t.
- * project = { scenes, settings }, tl = timeline(project.scenes, wps).
+ * project = { scenes, settings }, tl = timeline(scènes, wps).
  */
 export function renderFrame(ctx, project, tl, t) {
   const { settings } = project;
   const W = ctx.canvas.width, H = ctx.canvas.height;
-  const L = layout(W, H);
+  const L = layout(W, H, settings.captionPos);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  drawBackground(ctx, W, H, L, settings.theme, t);
   const at = sceneAt(tl, Math.min(t, Math.max(0, tl.total - 1e-3)));
-  if (!at) { ctx.restore(); return; }
+  const scene = at?.item.scene;
+  const sceneBg = scene?.bg && scene.bg !== "auto" ? scene.bg : null;
+  const theme = sceneBg && THEMES[sceneBg] ? sceneBg : settings.theme;
+  const backdrop = sceneBg && BACKDROPS[sceneBg] ? sceneBg : settings.backdrop ?? "none";
+  drawBackground(ctx, W, H, L, theme, t, backdrop, settings.bgImage);
+  if (!at) { drawLogo(ctx, W, H, settings); ctx.restore(); return; }
   const { item, index, local } = at;
   const cur = scenePoses(item, local);
   // Transition douce depuis la fin de la scène précédente.
@@ -256,20 +668,26 @@ export function renderFrame(ctx, project, tl, t) {
     k = easeOutBack(local / BLEND);
   }
 
-  // Caméra : léger zoom lent et dérive, différents à chaque scène.
-  const rr = rng(item.scene.seed + 3);
-  const zoomFrom = 1 + rr() * 0.04, zoomTo = zoomFrom + 0.03 + rr() * 0.04;
-  const u = Math.min(1, local / item.duration);
-  const zoom = zoomFrom + (zoomTo - zoomFrom) * u;
-  const panX = (rr() - 0.5) * W * 0.03 * u;
-  const cx = W / 2, cy = L.groundY - L.figH * 0.5;
-  ctx.translate(cx + panX, cy);
-  ctx.scale(zoom, zoom);
-  ctx.translate(-cx, -cy);
-
   const chars = settings.characters ?? [{}, {}];
   const duoGap = Math.min(W * 0.17, L.figH * 0.62);
-  // Ombres au sol.
+  const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
+  const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));
+  const kk = Math.min(1, Math.max(0, k));
+  const solo = soloX(W, cur.pos), soloPrev = prev ? soloX(W, prev.pos) : solo;
+  const soloNow = soloPrev + (solo - soloPrev) * kk;
+  const x0 = soloNow + (W / 2 - duoGap - soloNow) * duoAmt;
+  const x1 = W / 2 + duoGap;
+
+  // Caméra (vise celui qui parle en gros plan).
+  const focusX = item.scene.speaker === 1 ? x1 : x0;
+  const cam = camera(item, local, W, H, L, focusX);
+  const cy = L.groundY - L.figH * 0.5;
+  ctx.translate(W / 2, cy);
+  ctx.scale(cam.zoom, cam.zoom);
+  ctx.translate(-cam.x, -cam.y);
+
+  const th = THEMES[theme] ?? THEMES.nuit;
+  const look = { outline: "#06060c", glow: `${th.floor}${settings.glow === false ? 0 : 0.5})`, shading: true };
   const shadow = (x, w) => {
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
@@ -277,14 +695,6 @@ export function renderFrame(ctx, project, tl, t) {
     ctx.fill();
   };
 
-  const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
-  const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));
-  const th = THEMES[settings.theme] ?? THEMES.nuit;
-  const look = { outline: "#06060c", glow: `${th.floor}${settings.glow === false ? 0 : 0.5})`, shading: true };
-  const x0 = W / 2 - duoGap * duoAmt;
-  const x1 = W / 2 + duoGap;
-
-  // Personnage principal.
   const f0 = cur.flip ? -1 : 1, fPrev = prev?.flip ? -1 : 1;
   const a0 = orient(cur.p0, f0);
   let p0 = prev ? lerpPose(orient(prev.p0, fPrev), a0, k) : a0;
@@ -306,25 +716,29 @@ export function renderFrame(ctx, project, tl, t) {
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  // Filigrane.
-  if (settings.handle) {
+  // Signature.
+  if (settings.handle && item.scene.kind !== "outro") {
     ctx.save();
     ctx.globalAlpha = 0.32;
     ctx.fillStyle = "#fff";
-    ctx.font = `500 ${Math.round(L.captionSize * 0.5)}px ${FONT}`;
+    ctx.font = `500 ${Math.round(L.captionSize * 0.5)}px "Montserrat", sans-serif`;
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     const h = settings.handle.startsWith("@") ? settings.handle : `@${settings.handle}`;
     ctx.fillText(h, W * 0.04, L.groundY + H * 0.045);
     ctx.restore();
   }
+  drawLogo(ctx, W, H, settings);
 
   // Texte : fondu entrée / sortie.
   const fadeIn = Math.min(1, local / 0.2);
   const fadeOut = Math.min(1, (item.duration - local) / 0.25);
   const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
-  if (item.scene.kind === "title") drawTitle(ctx, item.scene.text, local, W, H, L, settings, alpha);
-  else drawCaption(ctx, item.scene.text, local, item.duration, W, H, L, settings, alpha, item.voiceDur);
+  const kind = item.scene.kind;
+  if (kind === "title") drawTitle(ctx, item.scene, local, W, H, L, settings, alpha);
+  else if (kind === "hook") drawHook(ctx, item.scene, local, W, H, L, settings, alpha);
+  else if (kind === "outro") drawOutro(ctx, item.scene, local, W, H, L, settings, alpha);
+  else if (kind !== "pause") drawCaption(ctx, item.scene, local, item.duration, W, H, L, settings, alpha, item.voiceDur);
 
   if (settings.progressBar) {
     ctx.fillStyle = "rgba(255,255,255,0.18)";

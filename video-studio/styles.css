@@ -141,3 +141,17 @@ dialog.auth h3 { margin: 0; }
 .consent { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
 input.link { flex: 1 1 220px; }
 .video-row a { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chip-group { display: inline-flex; }
+.chip-group .chip:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.chip.x { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; padding: 6px 9px; color: var(--muted); }
+.chip.add { border-style: dashed; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); cursor: pointer; padding: 0; }
+.swatch.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+input.name-input { width: auto; flex: 1 1 140px; min-width: 0; }
+.mini-field { display: inline-flex; align-items: center; gap: 4px; }
+.mini-field select { max-width: 46vw; }
+.logo-preview { height: 40px; width: auto; border-radius: 6px; background: #fff2; }
+details summary { cursor: pointer; color: var(--muted); font-weight: 700; font-size: 13px; padding: 4px 0; }
+details[open] summary { margin-bottom: 8px; }
+.scene-card.pause { border-style: dashed; opacity: 0.85; }

@@ -19,7 +19,7 @@ export const KEYWORDS = [
   ["angry", ["colere", "enerv", "furieu", " rage", "haine", "deteste", "agace", "wut", "wutend", "sauer", "hass", "argerlich", "angry", "anger", "furious", "hate", "mad at", "enojo", "furia", "odio"]],
   ["argue", ["dispute", "conflit", "engueul", "se battre", "bagarre", "streit", "konflikt", "argue", "fight", "conflict", "pelea", "discut"]],
   ["hug", ["calin", "serrer dans", "etreint", "embrass", "consol", "umarm", "trost", "hug", "embrace", "comfort", "abrazo", "consuel"]],
-  ["love", ["amour", "aime", "aimer", "coeur", "couple", "tendresse", "liebe", "lieb", "herz", "love", "heart", "darling", "amor", "corazon", "querer"]],
+  ["love", ["amour", " aime ", " aimes ", "aimer", "'aime", "coeur", "couple", "tendresse", "liebe", "lieb", "herz", "love", "heart", "darling", "amor", "corazon", "querer"]],
   ["talk", ["parle", "parler", "discute", " dire ", "dit ", "dis-", "conversation", "explique", "ecoute", "repond", "demande", "sprech", "rede", "sagt", "erklar", "zuhor", " frag", "talk", "speak", " say", "tell", "explain", "listen", " ask", "conversation", "habl", "decir", "escuch"]],
   ["point", ["accuse", "juge", "jugement", "critiqu", "regard des autres", "pointe", "beschuldig", "urteil", "kritik", "judge", "blame", "criticiz", "point at", "juzg", "culpa"]],
   ["ignore", ["ignore", "ignorer", "tourne le dos", "indifferen", "ghost", "ignorier", "gleichgult", "turn away", "indiferen"]],
@@ -52,12 +52,13 @@ export const TAG_ALIASES = {
   muscu: "lift", haltere: "lift", court: "run", courir: "run", laufen: "run", sport: "exercise",
   medite: "meditate", respire: "meditate", victoire: "celebrate", joie: "celebrate", fatigue: "tired", mude: "tired",
   telephone: "phone", livre: "read", lire: "read", assis: "sit", attente: "sit", marche: "walk", gehen: "walk",
-  bof: "shrug", tombe: "fall", salut: "wave", surpris: "surprised", repos: "idle", titre: "title",
+  bof: "shrug", tombe: "fall", salut: "wave", surpris: "surprised", uberrascht: "surprised", freude: "celebrate", nachdenken: "think", parle2: "speak", ecoute: "listen", zuhoren: "listen", listen: "listen", repos: "idle", titre: "title",
 };
 
 /** Retire accents et majuscules pour comparer les mots-clés. */
 export function normalize(text) {
-  return " " + text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’']/g, "'").replace(/\s+/g, " ") + " ";
+  // La ponctuation devient un espace, pour que « court. » ou « seul, » soient reconnus comme des mots.
+  return " " + text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’']/g, "'").replace(/[.,!?;:…"«»“”()*]/g, " ").replace(/\s+/g, " ") + " ";
 }
 
 /** Animation déduite d'une phrase, ou null si aucun mot-clé. */
@@ -118,13 +119,33 @@ function hashString(s) {
 }
 
 /** Quand rien n'est détecté : alterne des animations neutres pour que la vidéo ne soit jamais figée. */
-const NEUTRAL_CYCLE = ["think", "walk", "idle", "talk", " sit ", "think", "walk"];
+const NEUTRAL_CYCLE = ["think", "walk", "idle", "talk", "sit", "think", "walk"];
+
+/** Noms qui désignent la voix off (pas un personnage à l'écran). */
+const NARRATOR_NAMES = new Set(["narrateur", "narratrice", "narrator", "erzahler", "erzahlerin", "voix off", "voice over", "off"]);
+
+/** Texte sans balises de mise en forme (*mot*), pour la voix et la détection. */
+export function plainText(text) {
+  return String(text ?? "").replace(/\*([^*]+)\*/g, "$1").replace(/\s+/g, " ").trim();
+}
+
+/** « Nom : réplique » → { name, text } (nom de 1 à 3 mots, 24 caractères max), sinon null. */
+export function splitSpeaker(line) {
+  const m = /^([\p{L}][\p{L}\p{N}' .-]{0,23}?)\s*:\s+(.+)$/u.exec(line);
+  if (!m) return null;
+  const name = m[1].trim();
+  if (name.split(/\s+/).length > 3) return null;
+  return { name, text: m[2].trim() };
+}
 
 /**
  * Texte complet → liste de scènes.
+ * Dialogues : « Lui : … » / « Elle : … ». Un nom n'est reconnu comme personnage que s'il ouvre au moins
+ * deux lignes (pour ne pas confondre avec « Règle numéro un : … »). Le premier nom est le personnage 1,
+ * le deuxième le personnage 2 ; « Narrateur : … » est la voix off.
+ * « [pause] » ou « [pause 2] » seul sur une ligne : un temps de silence (en secondes).
  * @param {string} text
  * @param {{ maxWords?: number, seed?: number }} [opts]
- * @returns {{ id: string, kind: "title"|"scene", text: string, action: string, auto: boolean, seed: number }[]}
  */
 export function parseScript(text, opts = {}) {
   const maxWords = opts.maxWords ?? 14;
@@ -132,17 +153,47 @@ export function parseScript(text, opts = {}) {
   const scenes = [];
   let neutral = 0;
   let prevAction = null;
-  const lines = String(text ?? "").replace(/\r/g, "").split("\n");
-  for (const raw of lines) {
-    const line = raw.trim();
+  const lines = String(text ?? "").replace(/\r/g, "").split("\n").map((l) => l.trim());
+
+  // Noms de personnages : ceux qui ouvrent au moins deux lignes.
+  const counts = new Map();
+  for (const l of lines) {
+    const sp = !l.startsWith("#") && splitSpeaker(l.replace(/^\[[^\]]+\]\s*/, ""));
+    if (sp) counts.set(normalize(sp.name).trim(), (counts.get(normalize(sp.name).trim()) ?? 0) + 1);
+  }
+  const speakers = [];
+  const speakerIndex = (name) => {
+    const k = normalize(name).trim();
+    if (NARRATOR_NAMES.has(k)) return null;
+    let i = speakers.findIndex((s) => normalize(s).trim() === k);
+    if (i < 0) { speakers.push(name); i = speakers.length - 1; }
+    return i % 2;
+  };
+
+  for (const rawLine of lines) {
+    let line = rawLine;
     if (!line) continue;
     if (line.startsWith("#")) {
       const title = line.replace(/^#+\s*/, "").trim();
       if (title) scenes.push({ kind: "title", text: title, action: "idle", auto: true });
       continue;
     }
+    const pause = /^\[\s*(?:pause|stille|silence)\s*([\d.,]+)?\s*(?:s|sec)?\s*\]$/i.exec(line);
+    if (pause) {
+      scenes.push({ kind: "pause", text: "", action: "idle", auto: true, duration: Math.min(10, Math.max(0.3, Number((pause[1] ?? "1").replace(",", ".")) || 1)) });
+      continue;
+    }
+    // Réplique d'un personnage ?
+    let speaker = null, speakerName = null;
+    const lead = /^\[[^\]]+\]\s*/.exec(line)?.[0] ?? "";
+    const sp = splitSpeaker(line.slice(lead.length));
+    if (sp && ((counts.get(normalize(sp.name).trim()) ?? 0) >= 2 || NARRATOR_NAMES.has(normalize(sp.name).trim()))) {
+      speaker = speakerIndex(sp.name);
+      speakerName = speaker == null ? null : sp.name;
+      line = lead + sp.text;
+    }
     // Phrases : coupe après . ! ? … en gardant la ponctuation ; garde « [tag] » collé à sa phrase.
-    const sentences = line.match(/[^.!?…]+(?:[.!?…]+["»”)]*|$)/g) ?? [line];
+    const sentences = line.match(/[^.!?…]+(?:[.!?…]+["»”)*]*|$)/g) ?? [line];
     let pendingTag = null;
     for (let s of sentences) {
       s = s.trim();
@@ -157,24 +208,46 @@ export function parseScript(text, opts = {}) {
       }
       const chunks = splitLong(s, maxWords);
       // L'action est déduite de la phrase entière, puis gardée sur ses morceaux.
-      let action = forced ?? detectAction(s);
+      let action = forced ?? detectAction(plainText(s));
       const auto = !forced;
       if (!action) {
-        action = NEUTRAL_CYCLE[neutral++ % NEUTRAL_CYCLE.length];
-        if (action === prevAction) action = NEUTRAL_CYCLE[neutral++ % NEUTRAL_CYCLE.length];
+        // En dialogue, celui qui parle fait des gestes ; sinon on varie les animations neutres.
+        action = speaker != null ? "speak" : NEUTRAL_CYCLE[neutral++ % NEUTRAL_CYCLE.length];
+        if (action === prevAction && speaker == null) action = NEUTRAL_CYCLE[neutral++ % NEUTRAL_CYCLE.length];
       }
       if (action === "title") { scenes.push({ kind: "title", text: s, action: "idle", auto }); continue; }
-      for (const c of chunks) scenes.push({ kind: "scene", text: c, action, auto });
+      for (const c of chunks) {
+        const sc = { kind: "scene", text: c, action, auto };
+        if (speaker != null) Object.assign(sc, { speaker, speakerName, figures: 2 });
+        scenes.push(sc);
+      }
       prevAction = action;
     }
   }
   return scenes.map((sc, i) => ({ id: `s${i + 1}`, ...sc, seed: (hashString(sc.text) ^ Math.imul(baseSeed, 2654435761) ^ i) >>> 0 }));
 }
 
+/**
+ * Ajoute l'accroche d'ouverture et l'écran de fin (réglages de marque) autour des scènes du texte.
+ * settings.hook : texte de l'accroche (vide = pas d'accroche) ; settings.outro : texte de fin (vide = pas d'écran de fin).
+ */
+export function withBrand(scenes, settings = {}) {
+  const out = [];
+  const hook = String(settings.hook ?? "").trim();
+  if (hook) out.push({ id: "hook", kind: "hook", text: hook, action: detectAction(plainText(hook)) ?? "surprised", auto: true, seed: hashString(hook) });
+  out.push(...scenes);
+  const outro = String(settings.outro ?? "").trim();
+  if (outro) out.push({ id: "outro", kind: "outro", text: outro, action: "wave", auto: true, seed: hashString(outro) + 1 });
+  return out;
+}
+
 /** Durée d'affichage d'une scène (secondes) selon le nombre de mots et la vitesse de lecture (mots/s). */
 export function sceneDuration(scene, wordsPerSecond = 2.4) {
   if (scene.duration) return scene.duration;
-  const words = scene.text.split(/\s+/).filter(Boolean).length;
+  const words = plainText(scene.text).split(/\s+/).filter(Boolean).length;
+  if (scene.kind === "pause") return 1;
+  if (scene.kind === "outro") return 3.2;
+  if (scene.kind === "hook") return Math.max(2.2, words / wordsPerSecond + 1.2);
   if (scene.kind === "title") return Math.max(2.5, words / wordsPerSecond + 1.5);
   return Math.max(2.2, words / wordsPerSecond + 1.0);
 }

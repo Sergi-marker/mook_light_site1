@@ -10,12 +10,48 @@ const T = {
   tabStyle: ["Style", "Stil", "Style"], tabSound: ["Voix & musique", "Stimme & Musik", "Voice & music"], tabExport: ["Exporter", "Exportieren", "Export"], tabAccount: ["Compte & offres", "Konto & Tarife", "Account & plans"],
   textLabel: ["Votre texte", "Dein Text", "Your text"],
   textHelp: [
-    "Une phrase = une scène. Une ligne qui commence par # devient un titre. Pour imposer une animation : [rire], [triste], [pense], [court], [muscu], [parle]… en début de phrase.",
-    "Ein Satz = eine Szene. Eine Zeile mit # am Anfang wird ein Titel. Animation erzwingen: [lachen], [traurig], [denken], [laufen], [sport], [reden]… am Satzanfang.",
-    "One sentence = one scene. A line starting with # becomes a title. To force an animation: [laugh], [sad], [think], [run], [lift], [talk]… at the start of a sentence.",
+    "Une phrase = une scène. # Titre en début de ligne = carton de titre. [rire], [triste], [pense], [court], [muscu]… en début de phrase = geste imposé. Dialogue : « Lui : … » / « Elle : … » (chaque personnage a sa voix), « Narrateur : … » pour la voix off. *mot* = mot en couleur. [pause] ou [pause 2] seul sur une ligne = silence.",
+    "Ein Satz = eine Szene. # am Zeilenanfang = Titelkarte. [lachen], [traurig], [denken], [laufen], [sport]… am Satzanfang = feste Geste. Dialog: „Er: …“ / „Sie: …“ (jede Figur hat ihre Stimme), „Erzähler: …“ für die Off-Stimme. *Wort* = farbiges Wort. [pause] oder [pause 2] allein in einer Zeile = Stille.",
+    "One sentence = one scene. # at line start = title card. [laugh], [sad], [think], [run], [lift]… at sentence start = forced gesture. Dialogue: “Him: …” / “Her: …” (each character has its own voice), “Narrator: …” for the voice-over. *word* = colored word. [pause] or [pause 2] alone on a line = silence.",
   ],
   build: ["Créer la vidéo", "Video erstellen", "Create the video"],
   examples: ["Exemples", "Beispiele", "Examples"],
+  exDialogue: ["Dialogue", "Dialog", "Dialogue"],
+  importScript: ["Importer un script", "Skript importieren", "Import a script"],
+  importHelp: [".txt, Word (.docx) ou sous-titres (.srt)", ".txt, Word (.docx) oder Untertitel (.srt)", ".txt, Word (.docx) or subtitles (.srt)"],
+  importError: ["Ce fichier n'a pas pu être lu.", "Diese Datei konnte nicht gelesen werden.", "This file could not be read."],
+  imageError: ["Cette image n'a pas pu être lue.", "Dieses Bild konnte nicht gelesen werden.", "This image could not be read."],
+  storageFull: ["Plus de place dans ce navigateur : supprimez un style ou un personnage enregistré.", "Kein Platz mehr im Browser: einen gespeicherten Stil oder eine Figur löschen.", "No space left in this browser: delete a saved style or character."],
+  pause: ["Pause", "Pause", "Pause"], addPause: ["+ Ajouter une pause", "+ Pause hinzufügen", "+ Add pause"],
+  speaker: ["Personnage", "Figur", "Character"], speakerNone: ["Narrateur", "Erzähler", "Narrator"],
+  bgStyle: ["Décor du style", "Hintergrund des Stils", "Style background"], decor: ["Décor", "Kulisse", "Set"],
+  myCharacters: ["Mes personnages", "Meine Figuren", "My characters"], saveCharacter: ["Enregistrer", "Speichern", "Save"],
+  charName: ["Nom du personnage", "Name der Figur", "Character name"],
+  skin: ["Peau", "Haut", "Skin"], top: ["Haut", "Oberteil", "Top"], bottom: ["Bas", "Unterteil", "Bottom"], none: ["Aucun", "Keins", "None"],
+  tshirt: ["T-shirt", "T-Shirt", "T-shirt"], hoodie: ["Sweat à capuche", "Hoodie", "Hoodie"], shirt: ["Chemise", "Hemd", "Shirt"], dress: ["Robe", "Kleid", "Dress"],
+  pants: ["Pantalon", "Hose", "Trousers"], shorts: ["Short", "Shorts", "Shorts"],
+  hairCurly: ["Frisés / afro", "Lockig / Afro", "Curly / afro"], hairPonytail: ["Queue de cheval", "Pferdeschwanz", "Ponytail"], hairSpiky: ["En pics", "Stachelig", "Spiky"],
+  eyes: ["Yeux", "Augen", "Eyes"], eyesDots: ["Points", "Punkte", "Dots"], eyesBig: ["Grands yeux", "Große Augen", "Big eyes"], eyesLashes: ["Avec cils", "Mit Wimpern", "Lashes"], eyesSleepy: ["Fatigués", "Müde", "Sleepy"],
+  bodyShape: ["Silhouette (taille, corpulence…)", "Körperbau (Größe, Statur…)", "Body shape (height, build…)"],
+  channelStyles: ["Styles de chaîne", "Kanal-Stile", "Channel styles"],
+  channelStylesHelp: ["Un style regroupe décor, personnages, sous-titres, musique, voix et marque. Enregistrez le vôtre pour que toutes vos vidéos se ressemblent.", "Ein Stil umfasst Hintergrund, Figuren, Untertitel, Musik, Stimmen und Marke. Speichere deinen eigenen, damit alle Videos gleich aussehen.", "A style bundles background, characters, captions, music, voices and branding. Save yours so all your videos look alike."],
+  readyStyles: ["Prêts à l'emploi", "Fertige Stile", "Ready-made"], myStyles: ["Mes styles", "Meine Stile", "My styles"], noStyles: ["aucun pour l'instant", "noch keiner", "none yet"],
+  myStyle: ["Mon style", "Mein Stil", "My style"], styleName: ["Nom du style", "Name des Stils", "Style name"], saveStyle: ["Enregistrer ce style", "Diesen Stil speichern", "Save this style"], styleSaved: ["Style enregistré", "Stil gespeichert", "Style saved"],
+  bgColors: ["Couleurs du fond", "Hintergrundfarben", "Background colors"],
+  decorTitle: ["Image et décor", "Bild und Kulisse", "Picture and set"], bgImport: ["🖼 Mon image de fond", "🖼 Eigenes Hintergrundbild", "🖼 My background image"], bgRemove: ["Retirer l'image", "Bild entfernen", "Remove image"],
+  captionsTitle: ["Sous-titres", "Untertitel", "Captions"], font: ["Police", "Schrift", "Font"], captionPos: ["Position", "Position", "Position"],
+  posTop: ["En haut", "Oben", "Top"], posMiddle: ["Au milieu", "Mitte", "Middle"], posBottom: ["En bas", "Unten", "Bottom"],
+  captionBox: ["Fond", "Hintergrund", "Background"], boxNone: ["Aucun", "Keiner", "None"], boxBand: ["Bandeau sombre", "Dunkles Band", "Dark band"], boxWord: ["Mot surligné (TikTok)", "Wort markiert (TikTok)", "Highlighted word (TikTok)"],
+  textColor: ["Couleur du texte", "Textfarbe", "Text color"],
+  highlightHelp: ["Astuce : écrivez *un mot* entre étoiles dans votre texte pour le mettre en couleur. Les emojis fonctionnent aussi 🔥.", "Tipp: Schreibe *ein Wort* zwischen Sternchen, um es farbig hervorzuheben. Emojis funktionieren auch 🔥.", "Tip: write *a word* between asterisks to color it. Emojis work too 🔥."],
+  speakerLabels: ["Nom de celui qui parle", "Name des Sprechers", "Speaker name"],
+  brandTitle: ["Marque", "Marke", "Branding"],
+  hook: ["Accroche (1re seconde)", "Aufhänger (1. Sekunde)", "Hook (first second)"], hookPlaceholder: ["Ex. : Ne fais plus jamais cette erreur", "Z. B.: Mach nie wieder diesen Fehler", "E.g.: Never make this mistake again"],
+  hookHelp: ["Gros texte qui frappe en ouverture, pour retenir les gens qui font défiler.", "Großer Text zum Start, damit Scrollende hängen bleiben.", "Big punchy opening text so scrollers stop."],
+  outroText: ["Écran de fin", "Abspann", "End screen"], outroPlaceholder: ["Ex. : Abonne-toi pour la suite", "Z. B.: Abonniere für mehr", "E.g.: Follow for part 2"],
+  outroHelp: ["Affiché à la fin avec votre @signature. Laissez vide pour ne pas en mettre.", "Am Ende mit deinem @Namen gezeigt. Leer lassen für keinen Abspann.", "Shown at the end with your @handle. Leave empty for none."],
+  logoImport: ["Mon logo", "Mein Logo", "My logo"],
+  cornerTL: ["Haut gauche", "Oben links", "Top left"], cornerTR: ["Haut droite", "Oben rechts", "Top right"], cornerBL: ["Bas gauche", "Unten links", "Bottom left"], cornerBR: ["Bas droite", "Unten rechts", "Bottom right"],
   exPsy: ["Psychologie", "Psychologie", "Psychology"], exSport: ["Sport", "Sport", "Sport"], exStory: ["Histoire", "Geschichte", "Story"],
   textLang: ["Langue du texte", "Sprache des Textes", "Text language"],
   translateTitle: ["Traduire la vidéo", "Video übersetzen", "Translate the video"],
@@ -64,6 +100,9 @@ const T = {
   voiceModeSystem: ["Voix du téléphone (aperçu seulement)", "Systemstimme (nur Vorschau)", "Device voice (preview only)"],
   voiceModeOff: ["Pas de voix", "Keine Stimme", "No voice"],
   voice: ["Voix", "Stimme", "Voice"], voiceLang: ["Langue de la voix", "Sprache der Stimme", "Voice language"], rate: ["Débit", "Sprechtempo", "Rate"], pitch: ["Hauteur", "Tonhöhe", "Pitch"],
+  voiceNarrator: ["Voix du narrateur", "Erzählerstimme", "Narrator voice"],
+  voiceOfChar: ["Voix du personnage", "Stimme der Figur", "Voice of character"],
+  voiceSpeed: ["Vitesse de la voix", "Sprechtempo", "Voice speed"],
   voiceGenerate: ["Générer la voix", "Stimme erzeugen", "Generate the voice"],
   voiceDownload: ["Téléchargement de la voix (une seule fois)…", "Stimme wird geladen (nur einmal)…", "Downloading the voice (only once)…"],
   voiceGenerating: ["Génération de la voix… scène", "Stimme wird erzeugt… Szene", "Generating the voice… scene"],
@@ -195,5 +234,34 @@ One day, a little girl asked him what he was waiting for.
 He answered: I'm waiting for the courage to leave.
 The next day, the bench was empty.
 He had finally started to walk.`,
+  },
+  dialogue: {
+    fr: `# Le silence entre nous
+Lui : Pourquoi tu ne dis plus rien ?
+Elle : Parce que tu n'*écoutes* jamais vraiment.
+Lui : [surpris] Moi ? Je suis toujours là pour toi.
+Elle : Être là, ce n'est pas la même chose qu'*écouter*.
+[pause]
+Narrateur : Parfois, le plus grand *silence* vient de ceux qui parlent le plus.
+Lui : [pense] Alors apprends-moi.
+Elle : [joie] Commence par te taire, et regarde-moi.`,
+    de: `# Die Stille zwischen uns
+Er : Warum sagst du nichts mehr?
+Sie : Weil du nie wirklich *zuhörst*.
+Er : [überrascht] Ich? Ich bin doch immer für dich da.
+Sie : Da sein ist nicht dasselbe wie *zuhören*.
+[pause]
+Erzähler : Manchmal kommt die größte *Stille* von denen, die am meisten reden.
+Er : [denken] Dann bring es mir bei.
+Sie : [freude] Fang an zu schweigen, und sieh mich an.`,
+    en: `# The silence between us
+Him : Why don't you say anything anymore?
+Her : Because you never really *listen*.
+Him : [surprised] Me? I'm always there for you.
+Her : Being there isn't the same as *listening*.
+[pause]
+Narrator : Sometimes the biggest *silence* comes from those who talk the most.
+Him : [think] Then teach me.
+Her : [celebrate] Start by being quiet, and look at me.`,
   },
 };

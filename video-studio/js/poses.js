@@ -203,6 +203,18 @@ export const ACTIONS = {
     });
   },
 
+  // Dialogue : celui qui parle fait des gestes, l'autre écoute (hoche la tête, croise les bras par moments).
+  speak: (t, r, role) => (role === 1 ? ACTIONS.listen(t, r) : ACTIONS.talk(t, r, 0)),
+
+  listen: (t, r) => {
+    const cross = Math.sin(t * 0.35 + r * 6) > 0.3;
+    return pose({
+      ...breathe(t, r), head: 0.1 + wave(t, 0.9, 0.06), look: 0.1,
+      shF: cross ? 0.6 : 0.15, elF: cross ? 1.9 : -0.2, shB: cross ? 0.6 : -0.15, elB: cross ? 1.95 : -0.2,
+      face: blink(t, r) ?? "neutral",
+    });
+  },
+
   point: (t, r, role) => {
     if (role === 1) return pose({ ...ACTIONS.sad(t, r), symbol: "sweat" });
     return pose({
@@ -337,6 +349,7 @@ export const ACTION_LABELS = {
   ignore: ["Ignore (2)", "Ignoriert (2)", "Ignores (2)"], hug: ["Câlin (2)", "Umarmung (2)", "Hug (2)"], love: ["Amour", "Liebe", "Love"],
   celebrate: ["Joie", "Freude", "Celebrates"], shrug: ["Hausse les épaules", "Zuckt die Schultern", "Shrugs"], fall: ["Tombe", "Fällt", "Falls"],
   wave: ["Salue", "Winkt", "Waves"], sit: ["Assis / attend", "Sitzt / wartet", "Sits / waits"], phone: ["Téléphone", "Handy", "Phone"],
+  speak: ["Parle (dialogue)", "Spricht (Dialog)", "Speaks (dialogue)"], listen: ["Écoute", "Hört zu", "Listens"],
   read: ["Lit / histoire", "Liest / Geschichte", "Reads / story"], lift: ["Musculation", "Krafttraining", "Lifts weights"],
   exercise: ["Squats / sport", "Kniebeugen / Sport", "Squats / sport"], meditate: ["Médite", "Meditiert", "Meditates"],
 };

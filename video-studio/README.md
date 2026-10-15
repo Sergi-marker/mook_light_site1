@@ -37,6 +37,29 @@ Après l'export, **Partager (lien)** met la vidéo en ligne et donne un lien pub
    - **Votre propre audio** : importez une voix off ou une musique (MP3, WAV, M4A), mixée dans l'export ; ou enregistrez votre voix au micro pendant l'export.
 6. **Exporter** : enregistre un fichier MP4 (ou WebM selon le navigateur), à télécharger ou partager directement.
 
+## Écrire son script
+
+| Écrire | Effet |
+|---|---|
+| Une phrase | Une scène, avec son sous-titre et son animation |
+| `# Titre` en début de ligne | Carton de titre |
+| `[rire] …`, `[triste] …`, `[pense] …`, `[court] …`, `[muscu] …` | Geste imposé |
+| `Lui : …` / `Elle : …` (au moins deux répliques chacun) | Dialogue : deux personnages, chacun avec sa voix ; celui qui parle remue la bouche, l'autre écoute |
+| `Narrateur : …` | Voix off |
+| `*mot*` | Mot en couleur dans le sous-titre (les emojis marchent aussi) |
+| `[pause]`, `[pause 2]` seul sur une ligne | Silence (en secondes) |
+
+Le script peut aussi être importé depuis un fichier `.txt`, Word (`.docx`) ou de sous-titres (`.srt`).
+
+## Personnaliser
+
+- **Styles de chaîne** (onglet Style) : quatre styles prêts (Psychologie sombre, Sport énergique, Histoire / conte, Urbain / dialogue), et **vos propres styles** enregistrés. Un style comprend le décor, les personnages, les sous-titres, la musique, les voix et la marque. Toutes vos vidéos gardent ainsi le même aspect.
+- **Chaque scène** (onglet Scènes) : cadrage (plan large, gros plan, zoom avant ou arrière), décor (couleur, chambre, rue, parc, salle de sport, ciel étoilé, votre image), position du personnage, personnage qui parle, durée. On peut aussi ajouter une pause.
+- **Personnages** : 13 modèles, couleur de peau (8 teintes ou au choix), haut (t-shirt, sweat à capuche, chemise, robe) et bas (pantalon, short) avec leurs couleurs, 7 coiffures, 4 styles d'yeux, accessoires, silhouette. Les **traits du visage s'éclaircissent sur une peau foncée** pour rester visibles. « Mes personnages » enregistre vos créations.
+- **Sous-titres** : 7 polices, position (haut, milieu, bas), fond (aucun, bandeau sombre, mot surligné façon TikTok), couleur du texte et d'accent, nom de celui qui parle.
+- **Marque** : accroche d'ouverture (gros texte qui « frappe » pendant la première seconde), écran de fin avec votre @signature, logo dans un coin, image de fond personnelle.
+- **Voix** : une voix pour le narrateur et une pour chaque personnage, vitesse réglable.
+
 ## Personnage et animations
 
 Le personnage a un contour net et un halo de contre-jour qui le détachent du décor, un léger modelé (lumière du projecteur), des mains, des pieds et des épaules arrondies. Ses mouvements ont de l'inertie (la tête et les bras suivent le corps avec un léger retard), il s'étire dans les sauts, et les changements de scène se font avec un petit rebond.
@@ -70,6 +93,7 @@ L'animation est choisie à partir des mots de la phrase, en français, allemand,
 | `js/voice.js` | Voix naturelle (Piper) : génération, lecture, mixage ; piste audio importée |
 | `js/export.js` | Enregistrement vidéo (MediaRecorder) |
 | `js/translate.js` | Traduction et mise en scène par Claude |
+| `js/styles.js` | Styles de chaîne prêts et enregistrés |
 | `js/account.js` | Compte, offres, quota d'export, partage, publicité |
 | `js/app.js`, `js/i18n.js` | Interface et textes FR / DE / EN |
 | `../server/` | Serveur : comptes, abonnements Stripe, quotas, partage (voir server/README.md) |

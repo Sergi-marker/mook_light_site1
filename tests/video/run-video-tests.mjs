@@ -67,6 +67,50 @@ await step("interface en allemand", async () => {
   await page.selectOption("#uiLang", "fr");
 });
 
+await step("import d'un script .txt", async () => {
+  await page.getByRole("tab", { name: "Texte" }).click();
+  await page.setInputFiles('input[type=file][accept^=".txt"]', { name: "script.txt", mimeType: "text/plain", buffer: Buffer.from("# Importé\nIl pleure en silence.\nPuis il court.") });
+  const scenes = await page.evaluate(() => window.__videoStudio.project.scenes.map((s) => s.action));
+  assert.deepEqual(scenes, ["idle", "cry", "run"]);
+});
+
+await step("style prêt à l'emploi et style enregistré", async () => {
+  await page.getByRole("tab", { name: "Style" }).click();
+  await page.getByRole("button", { name: "Sport énergique" }).click();
+  let st = await page.evaluate(() => window.__videoStudio.project.settings);
+  assert.equal(st.captionFont, "anton");
+  assert.equal(st.backdrop, "gym");
+  await page.fill('input[placeholder="Nom du style"]', "Ma chaîne");
+  await page.getByRole("button", { name: "Enregistrer ce style" }).click();
+  await page.getByRole("button", { name: "Psychologie sombre" }).click();
+  await page.getByRole("button", { name: "Ma chaîne" }).click();
+  st = await page.evaluate(() => window.__videoStudio.project.settings);
+  assert.equal(st.captionFont, "anton");
+});
+
+await step("personnage : vêtements et galerie « Mes personnages »", async () => {
+  await page.getByRole("tab", { name: "Personnages" }).click();
+  await page.locator("section.card").first().getByRole("button", { name: "Urbain (sweat)" }).click();
+  const m = await page.evaluate(() => window.__videoStudio.project.settings.characters[0]);
+  assert.equal(m.top, "hoodie");
+  await page.locator("section.card").first().locator("input.name-input").fill("Mon héros");
+  await page.locator("section.card").first().getByRole("button", { name: "+ Enregistrer" }).click();
+  assert.ok(await page.getByRole("button", { name: "Mon héros" }).first().isVisible());
+});
+
+await step("dialogue : deux personnages, chacun sa voix, rendu sans erreur", async () => {
+  await page.getByRole("tab", { name: "Texte" }).click();
+  await page.getByRole("button", { name: "Dialogue" }).click();
+  const r = await page.evaluate(() => {
+    const v = window.__videoStudio;
+    const sc = v.project.scenes.filter((s) => s.speaker != null);
+    for (let t = 0; t < v.timeline.total; t += 0.7) v.renderFrame(t);
+    return { speakers: [...new Set(sc.map((s) => s.speakerName))], voices: [...new Set(sc.map((s) => v.voiceOf(s)))] };
+  });
+  assert.deepEqual(r.speakers, ["Lui", "Elle"]);
+  assert.equal(r.voices.length, 2);
+});
+
 await step("lecture : le temps avance", async () => {
   await page.evaluate(() => { window.__videoStudio.seek(0); window.__videoStudio.play(); });
   await page.waitForTimeout(700);
