@@ -6,6 +6,7 @@ import { drawFigure, PRESETS, morphFrom } from "./figure.js";
 import { renderFrame, FORMATS, THEMES } from "./renderer.js";
 import { MusicPlayer, MOODS, LANGS, voicesFor, speak, stopSpeaking } from "./audio.js";
 import { recordVideo, bestMimeType } from "./export.js";
+import { NEURAL_VOICES, defaultVoice, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
 
@@ -24,8 +25,9 @@ function defaultProject() {
       uiLang: "fr", format: "9:16", theme: "nuit", captionStyle: "words", uppercase: true, captionScale: 1,
       accent: "#ffd84d", handle: "", progressBar: false, wps: 2.4,
       characters: [{ ...PRESETS.penseur.morph }, { ...PRESETS.gris.morph }],
-      voiceOn: false, voiceLang: "fr", voice: "", rate: 1, pitch: 1,
-      music: "melancolie", musicVol: 0.5, mic: false,
+      voiceMode: "neural", neuralVoice: "", voiceVol: 1, trackVol: 0.8,
+      voiceLang: "fr", voice: "", rate: 1, pitch: 1,
+      music: "melancolie", musicVol: 0.35, mic: false,
     },
   };
 }
@@ -36,14 +38,22 @@ function load() {
     if (raw) {
       const p = JSON.parse(raw);
       const d = defaultProject();
-      return { ...d, ...p, settings: { ...d.settings, ...p.settings } };
+      const settings = { ...d.settings, ...p.settings };
+      // Anciens projets : « voiceOn » (voix du système) devient un mode de voix.
+      if (p.settings && !p.settings.voiceMode && p.settings.voiceOn) settings.voiceMode = "system";
+      return { ...d, ...p, settings };
     }
   } catch { /* stockage indisponible */ }
   return defaultProject();
 }
 
 let project = load();
-let tl = timeline(project.scenes, project.settings.wps);
+const voiceId = () => project.settings.neuralVoice || defaultVoice(project.settings.voiceLang);
+const neuralOn = () => project.settings.voiceMode === "neural" && !!voiceId();
+function computeTimeline() {
+  return timeline(project.scenes, project.settings.wps, neuralOn() ? voiceDurations(project.scenes, voiceId()) : null);
+}
+let tl = computeTimeline();
 let saveTimer = 0;
 function save() {
   clearTimeout(saveTimer);
@@ -93,7 +103,7 @@ function errText(e) {
 const canvas = $("#stage");
 const ctx = canvas.getContext("2d");
 let playing = false, pos = 0, playStart = 0, posStart = 0, lastScene = -1, exporting = false;
-let audioCtx = null, music = null;
+let audioCtx = null, music = null, voices = null, track = null;
 
 function applyFormat() {
   const f = FORMATS[project.settings.format] ?? FORMATS["9:16"];
@@ -102,7 +112,7 @@ function applyFormat() {
 }
 
 function rebuildTimeline() {
-  tl = timeline(project.scenes, project.settings.wps);
+  tl = computeTimeline();
   pos = Math.min(pos, tl.total);
   updateTransport();
   draw();
@@ -120,6 +130,10 @@ function ensureAudio() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     music = new MusicPlayer(audioCtx);
     music.connect(audioCtx.destination);
+    voices = new VoicePlayer(audioCtx);
+    voices.connect(audioCtx.destination);
+    track = new TrackPlayer(audioCtx);
+    track.connect(audioCtx.destination);
   }
   if (audioCtx.state === "suspended") audioCtx.resume();
 }
@@ -132,16 +146,32 @@ function play() {
   playStart = performance.now();
   posStart = pos;
   lastScene = -1;
-  music.setVolume(project.settings.musicVol);
-  music.start(project.settings.music, pos);
+  startAudio(pos);
   $("#playBtn").textContent = "❚❚";
   $("#playBtn").setAttribute("aria-label", t("pause"));
   requestAnimationFrame(loop);
 }
 
+/** Lance musique, voix off et piste importée à la position offset de la vidéo. */
+function startAudio(offset) {
+  const s = project.settings;
+  music.setVolume(s.musicVol);
+  music.start(s.music, offset);
+  voices.setVolume(s.voiceVol);
+  if (neuralOn()) voices.start(tl.items, voiceId(), offset);
+  track.setVolume(s.trackVol);
+  track.start(offset);
+}
+
+function stopAudio() {
+  music?.stop();
+  voices?.stop();
+  track?.stop();
+}
+
 function pause() {
   playing = false;
-  music?.stop();
+  stopAudio();
   stopSpeaking();
   $("#playBtn").textContent = "▶";
   $("#playBtn").setAttribute("aria-label", t("play"));
@@ -154,7 +184,7 @@ function loop() {
   const at = sceneAt(tl, pos);
   if (at && at.index !== lastScene) {
     lastScene = at.index;
-    if (project.settings.voiceOn) {
+    if (project.settings.voiceMode === "system") {
       const s = project.settings;
       speak(at.item.scene.text, { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch });
     }
@@ -265,6 +295,7 @@ function textPanel() {
     project.textLang = target;
     project.settings.voiceLang = target;
     project.settings.voice = "";
+    project.settings.neuralVoice = "";
     ta.value = project.text;
     rebuildTimeline();
   }) }, t("translate"));
@@ -278,7 +309,7 @@ function textPanel() {
     field(t("textLabel"), ta, t("textHelp")),
     h("div", { class: "row" },
       h("button", { class: "btn primary", onclick: buildFromText }, t("build")),
-      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; save(); }))),
+      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; project.settings.neuralVoice = ""; rebuildTimeline(); }))),
     h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("examples")), ex("psy"), ex("sport"), ex("story")),
     h("section", { class: "card" },
       h("h3", {}, t("translateTitle")),
@@ -407,9 +438,67 @@ function stylePanel() {
 
 // ---------- Voix & musique ----------
 
+let voiceAbort = null;
+
+/** Génère les voix manquantes. Renvoie "ok", "aborted" (annulé par l'utilisateur) ou "failed". */
+async function ensureVoices(status) {
+  if (!neuralOn() || !missingCount(project.scenes, voiceId())) return "ok";
+  ensureAudio();
+  voiceAbort = new AbortController();
+  try {
+    await generateVoices(audioCtx, project.scenes, voiceId(), (p) => {
+      status.textContent = p.phase === "download" ? `${t("voiceDownload")} ${p.percent ?? 0} %` : `${t("voiceGenerating")} ${p.done}/${p.total}`;
+    }, voiceAbort.signal);
+    rebuildTimeline();
+    status.textContent = `${t("voiceReady")} · ${fmtTime(tl.total)}`;
+    return "ok";
+  } catch (e) {
+    rebuildTimeline();
+    status.textContent = "";
+    if (e?.message === "ABORTED") return "aborted";
+    toast(`${t("voiceError")} (${e?.message ?? e})`, "error");
+    return "failed";
+  } finally {
+    voiceAbort = null;
+  }
+}
+
+function voiceStatusText() {
+  const n = project.scenes.filter((sc) => sc.text.trim()).length;
+  const missing = missingCount(project.scenes, voiceId());
+  return missing ? `${n - missing}/${n} ${t("voiceScenesReady")}` : `${t("voiceReady")} · ${fmtTime(tl.total)}`;
+}
+
 function soundPanel() {
   const s = project.settings;
   const set = (patch) => { Object.assign(s, patch); save(); };
+
+  // Voix neuronale : enregistrée dans la vidéo.
+  const status = h("div", { class: "status" }, voiceStatusText());
+  const neuralBox = h("div", { class: "stack" });
+  const fillNeural = () => {
+    const list = NEURAL_VOICES[s.voiceLang];
+    const genBtn = h("button", { class: "btn primary", onclick: async () => {
+      genBtn.disabled = true;
+      stopBtn.hidden = false;
+      await ensureVoices(status);
+      genBtn.disabled = false;
+      stopBtn.hidden = true;
+    } }, `🎙 ${t("voiceGenerate")}`);
+    const stopBtn = h("button", { class: "btn ghost", hidden: true, onclick: () => voiceAbort?.abort() }, t("cancel"));
+    neuralBox.replaceChildren(
+      list
+        ? h("div", { class: "grid2" },
+          field(t("voice"), select(voiceId(), list, (v) => { set({ neuralVoice: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          field(t("volume"), range(s.voiceVol, 0, 1.5, 0.05, (v) => { set({ voiceVol: v }); voices?.setVolume(v); })))
+        : h("p", { class: "help" }, t("voiceNoNeural")),
+      list ? h("div", { class: "row wrap" }, genBtn, stopBtn) : null,
+      status,
+      h("p", { class: "help" }, t("voiceNeuralHelp")));
+  };
+  fillNeural();
+
+  // Voix du système : aperçu seulement.
   const voiceSel = h("select", { onchange: (e) => set({ voice: e.target.value }) });
   const fillVoices = () => {
     const vs = voicesFor(s.voiceLang);
@@ -417,20 +506,63 @@ function soundPanel() {
   };
   fillVoices();
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = fillVoices;
+  const systemBox = h("div", { class: "stack" },
+    h("div", { class: "grid2" },
+      field(t("voice"), voiceSel),
+      field(t("rate"), range(s.rate, 0.6, 1.5, 0.05, (v) => set({ rate: v }))),
+      field(t("pitch"), range(s.pitch, 0.5, 1.5, 0.05, (v) => set({ pitch: v })))),
+    h("button", { class: "btn sm", onclick: () => speak(project.scenes[0]?.text ?? "Bonjour", { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch }) }, "🔊 Test"),
+    h("p", { class: "help" }, t("voiceNote")));
+
+  const showMode = () => {
+    neuralBox.hidden = s.voiceMode !== "neural";
+    systemBox.hidden = s.voiceMode !== "system";
+  };
+  showMode();
+
+  // Piste audio importée (voix off enregistrée ailleurs, musique…).
+  const trackName = h("span", { class: "muted" }, track?.buffer ? fmtTime(track.buffer.duration) : t("trackNone"));
+  const trackInput = h("input", { type: "file", accept: "audio/*", hidden: true, onchange: async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    ensureAudio();
+    try {
+      const d = await track.load(f);
+      trackName.textContent = `${f.name} · ${fmtTime(d)}`;
+    } catch { toast(t("trackError"), "error"); }
+  } });
+
   return h("div", { class: "stack" },
     h("section", { class: "card" },
-      toggle(t("voiceOn"), s.voiceOn, (v) => { set({ voiceOn: v }); if (!v) stopSpeaking(); }),
+      h("h3", {}, t("voiceTitle")),
       h("div", { class: "grid2" },
-        field(t("voiceLang"), select(s.voiceLang, langOptions(), (v) => { set({ voiceLang: v, voice: "" }); fillVoices(); })),
-        field(t("voice"), voiceSel),
-        field(t("rate"), range(s.rate, 0.6, 1.5, 0.05, (v) => set({ rate: v }))),
-        field(t("pitch"), range(s.pitch, 0.5, 1.5, 0.05, (v) => set({ pitch: v })))),
-      h("button", { class: "btn sm", onclick: () => speak(project.scenes[0]?.text ?? "Bonjour", { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch }) }, "🔊 Test"),
-      h("p", { class: "help" }, t("voiceNote"))),
+        field(t("voiceMode"), select(s.voiceMode, [["neural", t("voiceModeNeural")], ["system", t("voiceModeSystem")], ["off", t("voiceModeOff")]], (v) => {
+          set({ voiceMode: v });
+          if (v !== "system") stopSpeaking();
+          showMode();
+          rebuildTimeline();
+        })),
+        field(t("voiceLang"), select(s.voiceLang, langOptions(), (v) => {
+          set({ voiceLang: v, voice: "", neuralVoice: "" });
+          fillVoices();
+          fillNeural();
+          rebuildTimeline();
+          status.textContent = voiceStatusText();
+        }))),
+      neuralBox, systemBox),
     h("section", { class: "card" },
+      h("h3", {}, t("music")),
       h("div", { class: "grid2" },
         field(t("music"), select(s.music, Object.entries(MOODS).map(([k, v]) => [k, pick(v.label)]), (v) => { set({ music: v }); if (playing) music.start(v, pos); })),
-        field(t("volume"), range(s.musicVol, 0, 1, 0.05, (v) => { set({ musicVol: v }); music?.setVolume(v); }))),
+        field(t("volume"), range(s.musicVol, 0, 1, 0.05, (v) => { set({ musicVol: v }); music?.setVolume(v); })))),
+    h("section", { class: "card" },
+      h("h3", {}, t("trackTitle")),
+      h("p", { class: "help" }, t("trackHelp")),
+      h("div", { class: "row wrap" },
+        h("label", { class: "btn sm" }, t("trackImport"), trackInput),
+        h("button", { class: "btn sm ghost", onclick: () => { if (track) { track.stop(); track.buffer = null; } trackName.textContent = t("trackNone"); } }, t("remove")),
+        trackName),
+      field(t("volume"), range(s.trackVol, 0, 1.5, 0.05, (v) => { set({ trackVol: v }); track?.setVolume(v); })),
       toggle(t("mic"), s.mic, (v) => set({ mic: v }))));
 }
 
@@ -451,16 +583,20 @@ function exportPanel() {
     result.replaceChildren();
     const dest = audioCtx.createMediaStreamDestination();
     music.connect(dest);
+    voices.connect(dest);
+    track.connect(dest);
     let micStream = null;
     try {
+      // La voix off doit exister avant l'enregistrement : elle fixe la durée des scènes.
+      // Si elle ne peut pas être créée (pas d'Internet au premier usage), la vidéo est exportée sans voix.
+      if ((await ensureVoices(status)) === "aborted") throw new Error("ABORTED");
       if (project.settings.mic) {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
         audioCtx.createMediaStreamSource(micStream).connect(dest);
       }
       exporting = true;
       applyFormat();
-      music.setVolume(project.settings.musicVol);
-      music.start(project.settings.music, 0);
+      startAudio(0);
       exportAbort = new AbortController();
       const { blob, ext } = await recordVideo(canvas, {
         duration: tl.total,
@@ -478,12 +614,14 @@ function exportPanel() {
         navigator.canShare?.({ files: [file] }) ? h("button", { class: "btn", onclick: () => navigator.share({ files: [file] }).catch(() => {}) }, t("share")) : null,
         h("video", { src: url, controls: true, playsinline: true, class: "result" }));
     } catch (e) {
-      toast(errText(e), "error");
+      if (e?.message !== "ABORTED") toast(errText(e), "error");
       status.textContent = "";
     } finally {
       exporting = false;
-      music.stop();
+      stopAudio();
       try { music.out.disconnect(dest); } catch { /* déjà déconnecté */ }
+      voices.disconnect(dest);
+      track.disconnect(dest);
       micStream?.getTracks().forEach((tr) => tr.stop());
       btn.disabled = false;
       cancelBtn.disabled = true;

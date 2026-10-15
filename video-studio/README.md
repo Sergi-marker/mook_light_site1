@@ -18,7 +18,11 @@ node scripts/serve-video.mjs 5174 --host 0.0.0.0   # pour l'ouvrir depuis un té
 2. **Scènes** : vous pouvez changer le texte, l'animation, le nombre de personnages (1 ou 2) et la durée de chaque scène.
 3. **Personnages** : modèles prêts (Penseur, Sportif, Femme, Ado, Enfant, Costaud, Grand-père, Bureau…), puis réglage de la taille, de la corpulence, du ventre, de la tête, des jambes, des bras et du buste, des couleurs, des cheveux et des accessoires (lunettes, barbe, casquette, bandeau, jupe, cravate). Le second personnage se règle séparément.
 4. **Style** : format 9:16 (TikTok, Reels, Shorts), 16:9 (YouTube) ou 1:1, décor (bleu nuit, noir, sépia, forêt, bordeaux, aube), sous-titres (mot par mot, karaoké, phrase entière), taille du texte, couleur d'accent, signature `@pseudo`, barre de progression, vitesse de lecture.
-5. **Voix & musique** : lecture à voix haute pendant l'aperçu (voix du système, 12 langues), musique d'ambiance générée (mélancolique, calme, motivation, mystère) et, pour la vidéo finale, enregistrement de votre voix au micro pendant l'export.
+5. **Voix & musique** :
+   - **Voix naturelle (dans la vidéo)** : une vraie voix de synthèse neuronale ([Piper](https://github.com/rhasspy/piper)) lit chaque scène. Elle est générée sur l'appareil, jouée dans l'aperçu et **enregistrée dans la vidéo exportée**. Chaque scène dure le temps de sa phrase et les sous-titres apparaissent au rythme de la voix. Voix disponibles : français (4), allemand (4), anglais (5), espagnol, italien, portugais, néerlandais, turc, arabe, polonais, russe. Le premier usage télécharge le modèle de la voix choisie (20 à 75 Mo), gardé ensuite par le navigateur : après, tout marche hors ligne, à environ une seconde par phrase.
+   - **Voix du téléphone** : la voix du système, pour un aperçu rapide (elle n'est pas enregistrée dans le fichier).
+   - **Musique d'ambiance** générée : mélancolique, calme, motivation, mystère.
+   - **Votre propre audio** : importez une voix off ou une musique (MP3, WAV, M4A), mixée dans l'export ; ou enregistrez votre voix au micro pendant l'export.
 6. **Exporter** : enregistre un fichier MP4 (ou WebM selon le navigateur), à télécharger ou partager directement.
 
 ## Animations
@@ -35,7 +39,8 @@ L'animation est choisie à partir des mots de la phrase, en français, allemand,
 
 ## Limites connues
 
-- **La voix de synthèse n'est pas enregistrée dans le fichier exporté** : les navigateurs ne donnent pas accès à son signal audio. Pour une vidéo qui parle, enregistrez votre voix au micro pendant l'export, ou ajoutez la voix « texte vers parole » de TikTok / CapCut sur la vidéo exportée.
+- La **voix du téléphone** (mode aperçu) ne peut pas être enregistrée dans le fichier : utilisez la **voix naturelle** pour une vidéo qui parle.
+- La voix naturelle demande Internet au premier usage de chaque voix (téléchargement du modèle). Elle ne fonctionne pas dans la version de démonstration publiée sur claude.ai, qui bloque ces téléchargements.
 - L'export se fait en temps réel : une vidéo de 3 minutes prend 3 minutes. Gardez l'écran allumé et la page ouverte (sur téléphone, l'enregistrement s'arrête si la page passe en arrière-plan).
 - Le format MP4 dépend du navigateur (Chrome / Edge récents) ; sinon le fichier est en WebM, accepté par YouTube et convertible pour TikTok.
 
@@ -47,7 +52,8 @@ L'animation est choisie à partir des mots de la phrase, en français, allemand,
 | `js/poses.js` | Squelette et les 30 animations (fonctions du temps) |
 | `js/figure.js` | Dessin du personnage, morphologie, accessoires, symboles, objets |
 | `js/renderer.js` | Rendu d'une image : décor, projecteur, caméra, sous-titres, titres |
-| `js/audio.js` | Musique d'ambiance (Web Audio) et voix de synthèse |
+| `js/audio.js` | Musique d'ambiance (Web Audio) et voix du système |
+| `js/voice.js` | Voix naturelle (Piper) : génération, lecture, mixage ; piste audio importée |
 | `js/export.js` | Enregistrement vidéo (MediaRecorder) |
 | `js/translate.js` | Traduction et mise en scène par Claude |
 | `js/app.js`, `js/i18n.js` | Interface et textes FR / DE / EN |

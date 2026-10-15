@@ -74,28 +74,55 @@ await step("lecture : le temps avance", async () => {
   assert.ok(t > 0.3, `position ${t}`);
 });
 
-await step("export d'une vraie vidéo (format 16:9, musique)", async () => {
+await step("voix naturelle : génération, durée des scènes calée sur la voix", async () => {
   await page.evaluate(() => {
     const p = window.__videoStudio.project;
-    p.scenes = p.scenes.slice(0, 2).map((s) => ({ ...s, duration: 1.2 }));
-    p.settings.format = "16:9";
+    p.scenes = p.scenes.slice(1, 3).map((s) => ({ ...s, duration: undefined }));
+    p.settings.voiceMode = "neural";
+    p.settings.voiceLang = "de";
+    p.settings.neuralVoice = "";
   });
-  await page.getByRole("tab", { name: "Style" }).click();
+  await page.getByRole("tab", { name: "Voix & musique" }).click();
+  await page.getByRole("button", { name: /Générer la voix/ }).click();
+  await page.getByText(/Voix prête/).waitFor({ timeout: 240000 });
+  const items = await page.evaluate(() => window.__videoStudio.timeline.items.map((it) => ({ voice: it.voiceDur, d: it.duration })));
+  for (const it of items) {
+    assert.ok(it.voice > 0.8, `durée de voix ${it.voice}`);
+    assert.ok(Math.abs(it.d - (it.voice + 0.7)) < 0.01, `scène ${it.d} / voix ${it.voice}`);
+  }
+});
+
+await step("export d'une vraie vidéo 16:9 avec la voix dans le fichier", async () => {
+  await page.evaluate(() => {
+    const p = window.__videoStudio.project;
+    p.settings.format = "16:9";
+    p.settings.music = "none";
+  });
   await page.getByRole("tab", { name: "Exporter" }).click();
   await page.getByRole("button", { name: /Exporter la vidéo/ }).click();
   const link = page.getByRole("link", { name: /Télécharger/ });
-  await link.waitFor({ timeout: 20000 });
+  await link.waitFor({ timeout: 60000 });
   const info = await page.evaluate(async () => {
     const a = [...document.querySelectorAll("a[download]")].pop();
     const blob = await (await fetch(a.href)).blob();
     const v = document.querySelector("video.result");
     await new Promise((r) => (v.readyState >= 1 ? r() : v.addEventListener("loadedmetadata", r, { once: true })));
-    return { size: blob.size, type: blob.type, w: v.videoWidth, h: v.videoHeight, name: a.download };
+    // Niveau sonore de la piste audio du fichier (la musique est coupée : ce qu'on entend est la voix).
+    let rms = null;
+    try {
+      const buf = await new AudioContext().decodeAudioData(await blob.arrayBuffer());
+      const d = buf.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+      rms = Math.sqrt(sum / d.length);
+    } catch (e) { rms = `decode: ${e.message}`; }
+    return { size: blob.size, type: blob.type, w: v.videoWidth, h: v.videoHeight, name: a.download, rms };
   });
   assert.ok(info.size > 10_000, `taille ${info.size}`);
   assert.equal(info.w, 1920);
   assert.equal(info.h, 1080);
-  console.log(`  ${info.name} · ${info.type} · ${(info.size / 1024).toFixed(0)} Ko`);
+  assert.ok(typeof info.rms === "number" && info.rms > 0.01, `niveau audio ${info.rms}`);
+  console.log(`  ${info.name} · ${info.type} · ${(info.size / 1024).toFixed(0)} Ko · niveau voix ${info.rms.toFixed(3)}`);
 });
 
 await step("aucune erreur JavaScript", async () => assert.deepEqual(errors, []));

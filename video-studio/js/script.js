@@ -179,12 +179,20 @@ export function sceneDuration(scene, wordsPerSecond = 2.4) {
   return Math.max(2.2, words / wordsPerSecond + 1.0);
 }
 
-/** Positions de début de chaque scène et durée totale. */
-export function timeline(scenes, wordsPerSecond = 2.4) {
+/** Début de la voix off après le début de la scène (s), et silence gardé après elle. */
+export const VOICE_LEAD = 0.25;
+const VOICE_TAIL = 0.45;
+
+/**
+ * Positions de début de chaque scène et durée totale.
+ * voiceDurs (optionnel) : durée de la voix off de chaque scène ; une scène dure alors le temps de sa voix.
+ */
+export function timeline(scenes, wordsPerSecond = 2.4, voiceDurs = null) {
   let t = 0;
-  const items = scenes.map((s) => {
-    const d = sceneDuration(s, wordsPerSecond);
-    const item = { scene: s, start: t, duration: d };
+  const items = scenes.map((s, i) => {
+    const voiceDur = voiceDurs?.[i] ?? null;
+    const d = s.duration ?? (voiceDur != null ? Math.max(1.5, VOICE_LEAD + voiceDur + VOICE_TAIL) : sceneDuration(s, wordsPerSecond));
+    const item = { scene: s, start: t, duration: d, voiceDur };
     t += d;
     return item;
   });

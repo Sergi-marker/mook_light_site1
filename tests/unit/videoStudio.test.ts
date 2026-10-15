@@ -92,3 +92,13 @@ test("interpolation entre deux poses", () => {
   assert.equal(lerpPose(a, b, 0).face, "neutral");
   assert.equal(lerpPose(a, b, 1).face, "sad");
 });
+
+test("avec une voix off, chaque scène dure le temps de sa voix (sauf durée imposée)", () => {
+  const s = parseScript("Une phrase. Une autre. Une troisième.");
+  const tl = timeline([s[0], s[1], { ...s[2], duration: 4 }], 2.4, [2, null, 3]);
+  assert.ok(Math.abs(tl.items[0].duration - 2.7) < 1e-9);
+  assert.equal(tl.items[0].voiceDur, 2);
+  assert.equal(tl.items[1].voiceDur, null);
+  assert.equal(tl.items[1].duration, 2.2); // pas encore de voix : vitesse de lecture
+  assert.equal(tl.items[2].duration, 4);
+});

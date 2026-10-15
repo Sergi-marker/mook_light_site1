@@ -2,7 +2,7 @@
 
 import { poseAt, lerpPose, DUO_ACTIONS } from "./poses.js";
 import { drawFigure } from "./figure.js";
-import { sceneAt, rng } from "./script.js";
+import { sceneAt, rng, VOICE_LEAD } from "./script.js";
 
 export const FORMATS = {
   "9:16": { w: 1080, h: 1920, label: "9:16 (TikTok, Reels, Shorts)" },
@@ -103,7 +103,7 @@ function wrapWords(ctx, words, maxW) {
 const FONT = '"Montserrat", "Arial Black", "Helvetica Neue", Arial, sans-serif';
 
 /** Sous-titres animés. style : words (mot par mot), karaoke (mot surligné), full (phrase entière). */
-function drawCaption(ctx, text, local, duration, W, H, L, settings, alpha) {
+function drawCaption(ctx, text, local, duration, W, H, L, settings, alpha, voiceDur = null) {
   const upper = settings.uppercase !== false;
   const words = (upper ? text.toUpperCase() : text).split(/\s+/).filter(Boolean);
   if (!words.length) return;
@@ -117,7 +117,15 @@ function drawCaption(ctx, text, local, duration, W, H, L, settings, alpha) {
   const total = lines.length * lineH;
   const style = settings.captionStyle ?? "words";
   const wps = settings.wps ?? 2.4;
-  const revealEnd = Math.min(duration * 0.75, words.length / (wps * 1.25));
+  // Moment d'apparition de chaque mot : proportionnel au nombre de lettres déjà prononcées,
+  // calé sur la voix off quand elle existe, sinon sur la vitesse de lecture.
+  const lead = voiceDur != null ? VOICE_LEAD : 0;
+  const span = voiceDur != null ? voiceDur * 0.94 : Math.min(duration * 0.75, words.length / (wps * 1.25));
+  const weights = words.map((w) => w.length + 2);
+  const totalW = weights.reduce((a, b) => a + b, 0);
+  const starts = [];
+  weights.reduce((acc, w) => { starts.push(lead + (acc / totalW) * span); return acc + w; }, 0);
+  starts.push(lead + span);
   let wi = 0;
   lines.forEach((line, li) => {
     const lineText = line.join(" ");
@@ -125,14 +133,14 @@ function drawCaption(ctx, text, local, duration, W, H, L, settings, alpha) {
     let x = W / 2 - lw / 2;
     const y = L.captionY - total / 2 + li * lineH + lineH / 2;
     for (const w of line) {
-      const appear = (wi / Math.max(1, words.length)) * revealEnd;
+      const appear = starts[wi];
       let a = alpha, scale = 1, color = "#ffffff";
       if (style === "words") {
         const k = Math.min(1, Math.max(0, (local - appear) / 0.18));
         a *= k;
         scale = 0.7 + 0.3 * (1 - Math.pow(1 - k, 3)) + (k < 1 ? 0.08 * Math.sin(k * Math.PI) : 0);
       } else if (style === "karaoke") {
-        const next = ((wi + 1) / Math.max(1, words.length)) * revealEnd;
+        const next = starts[wi + 1];
         if (local >= appear && local < next) color = settings.accent ?? "#ffd84d";
       }
       const ww = ctx.measureText(w).width;
@@ -290,7 +298,7 @@ export function renderFrame(ctx, project, tl, t) {
   const fadeOut = Math.min(1, (item.duration - local) / 0.25);
   const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
   if (item.scene.kind === "title") drawTitle(ctx, item.scene.text, local, W, H, L, settings, alpha);
-  else drawCaption(ctx, item.scene.text, local, item.duration, W, H, L, settings, alpha);
+  else drawCaption(ctx, item.scene.text, local, item.duration, W, H, L, settings, alpha, item.voiceDur);
 
   if (settings.progressBar) {
     ctx.fillStyle = "rgba(255,255,255,0.18)";
