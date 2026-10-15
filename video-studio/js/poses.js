@@ -37,7 +37,12 @@ const blink = (t, r) => ((t * (0.9 + r * 0.4) + r * 3) % 3.4 < 0.12 ? "closed" :
 
 /** Respiration commune à toutes les poses debout. */
 function breathe(t, r) {
-  return { lean: wave(t, 0.25 + r * 0.1, 0.015), shF: 0.12 + wave(t, 0.25, 0.03), shB: -0.12 - wave(t, 0.25, 0.03) };
+  // Respiration visible + léger transfert du poids d'un pied sur l'autre.
+  return {
+    lean: wave(t, 0.25 + r * 0.1, 0.03), head: wave(t, 0.25 + r * 0.1, 0.04, 0.6), dx: wave(t, 0.12, 0.01),
+    shF: 0.14 + wave(t, 0.25, 0.06), shB: -0.14 - wave(t, 0.25, 0.06),
+    hipF: 0.05 + wave(t, 0.12, 0.03), hipB: -0.05 + wave(t, 0.12, 0.03),
+  };
 }
 
 /** Cycle de marche. speed = cycles par seconde, amp = amplitude des pas. */
@@ -341,7 +346,7 @@ const NUM_KEYS = ["dx", "lift", "lean", "head", "shF", "elF", "shB", "elB", "hip
 /** Interpolation entre deux poses (k = 0 → a, 1 → b). Les champs non numériques basculent à mi-chemin. */
 export function lerpPose(a, b, k) {
   if (k <= 0) return a;
-  if (k >= 1) return b;
+  if (k === 1) return b; // k > 1 : léger dépassement (rebond), utilisé pour les transitions
   const out = { ...(k < 0.5 ? a : b) };
   for (const key of NUM_KEYS) out[key] = a[key] + (b[key] - a[key]) * k;
   return out;

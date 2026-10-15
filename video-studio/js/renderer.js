@@ -197,10 +197,35 @@ function scenePoses(item, local) {
   const r = rng(s.seed)();
   const flip = !DUO_ACTIONS.has(s.action) && s.kind !== "title" && rng(s.seed + 11)() < 0.35 && s.action !== "walk" && s.action !== "run" && s.action !== "alone";
   const action = s.kind === "title" ? (s.action === "idle" ? "wave" : s.action) : s.action;
-  const p0 = poseAt(action, local, r, 0);
+  const p0 = livelyPose(action, local, r, 0);
   const duo = s.figures ? s.figures === 2 : DUO_ACTIONS.has(s.action);
-  const p1 = duo ? poseAt(action, local + 0.37, (r * 7.3) % 1, 1) : null;
+  const p1 = duo ? livelyPose(action, local + 0.37, (r * 7.3) % 1, 1) : null;
   return { p0, p1, duo, flip };
+}
+
+/**
+ * Pose avec mouvement secondaire : la tête et les bras suivent le buste avec un petit retard
+ * (inertie), et le corps s'étire en montant / s'écrase en retombant.
+ */
+function livelyPose(action, local, r, role) {
+  const p = poseAt(action, local, r, role);
+  const DT = 0.1;
+  const q = poseAt(action, local - DT, r, role);
+  const dLean = p.lean - q.lean;
+  const vLift = (p.lift - q.lift) / DT;
+  return {
+    ...p,
+    head: p.head - dLean * 1.6,
+    shF: p.shF - dLean * 1.2,
+    shB: p.shB - dLean * 1.2,
+    stretch: vLift * 0.5,
+  };
+}
+
+/** Courbe avec léger dépassement (le geste va un peu trop loin puis se pose). */
+function easeOutBack(x, c = 1.25) {
+  const y = x - 1;
+  return 1 + (c + 1) * y * y * y + c * y * y;
 }
 
 function orient(p, facing) {
@@ -223,13 +248,12 @@ export function renderFrame(ctx, project, tl, t) {
   const { item, index, local } = at;
   const cur = scenePoses(item, local);
   // Transition douce depuis la fin de la scène précédente.
-  const BLEND = 0.45;
+  const BLEND = 0.55;
   let k = 1, prev = null;
   if (index > 0 && local < BLEND) {
     const pi = tl.items[index - 1];
     prev = scenePoses(pi, pi.duration);
-    k = local / BLEND;
-    k = k * k * (3 - 2 * k);
+    k = easeOutBack(local / BLEND);
   }
 
   // Caméra : léger zoom lent et dérive, différents à chaque scène.
@@ -254,7 +278,9 @@ export function renderFrame(ctx, project, tl, t) {
   };
 
   const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
-  const duoAmt = prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0;
+  const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));
+  const th = THEMES[settings.theme] ?? THEMES.nuit;
+  const look = { outline: "#06060c", glow: `${th.floor}${settings.glow === false ? 0 : 0.5})`, shading: true };
   const x0 = W / 2 - duoGap * duoAmt;
   const x1 = W / 2 + duoGap;
 
@@ -273,10 +299,10 @@ export function renderFrame(ctx, project, tl, t) {
     ctx.save();
     ctx.globalAlpha = duoAmt;
     shadow(x1 + (p1.dx ?? 0) * L.figH, L.figH * 0.16);
-    drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH);
+    drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH, look);
     ctx.restore();
   }
-  drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH);
+  drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 

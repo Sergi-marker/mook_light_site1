@@ -41,16 +41,6 @@ function seg(ctx, a, b, w, color) {
   ctx.stroke();
 }
 
-function limb(ctx, a, b, c, w, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = w;
-  ctx.beginPath();
-  ctx.moveTo(a[0], a[1]);
-  ctx.lineTo(b[0], b[1]);
-  ctx.lineTo(c[0], c[1]);
-  ctx.stroke();
-}
-
 /** Point le plus bas du personnage (pour le poser au sol), en unités de hauteur. */
 export function lowestPoint(sk, p) {
   let low = Math.max(sk.footF[1], sk.footB[1], sk.kneeF[1], sk.kneeB[1]);
@@ -58,36 +48,74 @@ export function lowestPoint(sk, p) {
   return low;
 }
 
-/**
- * Dessine le personnage. (x, groundY) en pixels, H = hauteur du personnage en pixels.
- * Le personnage est posé au sol puis élevé de p.lift.
- */
-export function drawFigure(ctx, p, morphIn, x, groundY, H) {
-  const m = morphFrom(morphIn);
-  const h = H * m.height;
+/** Bras ou jambe : segment supérieur plus épais que l'inférieur, articulations arrondies. */
+function taperedLimb(ctx, a, b, c, w, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = w;
+  ctx.beginPath();
+  ctx.moveTo(a[0], a[1]);
+  ctx.lineTo(b[0], b[1]);
+  ctx.stroke();
+  ctx.lineWidth = w * 0.88;
+  ctx.beginPath();
+  ctx.moveTo(b[0], b[1]);
+  ctx.lineTo(c[0], c[1]);
+  ctx.stroke();
+}
+
+function hand(ctx, at, w, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(at[0], at[1], w * 0.6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Pied : petit ovale tourné vers l'avant, posé dans l'axe du tibia. */
+function foot(ctx, knee, ankle, w, d, color) {
+  const ang = Math.atan2(ankle[1] - knee[1], ankle[0] - knee[0]);
+  // Perpendiculaire au tibia, du côté où regarde le personnage.
+  const fx = Math.cos(ang - (d * Math.PI) / 2), fy = Math.sin(ang - (d * Math.PI) / 2);
+  const len = 0.05;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = w * 0.95;
+  ctx.beginPath();
+  ctx.moveTo(ankle[0] - fx * 0.006, ankle[1] - fy * 0.006);
+  ctx.lineTo(ankle[0] + fx * len, ankle[1] + fy * len);
+  ctx.stroke();
+}
+
+/** Dessin « à plat » du personnage, à l'origine (x, groundY). */
+function drawFlat(ctx, p, m, x, groundY, h) {
   const sk = skeleton(p, m);
   const low = lowestPoint(sk, p);
   const d = p.dir ?? 1;
-  const limbW = 0.082 * m.build;
+  const limbW = 0.085 * m.build;
   const bodyW = 0.15 * m.build;
-  const back = shade(m.color, 0.78);
+  const back = shade(m.color, 0.74);
 
   ctx.save();
-  ctx.translate(x + (p.dx ?? 0) * H, groundY - (low + (p.lift ?? 0)) * h);
+  ctx.translate(x, groundY - (low + (p.lift ?? 0)) * h);
+  // Étirement / écrasement selon la vitesse verticale (sauts, réceptions), autour des pieds.
+  const st = Math.max(-0.12, Math.min(0.12, p.stretch ?? 0));
+  if (st) {
+    ctx.translate(0, low * h);
+    ctx.scale(1 - st * 0.5, 1 + st);
+    ctx.translate(0, -low * h);
+  }
   ctx.scale(h, h);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // Accessoires derrière le personnage.
   if (p.prop === "bench") drawBench(ctx, sk, low, d);
   if (p.prop === "mat") drawMat(ctx, low);
 
-  // Membres arrière (plus sombres pour la profondeur).
-  limb(ctx, sk.shoulder, sk.elbowB, sk.handB, limbW, back);
-  limb(ctx, sk.hip, sk.kneeB, sk.footB, limbW * 1.08, back);
+  // Côté arrière, plus sombre pour la profondeur.
+  taperedLimb(ctx, sk.shoulder, sk.elbowB, sk.handB, limbW, back);
+  hand(ctx, sk.handB, limbW, back);
+  taperedLimb(ctx, sk.hip, sk.kneeB, sk.footB, limbW * 1.1, back);
+  foot(ctx, sk.kneeB, sk.footB, limbW, d, back);
   if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handB, back);
 
-  // Cheveux longs derrière la tête.
   if (m.hair === "long") {
     ctx.fillStyle = m.detail;
     const c = sk.headC, r = sk.headR * 1.08;
@@ -96,10 +124,17 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H) {
     ctx.fill();
   }
 
-  // Buste.
-  seg(ctx, sk.hip, sk.neck, bodyW, m.color);
+  // Buste : un tronc arrondi, plus large aux épaules.
+  seg(ctx, sk.hip, sk.shoulder, bodyW, m.color);
+  const lean = Math.atan2(sk.shoulder[0] - sk.hip[0], sk.hip[1] - sk.shoulder[1]);
+  ctx.fillStyle = m.color;
+  ctx.beginPath();
+  ctx.ellipse(sk.shoulder[0], sk.shoulder[1] + 0.012, bodyW * 0.62, bodyW * 0.5, lean, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(sk.hip[0], sk.hip[1] - 0.01, bodyW * 0.55, bodyW * 0.42, lean, 0, Math.PI * 2);
+  ctx.fill();
   if (m.belly > 0) {
-    ctx.fillStyle = m.color;
     const mid = [(sk.hip[0] + sk.neck[0]) / 2, (sk.hip[1] + sk.neck[1]) / 2 + 0.02];
     ctx.beginPath();
     ctx.ellipse(mid[0] + d * 0.02 * m.belly, mid[1], bodyW * (0.5 + 0.35 * m.belly), sk.torso * 0.36, 0, 0, Math.PI * 2);
@@ -109,17 +144,17 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H) {
     ctx.fillStyle = m.detail;
     const hp = sk.hip, top = [hp[0] + (sk.neck[0] - hp[0]) * 0.2, hp[1] + (sk.neck[1] - hp[1]) * 0.2];
     ctx.beginPath();
-    ctx.moveTo(top[0] - 0.06, top[1]);
-    ctx.lineTo(top[0] + 0.06, top[1]);
-    ctx.lineTo(hp[0] + 0.11, hp[1] + 0.13);
-    ctx.lineTo(hp[0] - 0.11, hp[1] + 0.13);
+    ctx.moveTo(top[0] - 0.07, top[1]);
+    ctx.lineTo(top[0] + 0.07, top[1]);
+    ctx.lineTo(hp[0] + 0.12, hp[1] + 0.13);
+    ctx.lineTo(hp[0] - 0.12, hp[1] + 0.13);
     ctx.closePath();
     ctx.fill();
   }
   if (m.tie) {
     ctx.fillStyle = m.detail;
     const n = sk.neck, hp = sk.hip;
-    const ux = (hp[0] - n[0]), uy = (hp[1] - n[1]);
+    const ux = hp[0] - n[0], uy = hp[1] - n[1];
     const ox = d * bodyW * 0.32;
     ctx.beginPath();
     ctx.moveTo(n[0] + ox + ux * 0.08, n[1] + uy * 0.08);
@@ -130,22 +165,107 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H) {
     ctx.fill();
   }
 
-  // Jambe avant.
-  limb(ctx, sk.hip, sk.kneeF, sk.footF, limbW * 1.08, m.color);
-
-  // Tête.
+  // Côté avant.
+  taperedLimb(ctx, sk.hip, sk.kneeF, sk.footF, limbW * 1.1, m.color);
+  foot(ctx, sk.kneeF, sk.footF, limbW, d, m.color);
   drawHead(ctx, sk, p, m, d);
-
-  // Bras avant et objets tenus.
   if (p.prop === "phone") drawPhone(ctx, sk, d);
   if (p.prop === "book") drawBook(ctx, sk, d);
-  limb(ctx, sk.shoulder, sk.elbowF, sk.handF, limbW, m.color);
+  taperedLimb(ctx, sk.shoulder, sk.elbowF, sk.handF, limbW, m.color);
+  hand(ctx, sk.handF, limbW, m.color);
   if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handF, m.detail);
 
-  // Symbole au-dessus de la tête.
-  if (p.symbol) drawSymbol(ctx, p.symbol, sk, d);
-
   ctx.restore();
+  return { sk, low, d };
+}
+
+// Toiles de travail réutilisées d'une image à l'autre.
+const work = { flat: null, sil: null };
+function workCanvas(key, w, hgt) {
+  let c = work[key];
+  if (!c) {
+    c = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, hgt) : Object.assign(document.createElement("canvas"), { width: w, height: hgt });
+    work[key] = c;
+  }
+  if (c.width !== w || c.height !== hgt) { c.width = w; c.height = hgt; }
+  return c;
+}
+
+/** Style de rendu : contour sombre, halo de contre-jour et volume (ombre / lumière). */
+export const DEFAULT_LOOK = Object.freeze({ outline: "#07070d", glow: "rgba(190,200,255,0.55)", shading: true });
+
+/**
+ * Dessine le personnage. (x, groundY) en pixels, H = hauteur du personnage en pixels.
+ * Le personnage est d'abord dessiné à plat hors écran, puis posé avec un contour net, un halo
+ * de contre-jour qui le détache du décor, et un léger modelé (lumière du projecteur en haut).
+ */
+export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) {
+  const m = morphFrom(morphIn);
+  const h = H * m.height;
+  const bx = x + (p.dx ?? 0) * H;
+  const W = Math.ceil(h * 2.4), Hh = Math.ceil(h * 2.1);
+  const ox = W / 2, oy = Math.round(Hh * 0.8);
+  const flat = workCanvas("flat", W, Hh);
+  const fctx = flat.getContext("2d");
+  fctx.setTransform(1, 0, 0, 1, 0, 0);
+  fctx.clearRect(0, 0, W, Hh);
+  const { sk, low, d } = drawFlat(fctx, p, m, ox, oy, h);
+
+  // Modelé : plus clair en haut (projecteur), plus sombre vers les pieds, reflet sur le bord avant.
+  if (look.shading) {
+    fctx.save();
+    fctx.globalCompositeOperation = "source-atop";
+    const top = oy - (low + (p.lift ?? 0) + 1.05) * h;
+    const g = fctx.createLinearGradient(0, top, 0, oy);
+    g.addColorStop(0, "rgba(255,255,255,0.10)");
+    g.addColorStop(0.55, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(10,10,30,0.22)");
+    fctx.fillStyle = g;
+    fctx.fillRect(0, 0, W, Hh);
+    fctx.restore();
+  }
+
+  // Silhouette pleine (pour le contour et le halo).
+  const sil = workCanvas("sil", W, Hh);
+  const sctx = sil.getContext("2d");
+  sctx.globalCompositeOperation = "copy";
+  sctx.drawImage(flat, 0, 0);
+  sctx.globalCompositeOperation = "source-in";
+  sctx.fillStyle = look.outline;
+  sctx.fillRect(0, 0, W, Hh);
+  sctx.globalCompositeOperation = "source-over";
+
+  const left = bx - ox, topY = groundY - oy;
+  ctx.save();
+  // Halo de contre-jour.
+  if (look.glow) {
+    ctx.shadowColor = look.glow;
+    ctx.shadowBlur = Math.max(6, h * 0.09);
+    ctx.drawImage(sil, left, topY);
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+  }
+  // Contour net tout autour.
+  if (look.outline) {
+    const o = Math.max(1.5, h * 0.011);
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      ctx.drawImage(sil, left + Math.cos(a) * o, topY + Math.sin(a) * o);
+    }
+  }
+  ctx.drawImage(flat, left, topY);
+  ctx.restore();
+
+  // Symbole au-dessus de la tête (hors contour, pour rester lisible).
+  if (p.symbol) {
+    ctx.save();
+    ctx.translate(bx, groundY - (low + (p.lift ?? 0)) * h);
+    ctx.scale(h, h);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    drawSymbol(ctx, p.symbol, sk, d);
+    ctx.restore();
+  }
 }
 
 function drawHead(ctx, sk, p, m, d) {
