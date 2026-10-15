@@ -7,7 +7,7 @@ const T = {
   tagline: ["Collez un texte, il devient une vidéo animée.", "Text einfügen – daraus wird ein animiertes Video.", "Paste a text, it becomes an animated video."],
   play: ["Lecture", "Abspielen", "Play"], pause: ["Pause", "Pause", "Pause"],
   tabText: ["Texte", "Text", "Text"], tabScenes: ["Scènes", "Szenen", "Scenes"], tabChars: ["Personnages", "Figuren", "Characters"],
-  tabStyle: ["Style", "Stil", "Style"], tabSound: ["Voix & musique", "Stimme & Musik", "Voice & music"], tabExport: ["Exporter", "Exportieren", "Export"],
+  tabStyle: ["Style", "Stil", "Style"], tabSound: ["Voix & musique", "Stimme & Musik", "Voice & music"], tabExport: ["Exporter", "Exportieren", "Export"], tabAccount: ["Compte & offres", "Konto & Tarife", "Account & plans"],
   textLabel: ["Votre texte", "Dein Text", "Your text"],
   textHelp: [
     "Une phrase = une scène. Une ligne qui commence par # devient un titre. Pour imposer une animation : [rire], [triste], [pense], [court], [muscu], [parle]… en début de phrase.",

@@ -1,3 +1,5 @@
+[hidden] { display: none !important; }
+
 :root {
   --bg: #0b0c1d;
   --panel: #14152b;
@@ -115,3 +117,27 @@ hr { border: none; border-top: 1px solid var(--line); width: 100%; }
 .toasts { position: fixed; left: 16px; right: 16px; bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; z-index: 10; }
 .toast { background: #24264a; border: 1px solid var(--line); padding: 10px 14px; border-radius: 10px; max-width: 520px; box-shadow: 0 6px 24px rgba(0,0,0,0.4); }
 .toast.error { border-color: var(--danger); }
+
+.top-actions { display: flex; align-items: center; gap: 8px; }
+#accountBtn { max-width: 52vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+dialog.auth { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; width: min(420px, calc(100vw - 32px)); }
+dialog.auth.wide { width: min(760px, calc(100vw - 32px)); }
+dialog.auth::backdrop { background: rgba(3, 3, 10, 0.7); }
+dialog.auth h3 { margin: 0; }
+
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.plan { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: #0e0f22; }
+.plan.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.plan .price { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.plan .price small { font-size: 13px; font-weight: 500; color: var(--muted); }
+.plan .btn, .plan .chip { align-self: flex-start; }
+
+.notice { margin: 0; padding: 10px 12px; border-radius: 10px; background: #2a2412; border: 1px solid #5a4a14; color: #ffe8a3; font-size: 14px; }
+.ad-slot { margin-top: 12px; border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 60px; }
+.ad-slot[hidden] { display: none; }
+.ad-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+.house-ad { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; padding: 8px; text-align: left; }
+.consent { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+input.link { flex: 1 1 220px; }
+.video-row a { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -9,6 +9,7 @@ import { recordVideo, bestMimeType } from "./export.js";
 import { NEURAL_VOICES, defaultVoice, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
+import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi } from "./account.js";
 
 const STORE = "videoStudio.project.v1";
 const KEY_STORE = "videoStudio.apiKey";
@@ -218,14 +219,14 @@ function highlightScene(i) {
 
 // ---------- onglets ----------
 
-const TABS = ["text", "scenes", "chars", "style", "sound", "export"];
+const TABS = ["text", "scenes", "chars", "style", "sound", "export", "account"];
 let currentTab = "text";
 try { currentTab = sessionStorage.getItem("videoStudio.tab") || "text"; } catch { /* ignoré */ }
 
 function renderTabs() {
-  const labels = { text: "tabText", scenes: "tabScenes", chars: "tabChars", style: "tabStyle", sound: "tabSound", export: "tabExport" };
+  const labels = { text: "tabText", scenes: "tabScenes", chars: "tabChars", style: "tabStyle", sound: "tabSound", export: "tabExport", account: "tabAccount" };
   const bar = $("#tabs");
-  bar.replaceChildren(...TABS.map((id) => h("button", {
+  bar.replaceChildren(...TABS.filter((id) => id !== "account" || account.online).map((id) => h("button", {
     class: `tab ${id === currentTab ? "on" : ""}`, role: "tab", "aria-selected": String(id === currentTab),
     onclick: () => { currentTab = id; try { sessionStorage.setItem("videoStudio.tab", id); } catch { /* ignoré */ } renderTabs(); renderPanel(); },
   }, t(labels[id]))));
@@ -233,7 +234,7 @@ function renderTabs() {
 
 function renderPanel() {
   const panel = $("#panel");
-  const builders = { text: textPanel, scenes: scenesPanel, chars: charsPanel, style: stylePanel, sound: soundPanel, export: exportPanel };
+  const builders = { text: textPanel, scenes: scenesPanel, chars: charsPanel, style: stylePanel, sound: soundPanel, export: exportPanel, account: accountPanel };
   stopMiniPreviews();
   panel.replaceChildren(builders[currentTab]());
 }
@@ -569,6 +570,7 @@ function soundPanel() {
 // ---------- Export ----------
 
 let exportAbort = null;
+let exportRunning = false;
 function exportPanel() {
   const status = h("div", { class: "status" });
   const result = h("div", { class: "row wrap" });
@@ -576,6 +578,7 @@ function exportPanel() {
   const cancelBtn = h("button", { class: "btn ghost", disabled: true, onclick: () => exportAbort?.abort() }, t("cancel"));
   const btn = h("button", { class: "btn primary", onclick: async () => {
     if (bestMimeType() === null) return toast(t("noRecorder"), "error");
+    exportRunning = true;
     pause();
     ensureAudio();
     btn.disabled = true;
@@ -590,6 +593,8 @@ function exportPanel() {
       // La voix off doit exister avant l'enregistrement : elle fixe la durée des scènes.
       // Si elle ne peut pas être créée (pas d'Internet au premier usage), la vidéo est exportée sans voix.
       if ((await ensureVoices(status)) === "aborted") throw new Error("ABORTED");
+      // Compte et quota (offre gratuite : 3 vidéos par jour, 30 s maximum), vérifiés par le serveur.
+      if (!(await gateExport(tl.total))) throw new Error("ABORTED");
       if (project.settings.mic) {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
         audioCtx.createMediaStreamSource(micStream).connect(dest);
@@ -612,12 +617,14 @@ function exportPanel() {
       result.replaceChildren(
         h("a", { class: "btn primary", href: url, download: name }, `⬇ ${t("download")}`),
         navigator.canShare?.({ files: [file] }) ? h("button", { class: "btn", onclick: () => navigator.share({ files: [file] }).catch(() => {}) }, t("share")) : null,
+        shareButton(blob, { title: project.scenes.find((sc) => sc.kind === "title")?.text ?? project.scenes[0]?.text ?? "", duration: tl.total }),
         h("video", { src: url, controls: true, playsinline: true, class: "result" }));
     } catch (e) {
       if (e?.message !== "ABORTED") toast(errText(e), "error");
       status.textContent = "";
     } finally {
       exporting = false;
+      exportRunning = false;
       stopAudio();
       try { music.out.disconnect(dest); } catch { /* déjà déconnecté */ }
       voices.disconnect(dest);
@@ -632,6 +639,7 @@ function exportPanel() {
   return h("div", { class: "stack" },
     h("p", {}, `${t("duration")} : ${fmtTime(tl.total)} · ${FORMATS[project.settings.format].label}`),
     h("div", { class: "row" }, btn, cancelBtn),
+    exportNotice(tl.total) ? h("p", { class: "notice" }, exportNotice(tl.total)) : null,
     bar, status,
     h("p", { class: "help" }, t("exportHelp")),
     result,
@@ -670,6 +678,7 @@ function renderAll() {
   renderPanel();
   updateTransport();
   draw();
+  renderAccountUi();
 }
 
 $("#uiLang").addEventListener("change", (e) => { project.settings.uiLang = e.target.value; save(); renderAll(); });
@@ -683,6 +692,14 @@ document.addEventListener("keydown", (e) => {
 // La police des sous-titres peut arriver après le premier rendu.
 document.fonts?.ready.then(draw);
 renderAll();
+initAccount({
+  h,
+  toast,
+  openTab: (id) => { currentTab = id; renderTabs(); renderPanel(); },
+  // Le compte a changé (connexion, offre, quota) : on rafraîchit les onglets concernés.
+  // (Jamais pendant un export : le panneau en cours afficherait son résultat dans le vide.)
+  onChange: () => { renderTabs(); if (currentTab === "account" || (currentTab === "export" && !exportRunning)) renderPanel(); },
+});
 
 // Pour les tests automatisés.
-window.__videoStudio = { get project() { return project; }, get timeline() { return tl; }, seek, play, pause, renderFrame: (tt) => renderFrame(ctx, project, tl, tt) };
+window.__videoStudio = { get project() { return project; }, get timeline() { return tl; }, seek, play, pause, rebuild: rebuildTimeline, renderFrame: (tt) => renderFrame(ctx, project, tl, tt) };
