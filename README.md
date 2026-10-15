@@ -4,6 +4,8 @@ Logiciel de production musicale pour le rap, la trap, la drill, l'afrobeat et le
 
 ![Arrangement](docs/screenshot-arrangement.png)
 
+> **Nouveau : [Vidéo Studio](video-studio/README.md)** — collez un texte (psychologie, sport, histoire), il devient une vidéo animée avec des personnages pictogrammes, des sous-titres mot par mot, une musique d'ambiance, et s'exporte en MP4 pour TikTok, Reels, Shorts ou YouTube. Lancer : `npm run video`.
+
 ## Du beat au morceau fini
 
 | Étape | Où | Ce qui se passe réellement |

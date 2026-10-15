@@ -15,7 +15,9 @@
     "test:browser": "node scripts/build.mjs && node tests/browser/run-browser-tests.mjs",
     "test:e2e": "node scripts/build.mjs && node tests/e2e/run-e2e.mjs",
     "test:electron": "node scripts/build.mjs && node scripts/setup-electron.mjs --check && node tests/electron/run-electron-smoke.mjs",
-    "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:electron",
+    "test:video": "node tests/video/run-video-tests.mjs",
+    "video": "node scripts/serve-video.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:video && npm run test:electron",
     "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable",
     "setup:electron": "node scripts/setup-electron.mjs"
   },
