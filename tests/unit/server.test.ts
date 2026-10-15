@@ -285,3 +285,85 @@ test("l'application, les pages légales et les fichiers sont servis ; pas d'acc�
     assert.doesNotMatch(String(r.data), /createApp/, p);
   }
 });
+
+test("cas limites : JSON invalide, corps trop gros, titre mal encodé, mauvais type de vidéo", async () => {
+  const c = client();
+  let r = await c("/api/auth/login", { body: "{pas du json", headers: { "content-type": "application/json" } });
+  assert.equal(r.status, 400);
+  assert.equal(r.data.error, "BAD_JSON");
+  r = await c("/api/auth/login", { body: JSON.stringify({ email: "a".repeat(2_000_000) }), headers: { "content-type": "application/json" } });
+  assert.equal(r.status, 413);
+  await c("/api/auth/signup", { json: { email: "edge@example.com", password: "unbonmotdepasse" } });
+  r = await c("/api/videos", { body: Buffer.alloc(3000, 1), headers: { "content-type": "video/mp4", "x-video-title": "%E0%A4%A" } });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  r = await c("/api/videos", { body: Buffer.alloc(3000, 1), headers: { "content-type": "image/png" } });
+  assert.equal(r.status, 415);
+  r = await c("/api/videos", { body: Buffer.alloc(10, 1), headers: { "content-type": "video/webm" } });
+  assert.equal(r.data.error, "EMPTY_VIDEO");
+  r = await c("/api/exports", { json: { duration: "abc" } });
+  assert.equal(r.data.error, "BAD_DURATION");
+  r = await c("/api/exports", { json: { duration: -5 } });
+  assert.equal(r.data.error, "BAD_DURATION");
+  r = await c("/api/billing/checkout", { json: { plan: "gratuit-a-vie" } });
+  assert.equal(r.data.error, "BAD_PLAN");
+  r = await c("/api/inexistant");
+  assert.equal(r.status, 404);
+});
+
+test("inscriptions simultanées avec la même adresse : une seule réussit, sans erreur serveur", async () => {
+  const results = await Promise.all(Array.from({ length: 5 }, () => client()("/api/auth/signup", { json: { email: "race@example.com", password: "unbonmotdepasse" } })));
+  const codes = results.map((r) => r.status).sort();
+  assert.equal(codes.filter((x) => x === 200).length, 1);
+  assert.ok(codes.every((x) => x === 200 || x === 409), codes.join());
+});
+
+test("webhook Stripe rejoué deux fois : traité une seule fois", async () => {
+  const event = JSON.stringify({ id: "evt_dup", type: "customer.subscription.updated", data: { object: { id: "sub_x", customer: "cus_none", status: "active", items: { data: [{ price: { id: "price_pro" } }] }, metadata: {} } } });
+  const send = () => client()("/api/stripe/webhook", { body: event, headers: { "content-type": "application/json", "stripe-signature": signWebhook(event, "whsec_test", Math.floor(clock / 1000)) } });
+  assert.equal((await send()).data.ok, true);
+  assert.equal((await send()).data.duplicate, true);
+});
+
+test("lecture vidéo : plages en fin de fichier et plage invalide", async () => {
+  const c = client();
+  await c("/api/auth/signup", { json: { email: "range@example.com", password: "unbonmotdepasse" } });
+  const { data } = await c("/api/videos", { body: Buffer.alloc(4000, 2), headers: { "content-type": "video/mp4" } });
+  let r = await fetch(`${base}/media/${data.id}`, { headers: { range: "bytes=-100" } });
+  assert.equal(r.status, 206);
+  assert.equal((await r.arrayBuffer()).byteLength, 100);
+  r = await fetch(`${base}/media/${data.id}`, { headers: { range: "bytes=3900-" } });
+  assert.equal((await r.arrayBuffer()).byteLength, 100);
+  r = await fetch(`${base}/media/${data.id}`, { headers: { range: "bytes=99999-" } });
+  assert.equal(r.status, 416);
+  r = await fetch(`${base}/media/${data.id}?download=1`);
+  assert.match(r.headers.get("content-disposition") ?? "", /attachment/);
+});
+
+test("trop d'essais de connexion : bloqué après 20 tentatives", async () => {
+  const c = client();
+  let last = 0;
+  for (let i = 0; i < 25; i++) last = (await c("/api/auth/login", { json: { email: "x@example.com", password: "mauvais" } })).status;
+  assert.equal(last, 429);
+  // Après la fenêtre de 10 minutes, on peut réessayer (et les tests suivants ne sont pas bloqués).
+  clock += 11 * 60e3;
+  assert.equal((await c("/api/auth/login", { json: { email: "x@example.com", password: "mauvais" } })).status, 401);
+});
+
+test("export annulé : la vidéo est rendue au quota (seulement la sienne, seulement récente)", async () => {
+  const c = client();
+  await c("/api/auth/signup", { json: { email: "refund@example.com", password: "unbonmotdepasse" } });
+  const r1 = await c("/api/exports", { json: { duration: 10 } });
+  assert.equal(r1.data.remaining, 2);
+  // Un autre utilisateur ne peut pas annuler cet export.
+  const other = client();
+  await other("/api/auth/signup", { json: { email: "refund2@example.com", password: "unbonmotdepasse" } });
+  await other(`/api/exports/${r1.data.exportId}/cancel`, { json: {} });
+  assert.equal((await c("/api/me")).data.remaining, 2);
+  const r2 = await c(`/api/exports/${r1.data.exportId}/cancel`, { json: {} });
+  assert.equal(r2.data.remaining, 3);
+  // Trop ancien (plus de 2 heures) : plus annulable.
+  const r3 = await c("/api/exports", { json: { duration: 10 } });
+  clock += 3 * 3600e3;
+  const r4 = await c(`/api/exports/${r3.data.exportId}/cancel`, { json: {} });
+  assert.equal(r4.data.today, 1);
+});

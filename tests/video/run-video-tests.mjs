@@ -111,6 +111,60 @@ await step("dialogue : deux personnages, chacun sa voix, rendu sans erreur", asy
   assert.equal(r.voices.length, 2);
 });
 
+await step("traduction et mise en scène par l'IA (réponse de Claude simulée)", async () => {
+  // Fausse API Anthropic : renvoie un message au format réel de l'API Messages.
+  const calls = [];
+  await page.route("https://api.anthropic.com/**", async (route) => {
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    calls.push({ headers: route.request().headers(), body });
+    const input = JSON.parse(body.messages[0].content);
+    const payload = input.lines && body.output_config.format.schema.properties.lines
+      ? { lines: input.lines.map((l) => `DE: ${l}`) }
+      : { actions: input.lines.map(() => "celebrate") };
+    await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({
+      id: "msg_test", type: "message", role: "assistant", model: body.model, stop_reason: "end_turn", stop_sequence: null,
+      content: [{ type: "text", text: JSON.stringify(payload) }], usage: { input_tokens: 10, output_tokens: 10 },
+    }) });
+  });
+  await page.getByRole("tab", { name: "Texte" }).click();
+  await page.fill("#script", "Lui : Bonjour.\nElle : Salut.\n[pause]\nLui : Ça va ?\nElle : Oui.");
+  await page.getByRole("button", { name: "Créer la vidéo" }).click();
+  await page.fill('input[type="password"]', "sk-ant-test");
+  await page.locator("section.card select").first().selectOption("de");
+  await page.getByRole("button", { name: "Traduire", exact: true }).click();
+  await page.getByText("Terminé").waitFor({ timeout: 30000 });
+  let sc = await page.evaluate(() => window.__videoStudio.project.scenes.map((x) => [x.kind, x.text, x.speakerName ?? null]));
+  assert.deepEqual(sc, [["scene", "DE: Bonjour.", "Lui"], ["scene", "DE: Salut.", "Elle"], ["pause", "", null], ["scene", "DE: Ça va ?", "Lui"], ["scene", "DE: Oui.", "Elle"]]);
+  assert.equal(calls[0].body.model, "claude-opus-5-5");
+  assert.equal(calls[0].headers["x-api-key"], "sk-ant-test");
+  assert.equal(calls[0].body.messages[0].content.includes('""'), false, "les pauses ne sont pas envoyées");
+  // Le texte reconstruit garde les noms et retrouve les mêmes scènes.
+  const reparsed = await page.evaluate(() => window.__videoStudio.project.text);
+  assert.match(reparsed, /^Lui : \[/);
+  await page.getByRole("button", { name: /Mise en scène par l'IA/ }).click();
+  await page.getByText("Terminé").waitFor({ timeout: 30000 });
+  sc = await page.evaluate(() => window.__videoStudio.project.scenes.map((x) => [x.kind, x.action, x.figures ?? null]));
+  assert.deepEqual(sc, [["scene", "celebrate", 2], ["scene", "celebrate", 2], ["pause", "idle", 2], ["scene", "celebrate", 2], ["scene", "celebrate", 2]]);
+  await page.unroute("https://api.anthropic.com/**");
+});
+
+await step("mise en page : aucun débordement horizontal (téléphone 360 px et PC)", async () => {
+  for (const width of [360, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const name of ["Texte", "Scènes", "Personnages", "Style", "Voix & musique", "Exporter"]) {
+      await page.getByRole("tab", { name }).click();
+      await page.waitForTimeout(120);
+      const over = await page.evaluate(() => {
+        const W = document.documentElement.clientWidth;
+        const wide = [...document.querySelectorAll("#panel *")].filter((e) => e.getBoundingClientRect().right > W + 1).map((e) => e.tagName + "." + e.className).slice(0, 5);
+        return { scroll: document.documentElement.scrollWidth - W, wide };
+      });
+      assert.ok(over.scroll <= 0 && !over.wide.length, `${width}px / ${name} : ${JSON.stringify(over)}`);
+    }
+  }
+  await page.setViewportSize({ width: 412, height: 900 });
+});
+
 await step("lecture : le temps avance", async () => {
   await page.evaluate(() => { window.__videoStudio.seek(0); window.__videoStudio.play(); });
   await page.waitForTimeout(700);
@@ -122,7 +176,10 @@ await step("lecture : le temps avance", async () => {
 await step("voix naturelle : génération, durée des scènes calée sur la voix", async () => {
   await page.evaluate(() => {
     const p = window.__videoStudio.project;
-    p.scenes = p.scenes.slice(1, 3).map((s) => ({ ...s, duration: undefined }));
+    p.scenes = [
+      { id: "v1", kind: "scene", text: "Weil an manchen Abenden die Stille lauter ist als Worte.", action: "alone", seed: 1 },
+      { id: "v2", kind: "scene", text: "Du hast gelernt, nichts mehr von anderen zu erwarten.", action: "sit", seed: 2 },
+    ];
     p.settings.voiceMode = "neural";
     p.settings.voiceLang = "de";
     p.settings.neuralVoice = "";

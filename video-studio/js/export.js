@@ -32,6 +32,8 @@ export function recordVideo(canvas, { duration, draw, audioStream, onTime = () =
     rec.onerror = (e) => reject(e.error ?? new Error("RECORDER"));
     rec.onstop = () => {
       video.getTracks().forEach((t) => t.stop());
+      // Export annulé : pas de fichier à moitié fini.
+      if (signal?.aborted) return reject(new Error("ABORTED"));
       const type = rec.mimeType || mime || "video/webm";
       resolve({ blob: new Blob(chunks, { type }), ext: type.includes("mp4") ? "mp4" : "webm" });
     };

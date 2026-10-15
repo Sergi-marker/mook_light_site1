@@ -11,10 +11,17 @@ export const STYLE_KEYS = [
   "handle", "logo", "logoPos", "logoSize", "outro",
 ];
 
+/** Valeurs communes aux styles prêts : un style prêt remet ces réglages à zéro (mais garde @signature et logo). */
+const BUILTIN_BASE = {
+  backdrop: "none", bgImage: "", captionScale: 1, captionColor: "#ffffff", speakerLabels: true, progressBar: false,
+  voiceRate: 1, neuralVoice: "", charVoice0: "", charVoice1: "",
+};
+
 export const BUILTIN_STYLES = {
   psy: {
     label: ["Psychologie sombre", "Psychologie dunkel", "Dark psychology"],
     settings: {
+      ...BUILTIN_BASE,
       theme: "nuit", backdrop: "none", captionFont: "montserrat", captionPos: "top", captionBox: "none", captionStyle: "words",
       captionColor: "#ffffff", accent: "#ffd84d", uppercase: true, music: "melancolie", musicVol: 0.3,
       characters: [{ ...PRESETS.penseur.morph }, { ...PRESETS.gris.morph }],
@@ -24,6 +31,7 @@ export const BUILTIN_STYLES = {
   sport: {
     label: ["Sport énergique", "Sport energisch", "Energetic sport"],
     settings: {
+      ...BUILTIN_BASE,
       theme: "energie", backdrop: "gym", captionFont: "anton", captionPos: "middle", captionBox: "word", captionStyle: "full",
       captionColor: "#ffffff", accent: "#ff7a1a", uppercase: true, music: "motivation", musicVol: 0.4, voiceRate: 1.1,
       characters: [{ ...PRESETS.coach.morph }, { ...PRESETS.sportif.morph }],
@@ -33,6 +41,7 @@ export const BUILTIN_STYLES = {
   conte: {
     label: ["Histoire / conte", "Geschichte / Märchen", "Story / tale"],
     settings: {
+      ...BUILTIN_BASE,
       theme: "sepia", backdrop: "park", captionFont: "serif", captionPos: "bottom", captionBox: "box", captionStyle: "karaoke",
       captionColor: "#fff6e6", accent: "#f3c77a", uppercase: false, music: "mystere", musicVol: 0.3, voiceRate: 0.95,
       characters: [{ ...PRESETS.ancien.morph }, { ...PRESETS.enfant.morph }],
@@ -42,6 +51,7 @@ export const BUILTIN_STYLES = {
   urbain: {
     label: ["Urbain / dialogue", "Urban / Dialog", "Urban / dialogue"],
     settings: {
+      ...BUILTIN_BASE,
       theme: "noir", backdrop: "street", captionFont: "bangers", captionPos: "top", captionBox: "none", captionStyle: "words",
       captionColor: "#ffffff", accent: "#5ee0ff", uppercase: true, music: "calme", musicVol: 0.3,
       characters: [{ ...PRESETS.urbain.morph }, { ...PRESETS.etudiante.morph }],

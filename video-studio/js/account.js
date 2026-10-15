@@ -319,6 +319,7 @@ export async function gateExport(duration) {
   }
   try {
     const r = await api("/api/exports", { json: { duration } });
+    lastExportId = r.exportId ?? null;
     account.me = { ...account.me, ...r };
     changed();
     return true;
@@ -329,6 +330,20 @@ export async function gateExport(duration) {
     else ui.toast(errMsg(e.code ?? "NETWORK"), "error");
     return false;
   }
+}
+
+let lastExportId = null;
+
+/** L'export décompté n'a pas abouti (annulé, erreur) : on le rend au quota du jour. */
+export async function refundExport() {
+  if (!account.online || lastExportId == null) return;
+  const id = lastExportId;
+  lastExportId = null;
+  try {
+    const r = await api(`/api/exports/${id}/cancel`, { json: {} });
+    account.me = { ...account.me, ...r };
+    changed();
+  } catch { /* hors ligne : tant pis */ }
 }
 
 /** Bouton « Partager (lien) » après un export : envoie la vidéo et affiche le lien. */

@@ -267,7 +267,7 @@ function drawFlat(ctx, p, m, x, groundY, h) {
 }
 
 // Toiles de travail réutilisées d'une image à l'autre.
-const work = { flat: null, sil: null };
+const work = { flat: null, sil: null, glow: null };
 function workCanvas(key, w, hgt) {
   let c = work[key];
   if (!c) {
@@ -281,29 +281,52 @@ function workCanvas(key, w, hgt) {
 /** Style de rendu : contour sombre, halo de contre-jour et volume (ombre / lumière). */
 export const DEFAULT_LOOK = Object.freeze({ outline: "#07070d", glow: "rgba(190,200,255,0.55)", shading: true });
 
+/** Rectangle (unités « hauteur = 1 », origine aux hanches) qui contient tout le personnage, objets compris. */
+function figureBounds(sk, p, m) {
+  const pts = [sk.hip, sk.neck, sk.shoulder, sk.elbowF, sk.handF, sk.elbowB, sk.handB, sk.kneeF, sk.footF, sk.kneeB, sk.footB];
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const r = sk.headR * 1.6; // tête + coiffure (afro, chignon, queue de cheval, casquette)
+  x0 = Math.min(x0, sk.headC[0] - r); x1 = Math.max(x1, sk.headC[0] + r);
+  y0 = Math.min(y0, sk.headC[1] - r); y1 = Math.max(y1, sk.headC[1] + r);
+  // Épaisseur des membres, pieds, robe, objets tenus ou posés.
+  let pad = 0.12 * Math.max(1, m.build) + 0.06;
+  if (p.prop === "bench" || p.prop === "mat") { x0 = Math.min(x0, -0.45); x1 = Math.max(x1, 0.45); }
+  if (p.prop) pad += 0.08;
+  return { x0: x0 - pad, x1: x1 + pad, y0: y0 - pad, y1: y1 + pad };
+}
+
 /**
  * Dessine le personnage. (x, groundY) en pixels, H = hauteur du personnage en pixels.
  * Le personnage est d'abord dessiné à plat hors écran, puis posé avec un contour net, un halo
  * de contre-jour qui le détache du décor, et un léger modelé (lumière du projecteur en haut).
+ * La toile de travail est limitée au rectangle du personnage : c'est ce qui rend l'image rapide.
  */
 export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) {
   const m = morphFrom(morphIn);
   const h = H * m.height;
   const bx = x + (p.dx ?? 0) * H;
-  const W = Math.ceil(h * 2.4), Hh = Math.ceil(h * 2.1);
-  const ox = W / 2, oy = Math.round(Hh * 0.8);
+  const sk0 = skeleton(p, m);
+  const low0 = lowestPoint(sk0, p);
+  const lift = p.lift ?? 0;
+  const b = figureBounds(sk0, p, m);
+  const st = 1 + Math.min(0.12, Math.abs(p.stretch ?? 0)); // marge pour l'étirement
+  const W = Math.ceil((b.x1 - b.x0) * h * st) + 4, Hh = Math.ceil((b.y1 - b.y0) * h * st) + 4;
+  // Position des hanches dans la toile de travail, puis du sol (ce qu'attend drawFlat).
+  const hipX = Math.round(-b.x0 * h * st) + 2, hipY = Math.round(-b.y0 * h * st) + 2;
+  const flatGround = hipY + (low0 + lift) * h;
   const flat = workCanvas("flat", W, Hh);
   const fctx = flat.getContext("2d");
   fctx.setTransform(1, 0, 0, 1, 0, 0);
   fctx.clearRect(0, 0, W, Hh);
-  const { sk, low, d } = drawFlat(fctx, p, m, ox, oy, h);
+  const { sk, low, d } = drawFlat(fctx, p, m, hipX, flatGround, h);
 
-  // Modelé : plus clair en haut (projecteur), plus sombre vers les pieds, reflet sur le bord avant.
+  // Modelé : plus clair en haut (projecteur), plus sombre vers les pieds.
   if (look.shading) {
     fctx.save();
     fctx.globalCompositeOperation = "source-atop";
-    const top = oy - (low + (p.lift ?? 0) + 1.05) * h;
-    const g = fctx.createLinearGradient(0, top, 0, oy);
+    const top = flatGround - (low + lift + 1.05) * h;
+    const g = fctx.createLinearGradient(0, top, 0, flatGround);
     g.addColorStop(0, "rgba(255,255,255,0.10)");
     g.addColorStop(0.55, "rgba(0,0,0,0)");
     g.addColorStop(1, "rgba(10,10,30,0.22)");
@@ -322,15 +345,21 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) 
   sctx.fillRect(0, 0, W, Hh);
   sctx.globalCompositeOperation = "source-over";
 
-  const left = bx - ox, topY = groundY - oy;
+  const left = bx - hipX, topY = groundY - (low + lift) * h - hipY;
   ctx.save();
-  // Halo de contre-jour.
+  // Halo de contre-jour, calculé en quart de résolution (il est flou : on ne voit pas la différence).
   if (look.glow) {
-    ctx.shadowColor = look.glow;
-    ctx.shadowBlur = Math.max(6, h * 0.09);
-    ctx.drawImage(sil, left, topY);
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
+    const blur = Math.max(6, h * 0.09);
+    const q = 4, mg = Math.ceil(blur / q) * 2;
+    const gw = Math.ceil(W / q) + mg * 2, gh = Math.ceil(Hh / q) + mg * 2;
+    const glow = workCanvas("glow", gw, gh);
+    const gctx = glow.getContext("2d");
+    gctx.setTransform(1, 0, 0, 1, 0, 0);
+    gctx.clearRect(0, 0, gw, gh);
+    gctx.shadowColor = look.glow;
+    gctx.shadowBlur = blur / q;
+    gctx.drawImage(sil, mg, mg, W / q, Hh / q);
+    ctx.drawImage(glow, left - mg * q, topY - mg * q, gw * q, gh * q);
   }
   // Contour net tout autour.
   if (look.outline) {
@@ -346,7 +375,7 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) 
   // Symbole au-dessus de la tête (hors contour, pour rester lisible).
   if (p.symbol) {
     ctx.save();
-    ctx.translate(bx, groundY - (low + (p.lift ?? 0)) * h);
+    ctx.translate(bx, groundY - (low + lift) * h);
     ctx.scale(h, h);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";

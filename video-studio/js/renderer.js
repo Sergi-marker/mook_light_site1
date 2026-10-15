@@ -122,7 +122,25 @@ export function preloadImage(src) {
   return e.ok ? Promise.resolve() : new Promise((r) => { e.img.addEventListener("load", r, { once: true }); e.img.addEventListener("error", r, { once: true }); });
 }
 
+// Le décor ne bouge pas : il est dessiné une fois puis réutilisé (gros gain de vitesse à l'export).
+const bgCache = new Map();
 function drawBackground(ctx, W, H, L, theme, t, backdrop, bgImage) {
+  const imgReady = backdrop === "image" && !!image(bgImage);
+  const key = `${W}x${H}|${L.groundY}|${theme}|${backdrop}|${imgReady ? bgImage.length + bgImage.slice(-32) : ""}`;
+  let c = bgCache.get(key);
+  if (!c) {
+    c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    paintBackground(c.getContext("2d"), W, H, L, theme, backdrop, bgImage);
+    if (bgCache.size > 6) bgCache.delete(bgCache.keys().next().value);
+    bgCache.set(key, c);
+  }
+  ctx.drawImage(c, 0, 0);
+}
+
+function paintBackground(ctx, W, H, L, theme, backdrop, bgImage) {
+  const t = 0;
   const th = THEMES[theme] ?? THEMES.nuit;
   const g = ctx.createRadialGradient(W / 2, H * 0.38, Math.min(W, H) * 0.05, W / 2, H * 0.45, Math.max(W, H) * 0.75);
   g.addColorStop(0, th.top);

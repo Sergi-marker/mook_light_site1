@@ -47,6 +47,7 @@ export function createApp(cfg) {
     purgeSessions: db.prepare("DELETE FROM sessions WHERE expires_at <= ?"),
     exportsToday: db.prepare("SELECT COUNT(*) AS n FROM exports WHERE user_id = ? AND day = ?"),
     insertExport: db.prepare("INSERT INTO exports (user_id, day, duration, created_at) VALUES (?, ?, ?, ?)"),
+    cancelExport: db.prepare("DELETE FROM exports WHERE id = ? AND user_id = ? AND created_at > ?"),
     insertVideo: db.prepare("INSERT INTO videos (id, user_id, title, file, mime, size, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
     video: db.prepare("SELECT videos.*, users.plan AS owner_plan, users.plan_until AS owner_plan_until FROM videos JOIN users ON users.id = videos.user_id WHERE videos.id = ?"),
     myVideos: db.prepare("SELECT id, title, size, duration, views, created_at FROM videos WHERE user_id = ? ORDER BY created_at DESC LIMIT 200"),
@@ -103,9 +104,10 @@ export function createApp(cfg) {
     let size = 0;
     for await (const c of req) {
       size += c.length;
-      if (size > limit) throw new HttpError(413, "TOO_LARGE");
-      chunks.push(c);
+      // Trop gros : on lit quand même la fin (sans la garder) pour pouvoir répondre proprement.
+      if (size <= limit) chunks.push(c);
     }
+    if (size > limit) throw new HttpError(413, "TOO_LARGE");
     return Buffer.concat(chunks).toString("utf8");
   }
 
@@ -169,7 +171,14 @@ export function createApp(cfg) {
       const pwErr = passwordProblem(password);
       if (pwErr) throw new HttpError(400, pwErr);
       if (q.userByEmail.get(mail)) throw new HttpError(409, "EMAIL_TAKEN");
-      const r = q.insertUser.run(mail, hashPassword(password), String(name ?? "").trim().slice(0, 80), now());
+      let r;
+      try {
+        r = q.insertUser.run(mail, hashPassword(password), String(name ?? "").trim().slice(0, 80), now());
+      } catch (e) {
+        // Deux inscriptions simultanées avec la même adresse : la base refuse la seconde.
+        if (/UNIQUE/i.test(String(e?.message))) throw new HttpError(409, "EMAIL_TAKEN");
+        throw e;
+      }
       startSession(res, Number(r.lastInsertRowid));
       return me(q.userById.get(Number(r.lastInsertRowid)));
     },
@@ -242,8 +251,8 @@ export function createApp(cfg) {
       const used = q.exportsToday.get(u.id, day).n;
       const check = checkExport(plan, used, Number(duration));
       if (!check.ok) throw new HttpError(403, check.reason, { limit: check.limit, plan: plan.id });
-      q.insertExport.run(u.id, day, Number(duration), now());
-      return { ok: true, ...usage(u) };
+      const r = q.insertExport.run(u.id, day, Number(duration), now());
+      return { ok: true, exportId: Number(r.lastInsertRowid), ...usage(u) };
     },
 
     "GET /api/videos": (req) => {
@@ -278,7 +287,9 @@ export function createApp(cfg) {
         throw e;
       }
       if (size < 1000) { unlinkSync(path); throw new HttpError(400, "EMPTY_VIDEO"); }
-      const title = decodeURIComponent(String(req.headers["x-video-title"] ?? "")).slice(0, 120);
+      let title = String(req.headers["x-video-title"] ?? "");
+      try { title = decodeURIComponent(title); } catch { /* titre mal encodé : gardé tel quel */ }
+      title = title.slice(0, 120);
       const duration = Number(req.headers["x-video-duration"]) || null;
       q.insertVideo.run(id, u.id, title, file, mime, size, duration, now());
       return { id, url: absolute(`/v/${id}`) };
@@ -383,6 +394,13 @@ export function createApp(cfg) {
       if (path === "/api/stripe/webhook" && req.method === "POST") return await stripeWebhook(req, res);
       if (path.startsWith("/api/")) {
         if (req.method !== "GET" && req.method !== "HEAD") checkOrigin(req);
+        // Export annulé ou raté juste après avoir été décompté : la vidéo est rendue au quota.
+        const cancel = /^\/api\/exports\/(\d+)\/cancel$/.exec(path);
+        if (cancel && req.method === "POST") {
+          const u = requireUser(req);
+          q.cancelExport.run(Number(cancel[1]), u.id, now() - 2 * 3600e3);
+          return send(res, 200, { ok: true, ...usage(u) });
+        }
         const del = /^\/api\/videos\/([\w-]+)$/.exec(path);
         if (del && req.method === "DELETE") {
           const u = requireUser(req);
@@ -419,7 +437,9 @@ export function createApp(cfg) {
       if (legal) return send(res, 200, legalPage(legal[1], cfg.operator ?? {}, publicUrl));
       return await serveStatic(req, res, decodeURIComponent(path));
     } catch (e) {
-      if (e instanceof HttpError) return send(res, e.status, path.startsWith("/api/") ? { error: e.code, ...e.extra } : `<h1>${e.status}</h1>`);
+      // Requête interrompue (corps pas entièrement lu) : on ferme la connexion après la réponse.
+      const close = !req.complete ? { Connection: "close" } : {};
+      if (e instanceof HttpError) return send(res, e.status, path.startsWith("/api/") ? { error: e.code, ...e.extra } : `<h1>${e.status}</h1>`, close);
       (cfg.log ?? console.error)(e);
       return send(res, 500, path.startsWith("/api/") ? { error: "SERVER_ERROR" } : "<h1>500</h1>");
     }

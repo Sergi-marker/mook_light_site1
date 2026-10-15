@@ -1,6 +1,6 @@
 // Interface de Vidéo Studio.
 
-import { parseScript, timeline, sceneAt, withBrand } from "./script.js";
+import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";
 import { drawFigure, PRESETS, SKIN_TONES, morphFrom } from "./figure.js";
 import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS } from "./renderer.js";
@@ -10,7 +10,7 @@ import { recordVideo, bestMimeType } from "./export.js";
 import { NEURAL_VOICES, defaultVoice, voiceByGender, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
-import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi } from "./account.js";
+import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi, refundExport } from "./account.js";
 
 const STORE = "videoStudio.project.v1";
 const KEY_STORE = "videoStudio.apiKey";
@@ -37,16 +37,35 @@ function defaultProject() {
   };
 }
 
+/** Projet enregistré (navigateur ou fichier) → projet valide : réglages complétés, scènes réparées. */
+function normalizeProject(p, d = defaultProject()) {
+  const settings = { ...d.settings, ...(p?.settings ?? {}) };
+  // Anciens projets : « voiceOn » (voix du système) devient un mode de voix.
+  if (p?.settings && !p.settings.voiceMode && p.settings.voiceOn) settings.voiceMode = "system";
+  if (!Array.isArray(settings.characters) || settings.characters.length < 2) settings.characters = d.settings.characters;
+  const scenes = (Array.isArray(p?.scenes) ? p.scenes : d.scenes)
+    .filter((sc) => sc && typeof sc === "object")
+    .map((sc, i) => {
+      const action = String(sc.action ?? "").trim();
+      return {
+        ...sc,
+        id: sc.id ?? `s${i + 1}`,
+        kind: ["scene", "title", "pause"].includes(sc.kind) ? sc.kind : "scene",
+        text: String(sc.text ?? ""),
+        action: ACTIONS[action] ? action : "idle",
+        seed: Number.isFinite(sc.seed) ? sc.seed : i + 1,
+      };
+    });
+  return { ...d, ...p, text: String(p?.text ?? d.text), scenes, settings };
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORE);
     if (raw) {
       const p = JSON.parse(raw);
       const d = defaultProject();
-      const settings = { ...d.settings, ...p.settings };
-      // Anciens projets : « voiceOn » (voix du système) devient un mode de voix.
-      if (p.settings && !p.settings.voiceMode && p.settings.voiceOn) settings.voiceMode = "system";
-      return { ...d, ...p, settings };
+      return normalizeProject(p, d);
     }
   } catch { /* stockage indisponible */ }
   return defaultProject();
@@ -197,7 +216,8 @@ function loop() {
     lastScene = at.index;
     if (project.settings.voiceMode === "system") {
       const s = project.settings;
-      speak(at.item.scene.text, { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch });
+      const said = plainText(at.item.scene.text);
+      if (said) speak(said, { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch });
     }
     highlightScene(at.index);
   }
@@ -323,9 +343,11 @@ function textPanel() {
     try { await fn(); status.textContent = t("done"); } catch (e) { status.textContent = ""; toast(errText(e), "error"); } finally { btn.disabled = false; }
   };
   const trBtn = h("button", { class: "btn", onclick: () => runAi(trBtn, async () => {
-    const lines = project.scenes.map((s) => s.text);
-    const out = await translateLines(getKey(), lines, target, (d, n) => { status.textContent = `${t("working")} ${d}/${n}`; });
-    project.scenes = project.scenes.map((s, i) => ({ ...s, text: out[i] }));
+    // Seules les scènes avec du texte partent à la traduction (pas les pauses).
+    const idx = project.scenes.map((sc, i) => (sc.text.trim() ? i : -1)).filter((i) => i >= 0);
+    const out = await translateLines(getKey(), idx.map((i) => project.scenes[i].text), target, (d, n) => { status.textContent = `${t("working")} ${d}/${n}`; });
+    project.scenes = project.scenes.map((sc) => ({ ...sc }));
+    idx.forEach((i, k) => { project.scenes[i].text = out[k]; });
     project.text = project.scenes.map((s) => (s.kind === "title" ? `# ${s.text}` : s.kind === "pause" ? `[pause ${s.duration ?? 1}]` : `${s.speakerName ? `${s.speakerName} : ` : ""}[${s.action}] ${s.text}`)).join("\n");
     project.textLang = target;
     project.settings.voiceLang = target;
@@ -335,8 +357,11 @@ function textPanel() {
     rebuildTimeline();
   }) }, t("translate"));
   const dirBtn = h("button", { class: "btn", onclick: () => runAi(dirBtn, async () => {
-    const actions = await directScenes(getKey(), project.scenes.map((s) => s.text), (d, n) => { status.textContent = `${t("working")} ${d}/${n}`; });
-    project.scenes = project.scenes.map((s, i) => (s.kind === "title" ? s : { ...s, action: actions[i], auto: false, figures: undefined }));
+    const idx = project.scenes.map((sc, i) => (sc.kind === "scene" && sc.text.trim() ? i : -1)).filter((i) => i >= 0);
+    const actions = await directScenes(getKey(), idx.map((i) => project.scenes[i].text), (d, n) => { status.textContent = `${t("working")} ${d}/${n}`; });
+    project.scenes = project.scenes.map((sc) => ({ ...sc }));
+    // Les répliques d'un dialogue gardent leurs deux personnages.
+    idx.forEach((i, k) => { Object.assign(project.scenes[i], { action: actions[k], auto: false, figures: project.scenes[i].speaker != null ? 2 : undefined }); });
     rebuildTimeline();
   }) }, t("direct"));
 
@@ -704,7 +729,7 @@ function soundPanel() {
       field(t("voice"), voiceSel),
       field(t("rate"), range(s.rate, 0.6, 1.5, 0.05, (v) => set({ rate: v }))),
       field(t("pitch"), range(s.pitch, 0.5, 1.5, 0.05, (v) => set({ pitch: v })))),
-    h("button", { class: "btn sm", onclick: () => speak(project.scenes[0]?.text ?? "Bonjour", { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch }) }, "🔊 Test"),
+    h("button", { class: "btn sm", onclick: () => speak(plainText(project.scenes.find((sc) => sc.text.trim())?.text ?? "Bonjour"), { lang: s.voiceLang, voice: s.voice, rate: s.rate, pitch: s.pitch }) }, "🔊 Test"),
     h("p", { class: "help" }, t("voiceNote")));
 
   const showMode = () => {
@@ -781,12 +806,14 @@ function exportPanel() {
     voices.connect(dest);
     track.connect(dest);
     let micStream = null;
+    let counted = false; // l'export a été décompté du quota
     try {
       // La voix off doit exister avant l'enregistrement : elle fixe la durée des scènes.
       // Si elle ne peut pas être créée (pas d'Internet au premier usage), la vidéo est exportée sans voix.
       if ((await ensureVoices(status)) === "aborted") throw new Error("ABORTED");
       // Compte et quota (offre gratuite : 3 vidéos par jour, 30 s maximum), vérifiés par le serveur.
       if (!(await gateExport(tl.total))) throw new Error("ABORTED");
+      counted = true;
       if (project.settings.mic) {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
         audioCtx.createMediaStreamSource(micStream).connect(dest);
@@ -814,6 +841,7 @@ function exportPanel() {
         shareButton(blob, { title: project.scenes.find((sc) => sc.kind === "title")?.text ?? project.scenes[0]?.text ?? "", duration: tl.total }),
         h("video", { src: url, controls: true, playsinline: true, class: "result" }));
     } catch (e) {
+      if (counted) refundExport();
       if (e?.message !== "ABORTED") toast(errText(e), "error");
       status.textContent = "";
     } finally {
@@ -848,9 +876,7 @@ function exportPanel() {
         const f = e.target.files?.[0];
         if (!f) return;
         try {
-          const p = JSON.parse(await f.text());
-          const d = defaultProject();
-          project = { ...d, ...p, settings: { ...d.settings, ...p.settings } };
+          project = normalizeProject(JSON.parse(await f.text()));
           pos = 0;
           rebuildTimeline();
           renderAll();

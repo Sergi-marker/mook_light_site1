@@ -155,3 +155,9 @@ input.name-input { width: auto; flex: 1 1 140px; min-width: 0; }
 details summary { cursor: pointer; color: var(--muted); font-weight: 700; font-size: 13px; padding: 4px 0; }
 details[open] summary { margin-bottom: 8px; }
 .scene-card.pause { border-style: dashed; opacity: 0.85; }
+
+/* Petits écrans : rien ne doit élargir la page. */
+.char > *, .stack > *, .grid2 > *, .card > * { min-width: 0; }
+.grid2 { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
+.row > select { min-width: 0; flex: 1 1 auto; }
+.row.wrap > * { max-width: 100%; }

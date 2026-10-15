@@ -224,6 +224,10 @@ export function parseScript(text, opts = {}) {
       prevAction = action;
     }
   }
+  // Une pause au milieu d'un dialogue garde les deux personnages à l'écran.
+  scenes.forEach((sc, i) => {
+    if (sc.kind === "pause" && scenes[i - 1]?.figures === 2) sc.figures = 2;
+  });
   return scenes.map((sc, i) => ({ id: `s${i + 1}`, ...sc, seed: (hashString(sc.text) ^ Math.imul(baseSeed, 2654435761) ^ i) >>> 0 }));
 }
 

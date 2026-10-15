@@ -22,7 +22,7 @@ const T = {
   importError: ["Ce fichier n'a pas pu être lu.", "Diese Datei konnte nicht gelesen werden.", "This file could not be read."],
   imageError: ["Cette image n'a pas pu être lue.", "Dieses Bild konnte nicht gelesen werden.", "This image could not be read."],
   storageFull: ["Plus de place dans ce navigateur : supprimez un style ou un personnage enregistré.", "Kein Platz mehr im Browser: einen gespeicherten Stil oder eine Figur löschen.", "No space left in this browser: delete a saved style or character."],
-  pause: ["Pause", "Pause", "Pause"], addPause: ["+ Ajouter une pause", "+ Pause hinzufügen", "+ Add pause"],
+  addPause: ["+ Ajouter une pause", "+ Pause hinzufügen", "+ Add pause"],
   speaker: ["Personnage", "Figur", "Character"], speakerNone: ["Narrateur", "Erzähler", "Narrator"],
   bgStyle: ["Décor du style", "Hintergrund des Stils", "Style background"], decor: ["Décor", "Kulisse", "Set"],
   myCharacters: ["Mes personnages", "Meine Figuren", "My characters"], saveCharacter: ["Enregistrer", "Speichern", "Save"],

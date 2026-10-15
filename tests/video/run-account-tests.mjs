@@ -69,6 +69,24 @@ await step("offre gratuite : export de 1,5 s accepté et décompté (2 restantes
   assert.equal(m.remaining, 2);
 });
 
+await step("export annulé : pas de fichier, et la vidéo est rendue au quota", async () => {
+  await shortVideo(6);
+  await page.getByRole("tab", { name: "Scènes" }).click();
+  await page.getByRole("tab", { name: "Exporter" }).click();
+  await page.getByRole("button", { name: /Exporter la vidéo/ }).click();
+  await page.waitForFunction(async () => (await (await fetch("/api/me")).json()).today === 2, null, { timeout: 15000 });
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Annuler" }).click();
+  await page.waitForFunction(async () => (await (await fetch("/api/me")).json()).today === 1, null, { timeout: 15000 });
+  assert.equal(await page.getByRole("link", { name: /Télécharger/ }).count(), 0);
+  // On revient à la vidéo courte exportée juste avant, pour l'étape de partage.
+  await shortVideo(1.5);
+  await page.getByRole("tab", { name: "Scènes" }).click();
+  await page.getByRole("tab", { name: "Exporter" }).click();
+  await page.getByRole("button", { name: /Exporter la vidéo/ }).click();
+  await page.getByRole("link", { name: /Télécharger/ }).waitFor({ timeout: 30000 });
+});
+
 await step("partage : lien public qui affiche la vidéo", async () => {
   await page.getByRole("button", { name: /Partager \(lien\)/ }).click();
   const link = page.locator("input.link");
@@ -91,7 +109,7 @@ await step("offre gratuite : vidéo de plus de 30 s refusée avec proposition Pr
 
 await step("offre gratuite : 4e vidéo du jour refusée", async () => {
   // Deux exports décomptés directement auprès du serveur (3 au total).
-  for (let i = 0; i < 2; i++) await page.evaluate(async () => fetch("/api/exports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ duration: 5 }) }));
+  for (let i = 0; i < 1; i++) await page.evaluate(async () => fetch("/api/exports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ duration: 5 }) }));
   await shortVideo(1.5);
   await page.getByRole("tab", { name: "Scènes" }).click();
   await page.getByRole("tab", { name: "Exporter" }).click();
