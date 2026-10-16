@@ -5,3 +5,7 @@ release/
 build/
 *.log
 .DS_Store
+data/
+.env
+dist-free/
+dist-free-test/
