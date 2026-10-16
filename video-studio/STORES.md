@@ -26,6 +26,11 @@ Les polices sont copiées dans l'application (aucune adresse IP envoyée à Goog
 4. Enregistrez : le site est en ligne à une adresse du type `https://animots.pages.dev`. Chaque envoi sur la branche le met à jour.
 5. (Facultatif) Nom de domaine : **Domaines personnalisés** → `animots.app` par exemple (environ 10 à 15 € par an).
 
+**Si Cloudflare a créé un projet « Workers »** (et non « Pages ») : le fichier `wrangler.jsonc` du dépôt est déjà prêt.
+Dans le projet → **Settings → Build** : branche = celle qui contient Animots, commande de construction =
+`node scripts/build-free.mjs`, commande de déploiement = `npx wrangler deploy`. L'adresse sera du type
+`https://mook-light-site1.VOTRE-COMPTE.workers.dev`.
+
 La page de confidentialité est à `https://VOTRE-SITE/privacy.html` : c'est l'adresse à donner aux stores.
 
 ## 3. Créer les applications pour les stores (PWABuilder)
