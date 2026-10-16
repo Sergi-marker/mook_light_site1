@@ -33,7 +33,7 @@ function layout({ title, body, head = "", publicUrl = "" }) {
 <style>${STYLE}</style>
 ${head}
 </head><body><main>
-<a class="brand" href="${esc(publicUrl)}/">Vidéo Studio</a>
+<a class="brand" href="${esc(publicUrl)}/">Animots</a>
 ${body}
 <p class="muted"><a href="/legal/impressum">Mentions légales / Impressum</a> · <a href="/legal/privacy">Confidentialité</a> · <a href="/legal/terms">Conditions</a></p>
 </main></body></html>`;
@@ -58,7 +58,7 @@ export function adSlot(ads) {
 })();
 </script>`;
   }
-  return `<div class="ad"><span class="muted">Créez vos propres vidéos animées · <a href="/">Vidéo Studio</a> — Premium sans publicité à 10 €/mois</span></div>`;
+  return `<div class="ad"><span class="muted">Créez vos propres vidéos animées · <a href="/">Animots</a> — Premium sans publicité à 10 €/mois</span></div>`;
 }
 
 export function sharePage({ video, url, mediaUrl, showAds, ads, publicUrl }) {
@@ -70,7 +70,7 @@ export function sharePage({ video, url, mediaUrl, showAds, ads, publicUrl }) {
 <meta property="og:video" content="${esc(mediaUrl)}">
 <meta property="og:video:type" content="${esc(video.mime)}">
 <meta name="twitter:card" content="player">
-<meta name="description" content="Vidéo créée avec Vidéo Studio">`;
+<meta name="description" content="Vidéo créée avec Animots">`;
   const enc = encodeURIComponent(url);
   const text = encodeURIComponent(title);
   const body = `
@@ -92,11 +92,11 @@ document.getElementById("copy").addEventListener("click", function () {
   (navigator.clipboard ? navigator.clipboard.writeText(${JSON.stringify(url)}) : Promise.reject()).then(function () { b.textContent = "Lien copié"; }, function () { prompt("Lien :", ${JSON.stringify(url)}); });
 });
 </script>`;
-  return layout({ title: `${title} · Vidéo Studio`, body, head, publicUrl });
+  return layout({ title: `${title} · Animots`, body, head, publicUrl });
 }
 
 export function notFoundPage(publicUrl) {
-  return layout({ title: "Introuvable · Vidéo Studio", body: `<h1>Cette vidéo n'existe pas ou a été supprimée.</h1><p><a class="btn primary" href="/">Créer une vidéo</a></p>`, publicUrl });
+  return layout({ title: "Introuvable · Animots", body: `<h1>Cette vidéo n'existe pas ou a été supprimée.</h1><p><a class="btn primary" href="/">Créer une vidéo</a></p>`, publicUrl });
 }
 
 export function resetPage({ token, publicUrl }) {
@@ -116,7 +116,7 @@ document.getElementById("f").addEventListener("submit", async function (e) {
   else msg.textContent = "Lien expiré ou invalide. Redemandez un lien depuis l'application.";
 });
 </script>`;
-  return layout({ title: "Mot de passe · Vidéo Studio", body, publicUrl });
+  return layout({ title: "Mot de passe · Animots", body, publicUrl });
 }
 
 /**
@@ -176,5 +176,5 @@ export function legalPage(kind, op, publicUrl) {
   };
   const p = pages[kind];
   if (!p) return null;
-  return layout({ title: `${p.title} · Vidéo Studio`, body: `<div class="legal"><h1>${p.title}</h1>${p.body}<p class="muted">Modèle à faire vérifier par un professionnel avant la mise en ligne.</p></div>`, publicUrl });
+  return layout({ title: `${p.title} · Animots`, body: `<div class="legal"><h1>${p.title}</h1>${p.body}<p class="muted">Modèle à faire vérifier par un professionnel avant la mise en ligne.</p></div>`, publicUrl });
 }

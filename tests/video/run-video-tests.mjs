@@ -1,4 +1,4 @@
-// Ouvre Vidéo Studio dans Chromium, parcourt l'interface et exporte une vraie vidéo.
+// Ouvre Animots dans Chromium, parcourt l'interface et exporte une vraie vidéo.
 // Usage : npm run test:video
 import assert from "node:assert/strict";
 import { launchChromium } from "../playwright.mjs";
@@ -271,4 +271,4 @@ await step("aucune erreur JavaScript", async () => assert.deepEqual(errors, []))
 await browser.close();
 server.close();
 if (failed) { console.log(`${failed} échec(s)`); process.exit(1); }
-console.log("Vidéo Studio : tous les tests passent");
+console.log("Animots : tous les tests passent");

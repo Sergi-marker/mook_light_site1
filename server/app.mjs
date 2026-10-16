@@ -1,4 +1,4 @@
-// Serveur de Vidéo Studio : application web, comptes, quotas, abonnements Stripe, partage de vidéos.
+// Serveur de Animots : application web, comptes, quotas, abonnements Stripe, partage de vidéos.
 
 import { createServer } from "node:http";
 import { createReadStream, createWriteStream, mkdirSync, statSync, unlinkSync, existsSync } from "node:fs";
@@ -209,7 +209,7 @@ export function createApp(cfg) {
         q.insertReset.run(tokenHash(token), u.id, now() + 3600e3);
         await sendMail({
           to: u.email,
-          subject: "Vidéo Studio : nouveau mot de passe",
+          subject: "Animots : nouveau mot de passe",
           text: `Bonjour,\n\nPour choisir un nouveau mot de passe, ouvrez ce lien (valable 1 heure) :\n${absolute(`/reset?token=${token}`)}\n\nSi vous n'avez rien demandé, ignorez ce message.`,
         }).catch((e) => (cfg.log ?? console.error)(`E-mail non envoyé : ${e.message}`));
       }

@@ -1,4 +1,4 @@
-# Image de production de Vidéo Studio (serveur + application web).
+# Image de production de Animots (serveur + application web).
 FROM node:22-slim
 WORKDIR /app
 COPY package.json ./

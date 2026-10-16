@@ -1,4 +1,4 @@
-// Interface de Vidéo Studio.
+// Interface de Animots.
 
 import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";

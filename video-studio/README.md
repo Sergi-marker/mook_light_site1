@@ -1,4 +1,4 @@
-# Vidéo Studio
+# Animots
 
 Collez un texte : il devient une vidéo animée, avec un ou deux personnages « pictogramme » qui jouent chaque phrase, et des sous-titres qui apparaissent mot par mot. Le style est celui des vidéos de psychologie qu'on voit sur TikTok (fond sombre, projecteur, sol lumineux). Ça marche aussi pour le sport et les histoires.
 

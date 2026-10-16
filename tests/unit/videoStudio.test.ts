@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-// @ts-ignore — modules JavaScript de l'application Vidéo Studio (sans types).
+// @ts-ignore — modules JavaScript de l'application Animots (sans types).
 import { parseScript, detectAction, splitLong, timeline, sceneAt, resolveTag } from "../../video-studio/js/script.js";
 // @ts-ignore
 import { ACTIONS, poseAt, skeleton, lerpPose, BASE } from "../../video-studio/js/poses.js";

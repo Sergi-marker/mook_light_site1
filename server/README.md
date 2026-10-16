@@ -1,4 +1,4 @@
-# Mettre Vidéo Studio en ligne
+# Mettre Animots en ligne
 
 Le serveur sert l'application web et gère les comptes, les offres, le quota gratuit, les paiements Stripe, la publicité et le partage des vidéos. Il n'utilise que Node.js 22.18 ou plus récent : aucune base de données à installer, il s'appuie sur SQLite, intégré à Node.
 
@@ -24,8 +24,8 @@ Ces règles sont définies dans `server/plans.mjs`. Le quota repart à minuit (f
 
 1. **Hébergement.** Prenez un petit serveur (VPS, Render, Railway, Fly.io…) avec un disque persistant pour le dossier `DATA_DIR`. Ce dossier contient la base de données et les vidéos partagées : sauvegardez-le.
    ```bash
-   docker build -t videostudio .
-   docker run -d -p 8080:8080 -v videostudio-data:/data --env-file .env videostudio
+   docker build -t animots .
+   docker run -d -p 8080:8080 -v animots-data:/data --env-file .env animots
    ```
    Mettez le site derrière HTTPS (Caddy, Nginx + Let's Encrypt, ou celui de l'hébergeur) et réglez `TRUST_PROXY=1`.
 2. **Configuration.** Copiez `.env.example` en `.env` et remplissez-le. Toutes les variables y sont expliquées.

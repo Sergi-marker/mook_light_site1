@@ -277,7 +277,7 @@ test("suppression du compte (RGPD)", async () => {
 
 test("l'application, les pages légales et les fichiers sont servis ; pas d'accès hors du dossier", async () => {
   const c = client();
-  assert.match((await c("/")).data, /Vidéo Studio/);
+  assert.match((await c("/")).data, /Animots/);
   assert.match((await c("/legal/impressum")).data, /Impressum/);
   for (const p of ["/js/../../server/app.mjs", "/%2e%2e/server/app.mjs", "/..%2fserver/app.mjs"]) {
     const r = await c(p);

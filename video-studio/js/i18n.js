@@ -3,8 +3,8 @@
 export const UI_LANGS = { fr: 0, de: 1, en: 2 };
 
 const T = {
-  appTitle: ["Vidéo Studio", "Video Studio", "Video Studio"],
-  tagline: ["Collez un texte, il devient une vidéo animée.", "Text einfügen – daraus wird ein animiertes Video.", "Paste a text, it becomes an animated video."],
+  appTitle: ["Animots", "Animots", "Animots"],
+  tagline: ["Vos mots prennent vie : collez un texte, il devient une vidéo animée.", "Worte werden lebendig: Text einfügen – daraus wird ein animiertes Video.", "Your words come alive: paste a text, it becomes an animated video."],
   play: ["Lecture", "Abspielen", "Play"], pause: ["Pause", "Pause", "Pause"],
   tabText: ["Texte", "Text", "Text"], tabScenes: ["Scènes", "Szenen", "Scenes"], tabChars: ["Personnages", "Figuren", "Characters"],
   tabStyle: ["Style", "Stil", "Style"], tabSound: ["Voix & musique", "Stimme & Musik", "Voice & music"], tabExport: ["Exporter", "Exportieren", "Export"], tabAccount: ["Compte & offres", "Konto & Tarife", "Account & plans"],
