@@ -51,15 +51,6 @@ function shade(hex, f) {
   return `rgb(${c((n >> 16) & 255)},${c((n >> 8) & 255)},${c(n & 255)})`;
 }
 
-function seg(ctx, a, b, w, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = w;
-  ctx.beginPath();
-  ctx.moveTo(a[0], a[1]);
-  ctx.lineTo(b[0], b[1]);
-  ctx.stroke();
-}
-
 /** Point le plus bas du personnage (pour le poser au sol), en unités de hauteur. */
 export function lowestPoint(sk, p) {
   let low = Math.max(sk.footF[1], sk.footB[1], sk.kneeF[1], sk.kneeB[1]);
@@ -67,40 +58,110 @@ export function lowestPoint(sk, p) {
   return low;
 }
 
-/** Bras ou jambe : segment supérieur plus épais que l'inférieur, articulations arrondies. */
-function taperedLimb(ctx, a, b, c, w, color) {
+/** Couleur du fin liseré qui sépare les parties du corps quand elles se chevauchent (style pictogramme). */
+const SEP = "#0b0b12";
+/** Épaisseur de ce liseré (unités « hauteur = 1 »). */
+const SEP_W = 0.012;
+
+/**
+ * Dessine une partie du corps en deux passes : d'abord la silhouette un peu élargie dans la couleur du
+ * liseré, puis la partie dans sa couleur. Sur le fond sombre le liseré ne se voit pas ; il n'apparaît que
+ * là où la partie passe devant une autre (bras devant le buste, bras devant la tête…), comme sur les
+ * vidéos de référence.
+ */
+let sepOn = true;
+function part(ctx, color, geom) {
+  if (!sepOn) { ctx.strokeStyle = color; ctx.fillStyle = color; geom(0); return; }
+  ctx.strokeStyle = SEP;
+  ctx.fillStyle = SEP;
+  geom(SEP_W * 2);
   ctx.strokeStyle = color;
-  ctx.lineWidth = w;
+  ctx.fillStyle = color;
+  geom(0);
+}
+
+/** Courbe qui passe par l'articulation b (coude, genou) : membres souples plutôt que des bâtons. */
+function curveThrough(ctx, a, b, c) {
+  const cx = 2 * b[0] - (a[0] + c[0]) / 2, cy = 2 * b[1] - (a[1] + c[1]) / 2;
   ctx.beginPath();
   ctx.moveTo(a[0], a[1]);
-  ctx.lineTo(b[0], b[1]);
-  ctx.stroke();
-  ctx.lineWidth = w * 0.88;
-  ctx.beginPath();
-  ctx.moveTo(b[0], b[1]);
-  ctx.lineTo(c[0], c[1]);
-  ctx.stroke();
+  ctx.quadraticCurveTo(cx, cy, c[0], c[1]);
 }
 
-function hand(ctx, at, w, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(at[0], at[1], w * 0.6, 0, Math.PI * 2);
-  ctx.fill();
+/** Point de la courbe a→b→c à la fraction t (pour les manches et les pantalons). */
+function pointOnCurve(a, b, c, t) {
+  const cx = 2 * b[0] - (a[0] + c[0]) / 2, cy = 2 * b[1] - (a[1] + c[1]) / 2;
+  const u = 1 - t;
+  return [u * u * a[0] + 2 * u * t * cx + t * t * c[0], u * u * a[1] + 2 * u * t * cy + t * t * c[1]];
 }
 
-/** Pied : petit ovale tourné vers l'avant, posé dans l'axe du tibia. */
-function foot(ctx, knee, ankle, w, d, color) {
-  const ang = Math.atan2(ankle[1] - knee[1], ankle[0] - knee[0]);
-  // Perpendiculaire au tibia, du côté où regarde le personnage.
-  const fx = Math.cos(ang - (d * Math.PI) / 2), fy = Math.sin(ang - (d * Math.PI) / 2);
-  const len = 0.05;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = w * 0.95;
+function partialCurve(ctx, a, b, c, t1) {
+  // Sous-courbe de 0 à t1 (de Casteljau).
+  const cx = 2 * b[0] - (a[0] + c[0]) / 2, cy = 2 * b[1] - (a[1] + c[1]) / 2;
+  const q = [a[0] + (cx - a[0]) * t1, a[1] + (cy - a[1]) * t1];
+  const e = pointOnCurve(a, b, c, t1);
   ctx.beginPath();
-  ctx.moveTo(ankle[0] - fx * 0.006, ankle[1] - fy * 0.006);
-  ctx.lineTo(ankle[0] + fx * len, ankle[1] + fy * len);
-  ctx.stroke();
+  ctx.moveTo(a[0], a[1]);
+  ctx.quadraticCurveTo(q[0], q[1], e[0], e[1]);
+}
+
+/** Bras ou jambe avec sa main / son pied, en une seule pièce (pas de trait entre l'avant-bras et la main). */
+function limbPart(ctx, a, b, c, w, color, end) {
+  part(ctx, color, (ext) => {
+    ctx.lineWidth = w + ext;
+    curveThrough(ctx, a, b, c);
+    ctx.stroke();
+    if (end === "hand") {
+      ctx.beginPath();
+      ctx.arc(c[0], c[1], w * 0.62 + ext / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (end?.foot) {
+      ctx.lineWidth = w * 0.95 + ext;
+      ctx.beginPath();
+      ctx.moveTo(c[0], c[1]);
+      ctx.lineTo(end.foot[0], end.foot[1]);
+      ctx.stroke();
+    }
+  });
+}
+
+/** Pointe du pied : perpendiculaire au tibia, du côté où regarde le personnage. */
+function footTip(knee, ankle, d) {
+  const ang = Math.atan2(ankle[1] - knee[1], ankle[0] - knee[0]) - (d * Math.PI) / 2;
+  return [ankle[0] + Math.cos(ang) * 0.05, ankle[1] + Math.sin(ang) * 0.05];
+}
+
+/** Contour fermé lissé passant près des points donnés (coins arrondis). */
+function smoothClosed(ctx, pts) {
+  const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+  const n = pts.length;
+  ctx.beginPath();
+  const m0 = mid(pts[n - 1], pts[0]);
+  ctx.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < n; i++) {
+    const m = mid(pts[i], pts[(i + 1) % n]);
+    ctx.quadraticCurveTo(pts[i][0], pts[i][1], m[0], m[1]);
+  }
+  ctx.closePath();
+}
+
+/** Buste galbé : épaules larges, taille plus fine, hanches arrondies (et ventre selon la morphologie). */
+function torsoShape(ctx, sk, bodyW, belly, d) {
+  const S = sk.shoulder, Hp = sk.hip;
+  let ux = S[0] - Hp[0], uy = S[1] - Hp[1];
+  const len = Math.hypot(ux, uy) || 1;
+  ux /= len; uy /= len;
+  const nx = -uy, ny = ux; // perpendiculaire
+  const at = (k, half, side) => [Hp[0] + ux * len * k + nx * half * side, Hp[1] + uy * len * k + ny * half * side];
+  const sw = bodyW * 0.62, ww = bodyW * (0.46 + 0.18 * belly), hw = bodyW * 0.52;
+  // Le ventre ressort du côté où regarde le personnage.
+  const front = d, back = -d;
+  const pts = [
+    at(1.12, bodyW * 0.18, 1), at(1.12, bodyW * 0.18, -1), // haut arrondi
+    at(0.95, sw, -1), at(0.5, belly ? ww * (back === -1 ? 0.9 : 1.15) : ww, -1), at(0.02, hw, -1), at(-0.12, hw * 0.55, -1),
+    at(-0.12, hw * 0.55, 1), at(0.02, hw, 1), at(0.5, belly ? ww * (front === 1 ? 1.15 : 0.9) : ww, 1), at(0.95, sw, 1),
+  ];
+  smoothClosed(ctx, pts);
 }
 
 /** Dessin « à plat » du personnage, à l'origine (x, groundY). */
@@ -108,34 +169,32 @@ function drawFlat(ctx, p, m, x, groundY, h) {
   const sk = skeleton(p, m);
   const low = lowestPoint(sk, p);
   const d = p.dir ?? 1;
-  const limbW = 0.085 * m.build;
-  const bodyW = 0.15 * m.build;
-  const back = shade(m.color, 0.74);
+  const limbW = 0.084 * m.build;
+  const bodyW = 0.2 * m.build;
+  const back = shade(m.color, 0.86);
   const top = m.top ?? "none", bottom = m.bottom ?? "none";
   const topC = m.topColor ?? "#3b6fd8", botC = m.bottomColor ?? "#2a2d3a";
-  const bodyColor = top !== "none" ? topC : m.color;
-  // Manches et jambes de pantalon, posées par-dessus le membre (couleur plus sombre côté arrière).
-  const sleeve = (sh, el, ha, w, dark) => {
+  const bodyColor = top !== "none" && top !== "dress" ? topC : m.color;
+  const shoe = "#16161d";
+
+  // Manches (t-shirt : courte ; sweat et chemise : longue) et jambes de pantalon, par-dessus le membre.
+  const sleeve = (a, b, c, dark) => {
     if (top === "none" || top === "dress") return;
-    const c = dark ? shade(topC, 0.74) : topC;
-    ctx.strokeStyle = c;
-    ctx.lineWidth = w * 1.12;
-    ctx.beginPath();
-    ctx.moveTo(sh[0], sh[1]);
-    if (top === "tshirt") { const e = lerpPt(sh, el, 0.62); ctx.lineTo(e[0], e[1]); } else { ctx.lineTo(el[0], el[1]); const e = lerpPt(el, ha, 0.85); ctx.lineTo(e[0], e[1]); }
-    ctx.stroke();
+    part(ctx, dark ? shade(topC, 0.86) : topC, (ext) => {
+      ctx.lineWidth = limbW * 1.14 + ext;
+      partialCurve(ctx, a, b, c, top === "tshirt" ? 0.32 : 0.86);
+      ctx.stroke();
+    });
   };
-  const trouser = (hip, kn, ft, w, dark) => {
+  const trouser = (a, b, c, dark) => {
     if (bottom === "none") return;
-    const c = dark ? shade(botC, 0.74) : botC;
-    ctx.strokeStyle = c;
-    ctx.lineWidth = w * 1.14;
-    ctx.beginPath();
-    ctx.moveTo(hip[0], hip[1]);
-    if (bottom === "shorts") { const e = lerpPt(hip, kn, 0.8); ctx.lineTo(e[0], e[1]); } else { ctx.lineTo(kn[0], kn[1]); const e = lerpPt(kn, ft, 0.9); ctx.lineTo(e[0], e[1]); }
-    ctx.stroke();
+    part(ctx, dark ? shade(botC, 0.86) : botC, (ext) => {
+      ctx.lineWidth = limbW * 1.18 + ext;
+      partialCurve(ctx, a, b, c, bottom === "shorts" ? 0.42 : 0.94);
+      ctx.stroke();
+    });
   };
-  const shoeColor = bottom !== "none" ? "#16161d" : null;
+  const legEnd = (knee, foot) => ({ foot: footTip(knee, foot, d) });
 
   ctx.save();
   ctx.translate(x, groundY - (low + (p.lift ?? 0)) * h);
@@ -150,117 +209,124 @@ function drawFlat(ctx, p, m, x, groundY, h) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  if (p.prop === "bench") drawBench(ctx, sk, low, d);
-  if (p.prop === "mat") drawMat(ctx, low);
+  drawPropsBehind(ctx, p, sk, low, d, m);
 
-  // Côté arrière, plus sombre pour la profondeur.
-  taperedLimb(ctx, sk.shoulder, sk.elbowB, sk.handB, limbW, back);
-  sleeve(sk.shoulder, sk.elbowB, sk.handB, limbW, true);
-  hand(ctx, sk.handB, limbW, back);
-  taperedLimb(ctx, sk.hip, sk.kneeB, sk.footB, limbW * 1.1, back);
-  trouser(sk.hip, sk.kneeB, sk.footB, limbW * 1.1, true);
-  foot(ctx, sk.kneeB, sk.footB, limbW, d, shoeColor ? shade(shoeColor, 0.9) : back);
+  // Côté arrière (légèrement plus sombre pour la profondeur).
+  limbPart(ctx, sk.shoulder, sk.elbowB, sk.handB, limbW, back, "hand");
+  sleeve(sk.shoulder, sk.elbowB, sk.handB, true);
   if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handB, back);
+  limbPart(ctx, sk.hip, sk.kneeB, sk.footB, limbW * 1.1, back, legEnd(sk.kneeB, sk.footB));
+  trouser(sk.hip, sk.kneeB, sk.footB, true);
+  if (bottom !== "none") part(ctx, shoe, (ext) => { ctx.lineWidth = limbW * 0.95 + ext; ctx.beginPath(); ctx.moveTo(sk.footB[0], sk.footB[1]); const f = footTip(sk.kneeB, sk.footB, d); ctx.lineTo(f[0], f[1]); ctx.stroke(); });
 
+  // Derrière la tête : cheveux longs, capuche.
   if (m.hair === "long") {
-    ctx.fillStyle = m.detail;
-    const c = sk.headC, r = sk.headR * 1.08;
-    ctx.beginPath();
-    ctx.ellipse(c[0] - d * r * 0.25, c[1] + r * 0.55, r * 0.95, r * 1.3, 0, 0, Math.PI * 2);
-    ctx.fill();
+    part(ctx, m.detail, () => {
+      const c = sk.headC, r = sk.headR * 1.08;
+      ctx.beginPath();
+      ctx.ellipse(c[0] - d * r * 0.25, c[1] + r * 0.55, r * 0.95, r * 1.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  if (top === "hoodie") {
+    part(ctx, shade(topC, 0.8), () => {
+      ctx.beginPath();
+      ctx.ellipse(sk.headC[0] - d * sk.headR * 0.35, sk.headC[1] + sk.headR * 0.6, sk.headR * 0.9, sk.headR * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 
-  // Capuche du sweat, derrière la tête.
-  if (top === "hoodie") {
-    ctx.fillStyle = shade(topC, 0.8);
-    ctx.beginPath();
-    ctx.ellipse(sk.headC[0] - d * sk.headR * 0.35, sk.headC[1] + sk.headR * 0.55, sk.headR * 0.9, sk.headR * 0.6, 0, 0, Math.PI * 2);
+  // Buste.
+  part(ctx, bodyColor, (ext) => {
+    torsoShape(ctx, sk, bodyW, m.belly ?? 0, d);
     ctx.fill();
-  }
-  // Pantalon : le bassin est de la couleur du bas.
+    if (ext) { ctx.lineWidth = ext; ctx.stroke(); }
+  });
+  // Bas du corps (bassin) de la couleur du pantalon.
   if (bottom !== "none") {
     ctx.fillStyle = botC;
+    ctx.save();
+    torsoShape(ctx, sk, bodyW, m.belly ?? 0, d);
+    ctx.clip();
+    const k = 0.18;
+    const a = lerpPt(sk.hip, sk.shoulder, k);
     ctx.beginPath();
-    ctx.ellipse(sk.hip[0], sk.hip[1] + 0.005, bodyW * 0.58, bodyW * 0.48, 0, 0, Math.PI * 2);
+    ctx.arc(sk.hip[0], sk.hip[1], Math.hypot(a[0] - sk.hip[0], a[1] - sk.hip[1]) + bodyW * 0.1, 0, Math.PI * 2);
     ctx.fill();
-  }
-  // Buste : un tronc arrondi, plus large aux épaules.
-  seg(ctx, sk.hip, sk.shoulder, bodyW, bodyColor);
-  const lean = Math.atan2(sk.shoulder[0] - sk.hip[0], sk.hip[1] - sk.shoulder[1]);
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  ctx.ellipse(sk.shoulder[0], sk.shoulder[1] + 0.012, bodyW * 0.62, bodyW * 0.5, lean, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(sk.hip[0], sk.hip[1] - 0.01, bodyW * 0.55, bodyW * 0.42, lean, 0, Math.PI * 2);
-  ctx.fill();
-  if (m.belly > 0) {
-    const mid = [(sk.hip[0] + sk.neck[0]) / 2, (sk.hip[1] + sk.neck[1]) / 2 + 0.02];
-    ctx.beginPath();
-    ctx.ellipse(mid[0] + d * 0.02 * m.belly, mid[1], bodyW * (0.5 + 0.35 * m.belly), sk.torso * 0.36, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.restore();
   }
   if (top === "dress") {
-    // Robe : du buste jusqu'aux genoux.
-    ctx.fillStyle = topC;
-    const hp = sk.hip, top0 = lerpPt(hp, sk.neck, 0.35);
-    ctx.beginPath();
-    ctx.moveTo(top0[0] - 0.07, top0[1]);
-    ctx.lineTo(top0[0] + 0.07, top0[1]);
-    ctx.lineTo(hp[0] + 0.14, hp[1] + 0.19);
-    ctx.lineTo(hp[0] - 0.14, hp[1] + 0.19);
-    ctx.closePath();
-    ctx.fill();
+    part(ctx, topC, (ext) => {
+      const hp = sk.hip, t0 = lerpPt(hp, sk.neck, 0.45);
+      ctx.beginPath();
+      ctx.moveTo(t0[0] - 0.075, t0[1]);
+      ctx.lineTo(t0[0] + 0.075, t0[1]);
+      ctx.lineTo(hp[0] + 0.15, hp[1] + 0.2);
+      ctx.lineTo(hp[0] - 0.15, hp[1] + 0.2);
+      ctx.closePath();
+      ctx.fill();
+      if (ext) { ctx.lineWidth = ext; ctx.stroke(); }
+    });
+  }
+  if (m.skirt) {
+    part(ctx, m.detail, (ext) => {
+      const hp = sk.hip, t0 = lerpPt(hp, sk.neck, 0.2);
+      ctx.beginPath();
+      ctx.moveTo(t0[0] - 0.075, t0[1]);
+      ctx.lineTo(t0[0] + 0.075, t0[1]);
+      ctx.lineTo(hp[0] + 0.13, hp[1] + 0.13);
+      ctx.lineTo(hp[0] - 0.13, hp[1] + 0.13);
+      ctx.closePath();
+      ctx.fill();
+      if (ext) { ctx.lineWidth = ext; ctx.stroke(); }
+    });
   }
   if (top === "shirt") {
-    // Col blanc et boutons.
     const n = sk.neck, hp = sk.hip;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.moveTo(n[0] - 0.035, n[1] + 0.005);
-    ctx.lineTo(n[0] + 0.035, n[1] + 0.005);
-    ctx.lineTo(n[0] + d * 0.01, n[1] + 0.045);
+    ctx.moveTo(n[0] - 0.04, n[1] + 0.012);
+    ctx.lineTo(n[0] + 0.04, n[1] + 0.012);
+    ctx.lineTo(n[0] + d * 0.01, n[1] + 0.055);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = shade(topC, 0.6);
-    for (const k of [0.3, 0.5, 0.7]) { const b = lerpPt(n, hp, k); ctx.beginPath(); ctx.arc(b[0] + d * 0.012, b[1], 0.006, 0, Math.PI * 2); ctx.fill(); }
-  }
-  if (m.skirt) {
-    ctx.fillStyle = m.detail;
-    const hp = sk.hip, top = [hp[0] + (sk.neck[0] - hp[0]) * 0.2, hp[1] + (sk.neck[1] - hp[1]) * 0.2];
-    ctx.beginPath();
-    ctx.moveTo(top[0] - 0.07, top[1]);
-    ctx.lineTo(top[0] + 0.07, top[1]);
-    ctx.lineTo(hp[0] + 0.12, hp[1] + 0.13);
-    ctx.lineTo(hp[0] - 0.12, hp[1] + 0.13);
-    ctx.closePath();
-    ctx.fill();
+    for (const k of [0.3, 0.5, 0.7]) { const b = lerpPt(n, hp, k); ctx.beginPath(); ctx.arc(b[0] + d * 0.014, b[1], 0.006, 0, Math.PI * 2); ctx.fill(); }
   }
   if (m.tie) {
     ctx.fillStyle = m.detail;
     const n = sk.neck, hp = sk.hip;
     const ux = hp[0] - n[0], uy = hp[1] - n[1];
-    const ox = d * bodyW * 0.32;
+    const ox = d * bodyW * 0.18;
     ctx.beginPath();
-    ctx.moveTo(n[0] + ox + ux * 0.08, n[1] + uy * 0.08);
-    ctx.lineTo(n[0] + ox + ux * 0.55 + 0.016, n[1] + uy * 0.55);
-    ctx.lineTo(n[0] + ox + ux * 0.62, n[1] + uy * 0.62);
-    ctx.lineTo(n[0] + ox + ux * 0.55 - 0.016, n[1] + uy * 0.55);
+    ctx.moveTo(n[0] + ox + ux * 0.1, n[1] + uy * 0.1);
+    ctx.lineTo(n[0] + ox + ux * 0.55 + 0.018, n[1] + uy * 0.55);
+    ctx.lineTo(n[0] + ox + ux * 0.64, n[1] + uy * 0.64);
+    ctx.lineTo(n[0] + ox + ux * 0.55 - 0.018, n[1] + uy * 0.55);
     ctx.closePath();
     ctx.fill();
   }
 
   // Côté avant.
-  taperedLimb(ctx, sk.hip, sk.kneeF, sk.footF, limbW * 1.1, m.color);
-  trouser(sk.hip, sk.kneeF, sk.footF, limbW * 1.1, false);
-  foot(ctx, sk.kneeF, sk.footF, limbW, d, shoeColor ?? m.color);
+  limbPart(ctx, sk.hip, sk.kneeF, sk.footF, limbW * 1.1, m.color, legEnd(sk.kneeF, sk.footF));
+  trouser(sk.hip, sk.kneeF, sk.footF, false);
+  if (bottom !== "none") part(ctx, shoe, (ext) => { ctx.lineWidth = limbW * 0.95 + ext; ctx.beginPath(); ctx.moveTo(sk.footF[0], sk.footF[1]); const f = footTip(sk.kneeF, sk.footF, d); ctx.lineTo(f[0], f[1]); ctx.stroke(); });
+
+  // Tête (avec son liseré : se détache du buste et des bras qui passent derrière).
+  if (sepOn) {
+    ctx.fillStyle = SEP;
+    ctx.beginPath();
+    ctx.arc(sk.headC[0], sk.headC[1], sk.headR + SEP_W, 0, Math.PI * 2);
+    ctx.fill();
+  }
   drawHead(ctx, sk, p, m, d);
+
   if (p.prop === "phone") drawPhone(ctx, sk, d);
   if (p.prop === "book") drawBook(ctx, sk, d);
-  taperedLimb(ctx, sk.shoulder, sk.elbowF, sk.handF, limbW, m.color);
-  sleeve(sk.shoulder, sk.elbowF, sk.handF, limbW, false);
-  hand(ctx, sk.handF, limbW, m.color);
+  limbPart(ctx, sk.shoulder, sk.elbowF, sk.handF, limbW, m.color, "hand");
+  sleeve(sk.shoulder, sk.elbowF, sk.handF, false);
   if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handF, m.detail);
+  drawPropsFront(ctx, p, sk, low, d, m);
 
   ctx.restore();
   return { sk, low, d };
@@ -279,7 +345,11 @@ function workCanvas(key, w, hgt) {
 }
 
 /** Style de rendu : contour sombre, halo de contre-jour et volume (ombre / lumière). */
-export const DEFAULT_LOOK = Object.freeze({ outline: "#07070d", glow: "rgba(190,200,255,0.55)", shading: true });
+/**
+ * Style de rendu. Par défaut « épuré » (comme les vidéos de référence) : blanc net, liserés internes,
+ * léger contre-jour, pas de gros contour. style « outline » : contour épais façon BD et halo marqué.
+ */
+export const DEFAULT_LOOK = Object.freeze({ outline: null, glow: "rgba(190,200,255,0.22)", shading: 0.5 });
 
 /** Rectangle (unités « hauteur = 1 », origine aux hanches) qui contient tout le personnage, objets compris. */
 function figureBounds(sk, p, m) {
@@ -323,25 +393,35 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) 
 
   // Modelé : plus clair en haut (projecteur), plus sombre vers les pieds.
   if (look.shading) {
+    const k = look.shading === true ? 1 : look.shading;
     fctx.save();
     fctx.globalCompositeOperation = "source-atop";
     const top = flatGround - (low + lift + 1.05) * h;
     const g = fctx.createLinearGradient(0, top, 0, flatGround);
-    g.addColorStop(0, "rgba(255,255,255,0.10)");
+    g.addColorStop(0, `rgba(255,255,255,${0.1 * k})`);
     g.addColorStop(0.55, "rgba(0,0,0,0)");
-    g.addColorStop(1, "rgba(10,10,30,0.22)");
+    g.addColorStop(1, `rgba(10,10,30,${0.22 * k})`);
     fctx.fillStyle = g;
     fctx.fillRect(0, 0, W, Hh);
     fctx.restore();
   }
 
-  // Silhouette pleine (pour le contour et le halo).
+  // Silhouette « sans liserés » : sert à effacer le liseré du bord extérieur (on ne garde que les traits
+  // intérieurs, entre les parties qui se chevauchent) et à calculer le halo.
   const sil = workCanvas("sil", W, Hh);
   const sctx = sil.getContext("2d");
-  sctx.globalCompositeOperation = "copy";
-  sctx.drawImage(flat, 0, 0);
+  sctx.setTransform(1, 0, 0, 1, 0, 0);
+  sctx.clearRect(0, 0, W, Hh);
+  sepOn = false;
+  try { drawFlat(sctx, p, m, hipX, flatGround, h); } finally { sepOn = true; }
+  if (!look.outline) {
+    fctx.save();
+    fctx.globalCompositeOperation = "destination-in";
+    fctx.drawImage(sil, 0, 0);
+    fctx.restore();
+  }
   sctx.globalCompositeOperation = "source-in";
-  sctx.fillStyle = look.outline;
+  sctx.fillStyle = look.outline ?? "#000";
   sctx.fillRect(0, 0, W, Hh);
   sctx.globalCompositeOperation = "source-over";
 
@@ -490,8 +570,9 @@ function drawHead(ctx, sk, p, m, d) {
       ctx.strokeStyle = ink;
       ctx.lineWidth = r * 0.13;
     } else {
+      // Yeux ovales, comme les pictogrammes de référence.
       ctx.beginPath();
-      ctx.arc(exx, ey, eyeR, 0, Math.PI * 2);
+      ctx.ellipse(exx, ey, eyeR * 0.82, eyeR * 1.18, 0, 0, Math.PI * 2);
       ctx.fill();
       if (eyes === "lashes") {
         ctx.lineWidth = r * 0.06;
@@ -667,6 +748,15 @@ function star(ctx, x, y, s, color) {
   ctx.closePath();
   ctx.fill();
 }
+
+/** Objets derrière le personnage (banc, tapis…). */
+function drawPropsBehind(ctx, p, sk, low, d, m) {
+  if (p.prop === "bench") drawBench(ctx, sk, low, d);
+  if (p.prop === "mat") drawMat(ctx, low);
+}
+
+/** Objets devant le personnage. */
+function drawPropsFront(ctx, p, sk, low, d, m) {}
 
 function drawBench(ctx, sk, low, d) {
   const seatY = 0.035;

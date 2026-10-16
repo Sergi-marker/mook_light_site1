@@ -705,7 +705,10 @@ export function renderFrame(ctx, project, tl, t) {
   ctx.translate(-cam.x, -cam.y);
 
   const th = THEMES[theme] ?? THEMES.nuit;
-  const look = { outline: "#06060c", glow: `${th.floor}${settings.glow === false ? 0 : 0.5})`, shading: true };
+  // Style du personnage : épuré (par défaut, comme les vidéos de référence) ou contour BD.
+  const look = settings.figureStyle === "outline"
+    ? { outline: "#06060c", glow: `${th.floor}${settings.glow === false ? 0 : 0.5})`, shading: 1 }
+    : { outline: null, glow: settings.glow === false ? null : `${th.floor}0.22)`, shading: 0.5 };
   const shadow = (x, w) => {
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
