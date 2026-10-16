@@ -14,7 +14,7 @@ import { createMailer } from "./mail.mjs";
 import { sharePage, notFoundPage, resetPage, legalPage } from "./pages.mjs";
 
 const SESSION_DAYS = 30;
-const STATIC_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon" };
+const STATIC_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".webmanifest": "application/manifest+json" };
 const VIDEO_TYPES = { "video/mp4": "mp4", "video/webm": "webm" };
 
 class HttpError extends Error {
@@ -379,7 +379,7 @@ export function createApp(cfg) {
     if (!file.startsWith(root)) throw new HttpError(403, "FORBIDDEN");
     try {
       const body = await readFile(file);
-      res.writeHead(200, { "Content-Type": STATIC_TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": extname(file) === ".html" ? "no-cache" : "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" });
+      res.writeHead(200, { "Content-Type": STATIC_TYPES[extname(file)] ?? "application/octet-stream", "Cache-Control": extname(file) === ".html" || file.endsWith("sw.js") ? "no-cache" : "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" });
       res.end(body);
     } catch {
       throw new HttpError(404, "NOT_FOUND");

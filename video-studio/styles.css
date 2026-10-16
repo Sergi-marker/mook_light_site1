@@ -163,3 +163,6 @@ details[open] summary { margin-bottom: 8px; }
 .grid2 { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
 .row > select { min-width: 0; flex: 1 1 auto; }
 .row.wrap > * { max-width: 100%; }
+
+.app-footer { text-align: center; font-size: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.app-footer a { color: inherit; }

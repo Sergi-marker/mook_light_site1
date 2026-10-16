@@ -114,3 +114,7 @@ L'animation est choisie à partir des mots de la phrase, en français, allemand,
 | `../server/` | Serveur : comptes, abonnements Stripe, quotas, partage (voir server/README.md) |
 
 Tests : `node --test tests/unit/videoStudio.test.ts` (découpage, détection, poses) et `npm run test:video` (interface dans Chromium et export d'une vraie vidéo).
+
+## Version gratuite, installable et sur les stores
+
+Voir [STORES.md](STORES.md) : site public gratuit (Cloudflare Pages), application installable hors ligne, paquets pour le Microsoft Store, Google Play, Samsung et Huawei avec PWABuilder, et textes des fiches en français, allemand et anglais.

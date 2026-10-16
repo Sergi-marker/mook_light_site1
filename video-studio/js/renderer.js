@@ -336,11 +336,11 @@ function drawBackdrop(ctx, W, H, L, th, kind, t) {
   ctx.restore();
 }
 
-function wrapWords(ctx, words, maxW) {
+export function wrapWords(ctx, words, maxW) {
   const lines = [];
   let cur = [];
   for (const w of words) {
-    const test = [...cur, w.text].join(" ");
+    const test = [...cur.map((c) => c.text), w.text].join(" ");
     if (cur.length && ctx.measureText(test).width > maxW) { lines.push(cur); cur = [w]; } else cur.push(w);
   }
   if (cur.length) lines.push(cur);

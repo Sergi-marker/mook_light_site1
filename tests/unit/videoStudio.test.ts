@@ -237,3 +237,10 @@ test("musiques : chaque ambiance a un tempo et des accords valides", async () =>
     assert.ok(m.label.length === 3, id);
   }
 });
+
+test("sous-titres : plusieurs mots par ligne (pas un mot par ligne)", async () => {
+  const { wrapWords, captionWords } = await import("../../video-studio/js/renderer.js");
+  const ctx = { measureText: (s: string) => ({ width: s.length * 10 }) };
+  const lines = wrapWords(ctx, captionWords("Pourquoi tu ne montres plus rien", true), 120);
+  assert.deepEqual(lines.map((l: any[]) => l.map((w) => w.text).join(" ")), ["POURQUOI TU", "NE MONTRES", "PLUS RIEN"]);
+});

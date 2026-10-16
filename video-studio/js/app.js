@@ -11,6 +11,7 @@ import { NEURAL_VOICES, defaultVoice, voiceByGender, generateVoices, voiceDurati
 import { VOICE_FX } from "./voicefx.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
+import { initPwa, renderPwaUi } from "./pwa.js";
 import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi, refundExport } from "./account.js";
 
 const STORE = "videoStudio.project.v1";
@@ -922,6 +923,7 @@ function renderAll() {
   updateTransport();
   draw();
   renderAccountUi();
+  renderPwaUi();
 }
 
 $("#uiLang").addEventListener("change", (e) => { project.settings.uiLang = e.target.value; save(); renderAll(); });
@@ -937,6 +939,7 @@ document.fonts?.ready.then(() => ensureFont(project.settings.captionFont)).then(
 // Les images du projet (décor, logo) arrivent après le premier rendu.
 Promise.all([preloadImage(project.settings.bgImage), preloadImage(project.settings.logo)]).then(draw);
 renderAll();
+initPwa();
 initAccount({
   h,
   toast,

@@ -84,6 +84,8 @@ async function api(path, { method = "GET", json, body, headers = {} } = {}) {
 
 export async function initAccount(helpers) {
   ui = helpers;
+  // Version gratuite (stores) : pas de serveur de comptes, rien à demander.
+  if (document.querySelector('meta[name="animots-mode"]')?.content === "free") { account.online = false; changed(); return; }
   try {
     account.config = await api("/api/config");
     account.online = true;
