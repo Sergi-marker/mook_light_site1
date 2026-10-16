@@ -1,8 +1,9 @@
 // Rendu d'une image de la vidéo à l'instant t sur un canvas 2D.
 
 import { poseAt, lerpPose, DUO_ACTIONS } from "./poses.js";
-import { drawFigure } from "./figure.js";
-import { sceneAt, rng, VOICE_LEAD } from "./script.js";
+import { drawFigure, figureJoints } from "./figure.js";
+import { sceneAt, rng, VOICE_LEAD, detectFx, detectTransition } from "./script.js";
+import { drawSetBehind, drawSetFront, drawStrings } from "./scenery.js";
 
 export const FORMATS = {
   "9:16": { w: 1080, h: 1920, label: "9:16 (TikTok, Reels, Shorts)" },
@@ -37,6 +38,28 @@ export const CAMERAS = {
   close: ["Gros plan", "Nahaufnahme", "Close-up"],
   zoomIn: ["Zoom avant", "Zoom hinein", "Zoom in"],
   zoomOut: ["Zoom arrière", "Zoom heraus", "Zoom out"],
+};
+
+/** Effets de mise en scène d'une scène. */
+export const EFFECTS = {
+  auto: ["Effet auto (selon le texte)", "Effekt automatisch", "Auto effect (from text)"],
+  none: ["Aucun effet", "Kein Effekt", "No effect"],
+  slow: ["Ralenti dramatique", "Dramatische Zeitlupe", "Dramatic slow motion"],
+  flash: ["Flash + choc", "Blitz + Schock", "Flash + impact"],
+  shake: ["Tremblement d'écran", "Bildschirm wackelt", "Screen shake"],
+  spot: ["Projecteur qui suit", "Folgender Scheinwerfer", "Follow spotlight"],
+  dark: ["La lumière s'éteint", "Das Licht geht aus", "Lights go out"],
+};
+
+/** Transitions à l'entrée d'une scène. */
+export const TRANSITIONS = {
+  auto: ["Transition auto", "Übergang automatisch", "Auto transition"],
+  cut: ["Enchaînement direct", "Direkter Übergang", "Direct"],
+  fade: ["Fondu enchaîné", "Überblendung", "Crossfade"],
+  black: ["Fondu au noir", "Abblende ins Schwarze", "Fade to black"],
+  slide: ["Glissement", "Wischen", "Slide"],
+  zoom: ["Zoom", "Zoom", "Zoom"],
+  flash: ["Flash blanc", "Weißer Blitz", "White flash"],
 };
 
 export const POSITIONS = {
@@ -581,8 +604,10 @@ function talking(p, local, voiceStart, voiceEnd) {
 }
 
 /** Poses des deux personnages pour un élément de la timeline à son temps local. */
-function scenePoses(item, local) {
+function scenePoses(item, localIn) {
   const s = item.scene;
+  // Ralenti : les gestes vont deux fois moins vite.
+  const local = sceneFx(s) === "slow" ? localIn * 0.45 : localIn;
   const r = rng(s.seed)();
   const action = s.kind === "title" || s.kind === "outro" ? (s.action === "idle" ? "wave" : s.action) : s.kind === "pause" ? "idle" : s.action;
   const duo = s.figures ? s.figures === 2 : DUO_ACTIONS.has(action);
@@ -596,8 +621,8 @@ function scenePoses(item, local) {
   // Celui qui parle remue la bouche pendant sa réplique.
   if (s.speaker === 0 || s.speaker === 1) {
     const vs = VOICE_LEAD, ve = item.voiceDur != null ? VOICE_LEAD + item.voiceDur : item.duration * 0.8;
-    if (s.speaker === 0) p0 = talking(p0, local, vs, ve);
-    else if (p1) p1 = talking(p1, local, vs, ve);
+    if (s.speaker === 0) p0 = talking(p0, localIn, vs, ve);
+    else if (p1) p1 = talking(p1, localIn, vs, ve);
   }
   return { p0, p1, duo, flip, pos };
 }
@@ -658,11 +683,182 @@ function camera(item, local, W, H, L, focusX) {
   }
 }
 
+// Effet et transition déduits du texte (gardés en mémoire : le texte ne change pas d'une image à l'autre).
+const fxCache = new Map();
+function autoOf(text) {
+  let v = fxCache.get(text);
+  if (!v) {
+    if (fxCache.size > 500) fxCache.clear();
+    v = { fx: detectFx(text), tr: detectTransition(text) };
+    fxCache.set(text, v);
+  }
+  return v;
+}
+
+/** Effet de la scène : choisi dans l'éditeur, sinon déduit du texte ou de l'action. */
+export function sceneFx(s) {
+  if (s.fx && s.fx !== "auto") return EFFECTS[s.fx] ? s.fx : "none";
+  if (s.kind !== "scene") return "none";
+  const fx = autoOf(s.text ?? "").fx;
+  if (fx) return fx;
+  if (s.action === "explode") return "shake";
+  if (s.action === "lamppost" || s.action === "stargaze") return "spot";
+  return "none";
+}
+
+/** Transition à l'entrée de la scène (réglage de la scène, sinon réglage général, sinon déduite). */
+export function sceneTransition(item, prevItem, settings = {}) {
+  if (!prevItem) return "cut";
+  const s = item.scene;
+  if (s.transition && s.transition !== "auto") return TRANSITIONS[s.transition] ? s.transition : "cut";
+  const g = settings.transition;
+  if (g && g !== "auto") return TRANSITIONS[g] ? g : "cut";
+  // Auto : fondu au noir pour un saut dans le temps, fondu sur les titres et pauses, sinon enchaînement.
+  const tr = s.kind === "scene" || s.kind === "hook" ? autoOf(s.text ?? "").tr : null;
+  if (tr) return tr;
+  if (s.kind === "title" || prevItem.scene.kind === "title" || s.kind === "outro") return "fade";
+  if (s.kind === "pause" || prevItem.scene.kind === "pause") return "black";
+  return "cut";
+}
+
+const TRANSITION_TIME = { fade: 0.6, black: 0.45, slide: 0.55, zoom: 0.5, flash: 0.4 };
+
+// Toiles hors écran pour les transitions qui mélangent deux images.
+const buffers = {};
+function buffer(key, w, h) {
+  let c = buffers[key];
+  if (!c) {
+    if (typeof OffscreenCanvas !== "undefined") c = new OffscreenCanvas(w, h);
+    else if (typeof document !== "undefined") c = document.createElement("canvas");
+    else return null;
+    buffers[key] = c;
+  }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
+
 /**
- * Dessine l'image à l'instant t.
+ * Dessine l'image à l'instant t, avec la transition d'entrée de la scène.
  * project = { scenes, settings }, tl = timeline(scènes, wps).
  */
 export function renderFrame(ctx, project, tl, t) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const tt = Math.min(t, Math.max(0, tl.total - 1e-3));
+  const at = sceneAt(tl, tt);
+  if (at && at.index > 0) {
+    const prevItem = tl.items[at.index - 1];
+    const tr = sceneTransition(at.item, prevItem, project.settings);
+    const D = TRANSITION_TIME[tr] ?? 0;
+    if (D && at.local < D) {
+      const u = at.local / D;
+      if (tr === "black") {
+        drawScene(ctx, project, tl, t);
+        return overlay(ctx, "#000", 1 - smooth(u));
+      }
+      if (tr === "flash") {
+        drawScene(ctx, project, tl, t);
+        return overlay(ctx, "#fff", (1 - u) ** 2 * 0.95);
+      }
+      const a = buffer("a", W, H), b = buffer("b", W, H);
+      if (a && b) {
+        drawScene(a.getContext("2d"), project, tl, prevItem.start + prevItem.duration - 1e-3);
+        drawScene(b.getContext("2d"), project, tl, t);
+        const k = smooth(u);
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        if (tr === "fade") {
+          ctx.drawImage(a, 0, 0);
+          ctx.globalAlpha = k;
+          ctx.drawImage(b, 0, 0);
+        } else if (tr === "slide") {
+          // L'image suivante pousse la précédente (comme une caméra qui suit le personnage).
+          ctx.drawImage(a, -W * k, 0);
+          ctx.drawImage(b, W * (1 - k), 0);
+        } else if (tr === "zoom") {
+          const z = 1 + 0.5 * k;
+          ctx.drawImage(a, W / 2 - (W * z) / 2, H / 2 - (H * z) / 2, W * z, H * z);
+          ctx.globalAlpha = k;
+          const z2 = 1.25 - 0.25 * k;
+          ctx.drawImage(b, W / 2 - (W * z2) / 2, H / 2 - (H * z2) / 2, W * z2, H * z2);
+        }
+        ctx.restore();
+        return;
+      }
+    }
+  }
+  drawScene(ctx, project, tl, t);
+  // Fondu au noir : la fin de la scène s'assombrit avant la suivante.
+  if (at && at.index < tl.items.length - 1) {
+    const next = tl.items[at.index + 1];
+    const left = at.item.duration - at.local;
+    if (left < 0.35 && sceneTransition(next, at.item, project.settings) === "black") overlay(ctx, "#000", 1 - left / 0.35);
+  }
+}
+
+function overlay(ctx, color, alpha) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = Math.min(1, alpha);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.restore();
+}
+
+/** Miroir à côté du personnage : son reflet (qui, lui, ne sourit pas). */
+function drawMirror(ctx, p, morph, x, L, look, J) {
+  const { h, d } = J;
+  const gy = L.groundY;
+  const edge = x + d * h * 0.3, w = h * 0.85;
+  const left = d > 0 ? edge : edge - w, top = gy - h * 1.2;
+  const fx = x + (p.dx ?? 0) * L.figH;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(left, top, w, h * 1.17, h * 0.08);
+  const g = ctx.createLinearGradient(left, top, left + w, top + h);
+  g.addColorStop(0, "rgba(120,140,190,0.35)");
+  g.addColorStop(1, "rgba(60,70,110,0.35)");
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.clip();
+  ctx.globalAlpha = 0.6;
+  const mirrored = { ...p, dir: -(p.dir ?? 1), dx: 0, set: null, symbol: null, face: "sad", look: -0.6, head: (p.head ?? 0) + 0.25, shF: 0.1, elF: 0 };
+  drawFigure(ctx, mirrored, morph, 2 * edge - fx, gy, L.figH, { ...look, glow: null });
+  ctx.globalAlpha = 1;
+  // Reflet lumineux en diagonale.
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.moveTo(left + w * 0.15, top);
+  ctx.lineTo(left + w * 0.4, top);
+  ctx.lineTo(left + w * 0.05, top + h * 0.6);
+  ctx.lineTo(left - w * 0.2, top + h * 0.6);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = "#c9b27a";
+  ctx.lineWidth = h * 0.025;
+  ctx.beginPath();
+  ctx.roundRect(left, top, w, h * 1.17, h * 0.08);
+  ctx.stroke();
+}
+
+/** Tremblement de caméra (pixels) : choc au début de la scène, ou au moment de l'explosion. */
+function shakeOffset(fx, action, local, W) {
+  let s = 0;
+  if (fx === "flash") s = Math.max(0, 1 - local / 0.6);
+  else if (fx === "shake") {
+    const t0 = action === "explode" ? 1.1 : 0;
+    s = local < t0 ? 0 : Math.max(0, 1 - (local - t0) / 0.9);
+  }
+  if (!s) return [0, 0];
+  const a = W * 0.012 * s * s;
+  return [Math.sin(local * 71) * a, Math.cos(local * 53) * a];
+}
+
+/**
+ * Dessine une scène à l'instant t (sans transition d'entrée).
+ * project = { scenes, settings }, tl = timeline(scènes, wps).
+ */
+function drawScene(ctx, project, tl, t) {
   const { settings } = project;
   const W = ctx.canvas.width, H = ctx.canvas.height;
   const L = layout(W, H, settings.captionPos);
@@ -699,8 +895,11 @@ export function renderFrame(ctx, project, tl, t) {
   // Caméra (vise celui qui parle en gros plan).
   const focusX = item.scene.speaker === 1 ? x1 : x0;
   const cam = camera(item, local, W, H, L, focusX);
+  const fx = sceneFx(item.scene);
+  if (fx === "slow") cam.zoom *= 1 + 0.08 * smooth(local / item.duration);
+  const [shx, shy] = shakeOffset(fx, item.scene.action, local, W);
   const cy = L.groundY - L.figH * 0.5;
-  ctx.translate(W / 2, cy);
+  ctx.translate(W / 2 + shx, cy + shy);
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
 
@@ -720,13 +919,23 @@ export function renderFrame(ctx, project, tl, t) {
   const a0 = orient(cur.p0, f0);
   let p0 = prev ? lerpPose(orient(prev.p0, fPrev), a0, k) : a0;
   p0 = { ...p0, time: t };
-  shadow(x0 + (p0.dx ?? 0) * L.figH, L.figH * 0.16);
-  // Second personnage (apparaît / disparaît en fondu).
+  let p1 = null;
   if (duoAmt > 0.01) {
     const src1 = cur.p1 ?? prev?.p1;
     const prev1 = prev?.p1 ?? src1;
-    let p1 = prev && cur.p1 && prev.p1 ? lerpPose(orient(prev1, -1), orient(cur.p1, -1), k) : orient(src1, -1);
+    p1 = prev && cur.p1 && prev.p1 ? lerpPose(orient(prev1, -1), orient(cur.p1, -1), k) : orient(src1, -1);
     p1 = { ...p1, time: t };
+  }
+  // Décors de l'action (mur, porte, escalier, lit…), dans le temps de la scène.
+  const J0 = figureJoints(p0, chars[0], x0, L.groundY, L.figH);
+  const J1 = p1 ? figureJoints(p1, chars[1], x1, L.groundY, L.figH) : null;
+  const setT = fx === "slow" ? local * 0.45 : local;
+  if (p0.set) drawSetBehind(ctx, p0, J0, setT);
+  if (p1?.set) drawSetBehind(ctx, p1, J1, setT);
+  if (p0.set === "mirror") drawMirror(ctx, p0, chars[0], x0, L, look, J0);
+  shadow(x0 + (p0.dx ?? 0) * L.figH, L.figH * 0.16);
+  // Second personnage (apparaît / disparaît en fondu).
+  if (p1) {
     ctx.save();
     ctx.globalAlpha = duoAmt;
     shadow(x1 + (p1.dx ?? 0) * L.figH, L.figH * 0.16);
@@ -734,8 +943,37 @@ export function renderFrame(ctx, project, tl, t) {
     ctx.restore();
   }
   drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
+  if (p0.set) drawSetFront(ctx, p0, J0, setT);
+  if (p1?.set) drawSetFront(ctx, p1, J1, setT);
+  if (p1 && duoAmt > 0.5) {
+    if (p0.set === "strings") drawStrings(ctx, J0, J1, setT);
+    else if (p1.set === "strings") drawStrings(ctx, J1, J0, setT);
+  }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Lumière : projecteur qui suit le personnage, ou qui s'éteint peu à peu.
+  if (fx === "spot" || fx === "dark") {
+    const sx = (J0.hip[0] - cam.x) * cam.zoom + W / 2 + shx, sy = (J0.hip[1] - L.figH * 0.15 - cam.y) * cam.zoom + cy + shy;
+    const u = local / item.duration;
+    const close = fx === "dark" ? smooth((u - 0.35) / 0.6) : 0;
+    const r = L.figH * cam.zoom * (0.75 - 0.7 * close);
+    const g = ctx.createRadialGradient(sx, sy, r * 0.35, sx, sy, Math.max(r, 1));
+    const a = fx === "dark" ? 0.55 + 0.4 * close : 0.72;
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, `rgba(0,0,0,${a})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = `rgba(0,0,0,${a})`;
+    if (close > 0.98) ctx.fillRect(0, 0, W, H);
+  }
+  if (fx === "flash" && local < 0.3) overlay(ctx, "#fff", (1 - local / 0.3) * 0.85);
+  if (fx === "slow") {
+    // Bandes noires de cinéma.
+    const bh = H * 0.05 * smooth(local / 0.5);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, bh);
+    ctx.fillRect(0, H - bh, W, bh);
+  }
 
   // Signature.
   if (settings.handle && item.scene.kind !== "outro") {

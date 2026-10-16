@@ -12,6 +12,39 @@ import { ACTIONS } from "./poses.js";
 /** Mots-clés (sans accents, en minuscules) → action. Le premier qui correspond gagne, dans l'ordre du tableau. */
 export const KEYWORDS = [
   ["mock", ["moque", "moquer", "se moquent", "ridicul", "humili", "lacht dich aus", "auslachen", "verspott", "mock", "make fun", "laugh at", "burla", "se rien de"]],
+  // Nouvelles animations : mots précis, testés avant les émotions générales.
+  ["podium", ["podium", "medaille", "champion", "premiere place", "trophee", "podest", "meister", "medal", "first place", "trophy", "podio", "medalla", "campeon"]],
+  ["finish", ["ligne d'arrivee", "l'arrivee", "franchir la ligne", "marathon", "fin de la course", "ziellinie", "ins ziel", "finish line", " finish", "cross the line", "linea de meta", " meta "]],
+  ["comeback", ["n'abandonne", "abandonner", "abandonne pas", "ne lache rien", "lache rien", "recommence", "reessa", "reessay", "aufgeben", "gib nicht auf", "nicht aufgeben", "weitermachen", "give up", "never quit", "don't quit", "dont quit", "try again", "keep going", "no te rindas", "rendirse", "rendir"]],
+  ["pushup", ["pompes", "une pompe", "push-up", "pushup", "push up", "liegestutz", "flexiones"]],
+  ["jumprope", ["corde a sauter", "sauter a la corde", "seilspring", "springseil", "jump rope", "skipping rope", "saltar la cuerda", "comba"]],
+  ["boxing", ["boxe", "boxer", "sac de frappe", "coup de poing", "uppercut", "boxen", "boxsack", "faustschlag", " box", "boxing", "punching bag", " punch", "boxeo", "puñetazo", "punetazo"]],
+  ["plank", ["gainage", "planche", "abdos", "tiens bon", "tenir bon", "endurance", "planke", "durchhalten", "plank", " abs ", "hold on", "endure", "plancha", "aguanta", "resistencia"]],
+  ["jumprope", [" sauter", " saute ", "cardio", "springen", " jump", "saltar"]],
+  ["mask", ["masque", "faux sourire", "faire semblant", "fais semblant", "font semblant", "apparence", "maske", "fassade", "so tun als", "mask", "fake smile", "pretend", "facade", "mascara", "fingir", "aparenta"]],
+  ["chase", ["poursuiv", "courir apres", "court apres", "cours apres", "poursuis tes", "rattraper", "chasser", "atteindre", "jagen", "verfolg", "hinterher", "nachjagen", "chase", "chasing", "pursue", "catch up", "perseguir", "alcanzar"]],
+  ["sleep", ["dormir", " dors ", " dort ", "endormi", "sommeil", " reve ", " reves ", " rever", "revant", "cauchemar", "au lit", "mon lit", "son lit", "ton lit", "schlaf", " traum ", "traume", "albtraum", " bett", "asleep", " sleep", " dream", "nightmare", " bed ", "suenos", " sueno", "dormir", "pesadilla", " cama"]],
+  ["stargaze", ["etoile", " ciel", "univers", "cosmos", "galaxie", " lune", " sterne", " stern ", "himmel", " mond ", "universum", "galaxie", " star ", " stars", "starry", " sky", " moon", "universe", "galaxy", "estrella", "cielo", " luna", "universo"]],
+  ["door", ["la porte", "une porte", "les portes", "cette porte", "porte s'ouvre", " ouvr", "'ouvr", "opportunit", "nouveau depart", "nouveau chapitre", "nouvelle chance", "nouvelle vie", " tur ", " turen", "offne", "neuanfang", "neue chance", "door", " open", "opportunit", "new beginning", "fresh start", "new chapter", "puerta", "abrir", "oportunidad", "nuevo comienzo"]],
+  ["stairs", ["escalier", "marche par marche", "etape par etape", "gravir", " sommet", "progresse", "progression", "monter", "treppe", "stufe", "schritt fur schritt", "aufsteig", "gipfel", "stairs", "staircase", " climb", "step by step", "progress", "level up", " summit", "escalera", "paso a paso", "subir", "cima"]],
+  ["lamppost", ["lampadaire", "reverbere", "dans la rue", "t'attendre", "attendre quelqu'un", "je t'attends", "laterne", "auf dich warten", "auf jemanden warten", "streetlight", "street light", "lamppost", "waiting for you", "waiting for someone", "farola", "esperarte"]],
+  ["heartbreak", ["coeur brise", "rupture", "m'a quitte", "t'a quitte", "separ", "chagrin d'amour", "larguee", "liebeskummer", "herzschmerz", "trennung", "gebrochenes herz", "schluss gemacht", "heartbreak", "broken heart", "breakup", "break up", "broke up", "dumped", "corazon roto", "ruptura", "desamor"]],
+  ["leave", ["s'eloign", "s'en va", "s'en aller", "est parti", "est partie", "sont partis", "walked away", "walks away", "left me", "geht weg", "ging weg", "hat mich verlassen", "se fue", "se aleja", "me dejo"]],
+  ["rain", ["pluie", " pleut", "orage", "tempete", "nuage", " regen", "gewitter", " sturm", "wolke", " rain", "storm", "thunder", "cloud", "lluvia", "tormenta", " nube"]],
+  ["burden", ["poids", "fardeau", "sur les epaules", "charge mentale", "trop lourd", "porter seul", "belast", "gewicht", "auf den schultern", " last ", "burden", "weight on", "heavy", "carry", "carga", " peso"]],
+  ["wall", [" mur ", " murs ", "bloque", "obstacle", "impasse", "coince", "mauer", " wand ", "blockiert", "hindernis", "sackgasse", "feststeck", " wall", "stuck", "blocked", "obstacle", "dead end", " muro", "pared", "atascad", "obstaculo"]],
+  ["explode", ["explos", "craque", "peter les plombs", "pete un cable", " crie", "hurle", "hurler", "explodier", " schrei", "ausrast", "platz", "explode", "scream", " yell", "shout", "lose it", "lost it", "explot", "grita", "gritar"]],
+  ["calm", ["respire", "respiration", "inspire", "expire", "souffle", "calme", "apaise", "atme", "atmen", "durchatm", "beruhig", "breath", "calm down", "inhale", "exhale", "respira", "calma"]],
+  ["rise", ["releve-toi", "releve toi", "relevez", "se relev", "me relev", "te relev", "relever", "debout", "se redresse", "rebondi", "aufsteh", "steh auf", "steht auf", "wieder auf", "aufrappeln", "get up", "got up", "stand up", " rise ", "rise again", "bounce back", "back on my feet", "levant", "levanta"]],
+  ["mirror", ["miroir", "reflet", "dans la glace", "image de soi", "spiegel", "mirror", "reflection", "self-image", "self image", "espejo", "reflejo"]],
+  ["crowd", ["foule", "les gens", "regard des autres", "ce que pensent", "tout le monde te", "le monde entier", "menge", "die leute", "die anderen", "alle schauen", "crowd", "other people", "what people think", "everyone is watching", "everybody", "multitud", "la gente", "los demas"]],
+  ["shame", ["honte", "honteu", " gene ", " genee", "embarrass", "culpabil", "humilie", "scham", "schame", "peinlich", "schuldig", "shame", "ashamed", "embarrass", "guilt", "verguenza", "culpable"]],
+  ["anxious", ["anxi", "angoiss", "stress", "panique", "inquiet", "nerveu", " peur", "crainte", " angst", "panik", "nervos", " sorge", "besorgt", "anxious", "anxiety", "panic", "worried", "worry", "nervous", " fear", "scared", "afraid", "ansied", "miedo", "nervios", "preocup"]],
+  ["puppet", ["manipul", "marionnette", "tire les ficelles", "toxique", "pervers", "emprise", "controle", "marionette", "kontroll", "toxisch", "puppet", "pulls the strings", "toxic", "gaslight", "control", "titere", "toxico"]],
+  ["whisper", ["chuchot", "murmur", "secret", "confie", "a l'oreille", "entre nous", "flust", "geheimnis", "verrat dir", "whisper", "secret", "confide", "between us", "susurr", "secreto"]],
+  ["highfive", ["tope la", "bien joue", "en equipe", "equipe", "ensemble", "complice", " ami ", " amis ", " amie ", "amitie", "abklatsch", " team", "zusammen", "freund", "high five", "teamwork", "together", "friend", "buddy", "equipo", "juntos", " amig"]],
+  ["backtoback", ["dos a dos", "ne se parlent plus", "se parlent plus", "boude", "rancune", "froid entre", "fache", "rucken an rucken", "schweigen sich", "beleidigt", "back to back", "not speaking", "silent treatment", "sulk", "resent", "espalda con espalda", "rencor"]],
+  ["reach", ["main tendue", "tendre la main", "tend la main", "tends la main", "tends-lui", " aider", " aide ", "aide-moi", "soutien", "soutenir", " hilf", "helfen", "unterstutz", " help", "helping hand", "support", "reach out", "ayud", "apoyo"]],
   ["laugh", ["rigol", "rire", " rit ", " ris ", "riant", "drole", "marrant", "humour", "blague", "lach", "witz", "lustig", "laugh", "funny", "joke", "lol", "haha", "reir", "risa", "gracioso"]],
   ["cry", ["pleur", "larme", "sanglot", "wein", "trane", "cry", "tears", "sob", "llor", "lagrima"]],
   ["sad", ["triste", "tristesse", "chagrin", "peine", "deprim", "melancol", "malheureu", "souffr", "douleur", " blesse", "brise", " vide", "traurig", "trauer", "schmerz", "leer", "verletzt", "sad", "sorrow", "grief", " pain ", "hurt", "broken", "empty", "depress", "dolor", "vacio"]],
@@ -25,7 +58,7 @@ export const KEYWORDS = [
   ["ignore", ["ignore", "ignorer", "tourne le dos", "indifferen", "ghost", "ignorier", "gleichgult", "turn away", "indiferen"]],
   ["think", [" pense", "repense", "penser", "pensee", "reflechi", "reflexion", "esprit", "mental", "cerveau", "psycholog", "pourquoi", "question", "doute", "denk", "gedank", "nachdenk", "warum", "zweifel", "psycholog", "think", "thought", "mind", "brain", "why", "wonder", "doubt", "pensar", "mente", "por que"]],
   ["confused", ["perdu", "confus", "comprends pas", "comprend pas", "sais plus", "sais pas", "bizarre", "etrange", "verwirr", "verloren", "versteh nicht", "confus", "lost", "don't understand", "dont understand", "strange", "weird", "confund", "perdido"]],
-  ["idea", ["idee", "comprendre", "comprends", "compris", "realise", "decouvr", "astuce", "secret", "solution", "verite", "idee", "versteh", "erkenn", "losung", "wahrheit", "idea", "realize", "understand", "discover", "secret", "truth", "solution", " tip", "entend", "verdad", "solucion"]],
+  ["idea", ["idee", "comprendre", "comprends", "compris", "realise", "decouvr", "astuce", "solution", "verite", "idee", "versteh", "erkenn", "losung", "wahrheit", "idea", "realize", "understand", "discover", "truth", "solution", " tip", "entend", "verdad", "solucion"]],
   ["lift", ["muscu", "haltere", "souleve", "musculation", "fitness", "gym", "hantel", "kraft", "training", "trainier", "lift", "weight", "strength", "workout", "pesas", "fuerza", "gimnasio"]],
   ["run", ["courir", " cours ", " court ", "course", "course", "courir", "sprint", "fuir", "fuis", " vite", "lauf", " renn", "sprint", "flieh", "schnell", " run", "running", "sprint", "flee", " fast", " corr", "huir", "rapido"]],
   ["exercise", ["sport", "entrain", "echauffe", "squat", "pompe", "etire", "athlet", "uebung", "ubung", "dehn", "exercise", "stretch", "squat", "push-up", "pushup", "athlete", "ejercicio", "estir"]],
@@ -52,13 +85,24 @@ export const TAG_ALIASES = {
   muscu: "lift", haltere: "lift", court: "run", courir: "run", laufen: "run", sport: "exercise",
   medite: "meditate", respire: "meditate", victoire: "celebrate", joie: "celebrate", fatigue: "tired", mude: "tired",
   telephone: "phone", livre: "read", lire: "read", assis: "sit", attente: "sit", marche: "walk", gehen: "walk",
+  anxieux: "anxious", stress: "anxious", angst: "anxious", honte: "shame", scham: "shame", pluie: "rain", regen: "rain",
+  coeurbrise: "heartbreak", rupture: "heartbreak", masque: "mask", maske: "mask", poids: "burden", fardeau: "burden", last: "burden",
+  mur: "wall", mauer: "wall", explose: "explode", explosion: "explode", respire2: "calm", calme: "calm", atmen: "calm",
+  releve: "rise", aufstehen: "rise", miroir: "mirror", spiegel: "mirror", foule: "crowd", menge: "crowd",
+  aide: "reach", hilfe: "reach", eloigne: "leave", depart: "leave", dosados: "backtoback", check: "highfive", highfive: "highfive",
+  chuchote: "whisper", secret: "whisper", flustern: "whisper", manipulation: "puppet", marionnette: "puppet",
+  pompes: "pushup", liegestutze: "pushup", corde: "jumprope", seilspringen: "jumprope", boxe: "boxing", boxen: "boxing",
+  gainage: "plank", planche: "plank", planke: "plank", arrivee: "finish", ziel: "finish", podest: "podium",
+  abandon: "comeback", aufgeben: "comeback", dormir: "sleep", dort: "sleep", schlafen: "sleep", reve: "sleep", traum: "sleep",
+  porte: "door", tur: "door", escalier: "stairs", treppe: "stairs", lampadaire: "lamppost", laterne: "lamppost",
+  poursuite: "chase", jagen: "chase", etoiles: "stargaze", sterne: "stargaze", stars: "stargaze",
   bof: "shrug", tombe: "fall", salut: "wave", surpris: "surprised", uberrascht: "surprised", freude: "celebrate", nachdenken: "think", parle2: "speak", ecoute: "listen", zuhoren: "listen", listen: "listen", repos: "idle", titre: "title",
 };
 
 /** Retire accents et majuscules pour comparer les mots-clés. */
 export function normalize(text) {
   // La ponctuation devient un espace, pour que « court. » ou « seul, » soient reconnus comme des mots.
-  return " " + text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[’']/g, "'").replace(/[.,!?;:…"«»“”()*]/g, " ").replace(/\s+/g, " ") + " ";
+  return " " + text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/œ/g, "oe").replace(/æ/g, "ae").replace(/ß/g, "ss").replace(/[’']/g, "'").replace(/[.,!?;:…"«»“”()*]/g, " ").replace(/\s+/g, " ") + " ";
 }
 
 /** Animation déduite d'une phrase, ou null si aucun mot-clé. */
@@ -68,6 +112,40 @@ export function detectAction(text) {
     if (words.some((w) => n.includes(w))) return action;
   }
   return null;
+}
+
+/** Effets de mise en scène déduits des mots (le premier qui correspond gagne). */
+export const FX_KEYWORDS = [
+  ["slow", ["au ralenti", "ralenti", "lentement", "le temps s'arrete", "le temps s'est arrete", "temps suspendu", "zeitlupe", "langsam", "die zeit steht still", "die zeit stand still", "slow motion", "slowly", "time stopped", "time stood still", "camara lenta", "lentamente", "el tiempo se detuvo"]],
+  ["flash", ["soudain", "tout a coup", "tout d'un coup", "d'un coup", " boom", " bam ", "coup de foudre", "eclair", "explos", "plotzlich", "auf einmal", " blitz", " knall", "suddenly", "all of a sudden", " bang ", "lightning", "de repente", " rayo", "explot"]],
+  ["shake", ["tremble", "seisme", "secou", "fracas", " bebt", "erdbeben", "zitter", "erschutter", " shake", "shaking", "earthquake", "tiembla", "terremoto"]],
+  ["dark", ["dans le noir", "obscurit", "tenebres", "s'eteint", "lumiere s'eteint", "plus de lumiere", "im dunkeln", "dunkelheit", "finster", "licht aus", "darkness", "in the dark", "lights out", "light went out", "oscuridad", "a oscuras"]],
+  ["spot", ["projecteur", "sous les projecteurs", "tous les regards", "lumiere sur", "scheinwerfer", "rampenlicht", "alle augen", "spotlight", "all eyes on", "centro de atencion", " foco"]],
+];
+
+/** Transitions déduites des mots : saut dans le temps → fondu au noir, changement de lieu → glissement. */
+export const TRANSITION_KEYWORDS = [
+  ["black", ["plus tard", "des annees", "le lendemain", "des mois", "quelques jours", "des semaines", " un jour ", "spater", "jahre", "am nachsten tag", "eines tages", " later", "the next day", "one day", "mas tarde", "anos despues", "al dia siguiente", "un dia"]],
+  ["slide", ["pendant ce temps", "ailleurs", "de l'autre cote", "inzwischen", "wahrenddessen", "woanders", "meanwhile", "elsewhere", "on the other side", "mientras tanto", "en otro lugar"]],
+  ["zoom", ["regarde bien", "ecoute bien", "retiens bien", "voici le secret", "schau genau", "hor genau", "look closely", "listen carefully", "here's the secret", "heres the secret", "mira bien", "escucha bien"]],
+];
+
+function firstMatch(table, text) {
+  const n = normalize(text);
+  for (const [id, words] of table) {
+    if (words.some((w) => n.includes(w))) return id;
+  }
+  return null;
+}
+
+/** Effet déduit d'une phrase (slow, flash, shake, dark, spot) ou null. */
+export function detectFx(text) {
+  return firstMatch(FX_KEYWORDS, plainText(text));
+}
+
+/** Transition d'entrée déduite d'une phrase (black, slide, zoom) ou null. */
+export function detectTransition(text) {
+  return firstMatch(TRANSITION_KEYWORDS, plainText(text));
 }
 
 /** Résout un tag « [xxx] » vers un id d'action, ou null. */

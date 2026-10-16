@@ -55,6 +55,8 @@ function shade(hex, f) {
 export function lowestPoint(sk, p) {
   let low = Math.max(sk.footF[1], sk.footB[1], sk.kneeF[1], sk.kneeB[1]);
   if (p.lie > 0) low = Math.max(low, 0.035);
+  // Corps pivoté (pompes, gainage, couché) : les mains, coudes et la tête peuvent toucher le sol.
+  if (p.rot) low = Math.max(low, sk.handF[1], sk.handB[1], sk.elbowF[1], sk.elbowB[1], sk.headC[1] + sk.headR, sk.shoulder[1] + 0.05);
   return low;
 }
 
@@ -326,6 +328,7 @@ function drawFlat(ctx, p, m, x, groundY, h) {
   limbPart(ctx, sk.shoulder, sk.elbowF, sk.handF, limbW, m.color, "hand");
   sleeve(sk.shoulder, sk.elbowF, sk.handF, false);
   if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handF, m.detail);
+  if (p.prop === "mask") drawMask(ctx, sk, d, p.setK ?? 0);
   drawPropsFront(ctx, p, sk, low, d, m);
 
   ctx.restore();
@@ -342,6 +345,23 @@ function workCanvas(key, w, hgt) {
   }
   if (c.width !== w || c.height !== hgt) { c.width = w; c.height = hgt; }
   return c;
+}
+
+/**
+ * Position à l'écran (pixels) des articulations d'un personnage dessiné par drawFigure avec les mêmes
+ * paramètres : sert aux décors liés au personnage (pluie au-dessus de la tête, fils de marionnette, corde…).
+ */
+export function figureJoints(p, morphIn, x, groundY, H) {
+  const m = morphFrom(morphIn);
+  const h = H * m.height;
+  const sk = skeleton(p, m);
+  const low = lowestPoint(sk, p);
+  const ox = x + (p.dx ?? 0) * H, oy = groundY - (low + (p.lift ?? 0)) * h;
+  const out = { h, d: p.dir ?? 1, headR: sk.headR * h, base: [x, groundY] };
+  for (const k of ["hip", "neck", "shoulder", "headC", "elbowF", "handF", "elbowB", "handB", "kneeF", "footF", "kneeB", "footB"]) {
+    out[k] = [ox + sk[k][0] * h, oy + sk[k][1] * h];
+  }
+  return out;
 }
 
 /** Style de rendu : contour sombre, halo de contre-jour et volume (ombre / lumière). */
@@ -459,7 +479,7 @@ export function drawFigure(ctx, p, morphIn, x, groundY, H, look = DEFAULT_LOOK) 
     ctx.scale(h, h);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    drawSymbol(ctx, p.symbol, sk, d);
+    drawSymbol(ctx, p.symbol, sk, d, p);
     ctx.restore();
   }
 }
@@ -600,7 +620,7 @@ function drawHead(ctx, sk, p, m, d) {
   const my = fy + r * 0.42;
   const open = p.mouthOpen ?? 0;
   ctx.beginPath();
-  if (face === "laugh" || face === "talk" || face === "surprised") {
+  if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
     const w = face === "surprised" ? r * 0.16 : r * 0.28;
     ctx.ellipse(fx, my, w, r * (0.06 + 0.2 * Math.max(open, face === "surprised" ? 0.8 : 0.15)), 0, 0, Math.PI * 2);
     if (darkSkin) {
@@ -660,7 +680,7 @@ function drawHead(ctx, sk, p, m, d) {
   }
 }
 
-function drawSymbol(ctx, sym, sk, d) {
+function drawSymbol(ctx, sym, sk, d, p = {}) {
   const [cx, cy] = sk.headC;
   const r = sk.headR;
   const sx = cx + d * r * 0.9, sy = cy - r * 1.9;
@@ -723,6 +743,59 @@ function drawSymbol(ctx, sym, sk, d) {
       break;
     }
     case "music": text("♪", r * 0.9, cx + d * r * 1.3, sy + r * 0.3); text("♫", r * 0.7, cx - d * r * 1.2, sy); break;
+    case "shame": {
+      // Traits verticaux de « déprime » au-dessus de la tête (style manga).
+      ctx.strokeStyle = "rgba(170,140,255,0.85)";
+      ctx.lineWidth = r * 0.1;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(cx + i * r * 0.32, cy - r * 1.75 + Math.abs(i) * r * 0.15);
+        ctx.lineTo(cx + i * r * 0.32, cy - r * 1.2 + Math.abs(i) * r * 0.15);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "broken": {
+      // Cœur qui se fend en deux.
+      const k = p.setK ?? 1, gx = k * r * 0.35, s = r * 0.8;
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(sx + side * gx, sy + k * r * 0.15);
+        ctx.rotate(side * k * 0.25);
+        ctx.beginPath();
+        // Ligne de cassure en zigzag.
+        ctx.moveTo(0, -s * 0.35);
+        ctx.lineTo(-side * s * 0.12, -s * 0.1);
+        ctx.lineTo(side * s * 0.1, s * 0.12);
+        ctx.lineTo(0, s * 0.6);
+        if (side < 0) ctx.bezierCurveTo(-s * 1.2, -s * 0.2, -s * 0.5, -s * 1.0, 0, -s * 0.35);
+        else ctx.bezierCurveTo(s * 1.2, -s * 0.2, s * 0.5, -s * 1.0, 0, -s * 0.35);
+        ctx.closePath();
+        ctx.fillStyle = "#ff4d6d";
+        ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+    case "dream": {
+      // Bulle de rêve : petits ronds puis nuage avec une lune et une étoile.
+      const bx = cx + d * r * 1.6, by = cy - r * 2.6;
+      ctx.fillStyle = "rgba(244,244,246,0.92)";
+      for (const [ox, oy, rr] of [[0.6, 1.5, 0.12], [0.3, 1.15, 0.18]]) { ctx.beginPath(); ctx.arc(cx + d * r * ox, cy - r * oy, r * rr, 0, Math.PI * 2); ctx.fill(); }
+      ctx.beginPath();
+      for (const [ox, oy, rr] of [[-0.55, 0.1, 0.5], [0, -0.25, 0.6], [0.6, 0.05, 0.5], [0.05, 0.3, 0.5]]) ctx.arc(bx + ox * r, by + oy * r, rr * r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffd84d";
+      ctx.beginPath();
+      ctx.arc(bx - r * 0.3, by, r * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(244,244,246,1)";
+      ctx.beginPath();
+      ctx.arc(bx - r * 0.18, by - r * 0.08, r * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+      star(ctx, bx + r * 0.4, by - r * 0.05, r * 0.25, "#ffd84d");
+      break;
+    }
     default: break;
   }
   ctx.restore();
@@ -781,6 +854,37 @@ function drawDumbbell(ctx, hand, color) {
   ctx.fillRect(hand[0] - 0.09, hand[1] - 0.008, 0.18, 0.016);
   ctx.fillRect(hand[0] - 0.11, hand[1] - 0.04, 0.035, 0.08);
   ctx.fillRect(hand[0] + 0.075, hand[1] - 0.04, 0.035, 0.08);
+}
+
+/** Masque souriant tenu à la main ; k = 1 : il couvre le visage. */
+function drawMask(ctx, sk, d, k) {
+  const r = sk.headR;
+  const face = [sk.headC[0] + d * r * 0.25, sk.headC[1]];
+  const hand = [sk.handF[0] + d * r * 0.3, sk.handF[1] - r * 0.4];
+  const c = [hand[0] + (face[0] - hand[0]) * k, hand[1] + (face[1] - hand[1]) * k];
+  ctx.save();
+  ctx.translate(c[0], c[1]);
+  ctx.rotate(d * (1 - k) * 0.5);
+  part(ctx, "#fdfdfd", (ext) => {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.82 + ext / 2, r * 1.0 + ext / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.fillStyle = "#1b1b24";
+  ctx.strokeStyle = "#1b1b24";
+  ctx.lineWidth = r * 0.12;
+  ctx.lineCap = "round";
+  for (const sx of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(sx * r * 0.32, -r * 0.18, r * 0.2, Math.PI * 1.1, Math.PI * 1.9);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(0, r * 0.05, r * 0.45, Math.PI * 0.15, Math.PI * 0.85);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,120,140,0.5)";
+  for (const sx of [-1, 1]) { ctx.beginPath(); ctx.arc(sx * r * 0.55, r * 0.2, r * 0.14, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
 }
 
 function drawPhone(ctx, sk, d) {

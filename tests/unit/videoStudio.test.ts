@@ -22,7 +22,7 @@ test("détection des animations en français, allemand et anglais", () => {
   assert.equal(detectAction("Ich gehe ins Krafttraining"), "lift");
   assert.equal(detectAction("Il était une fois un roi"), "read");
   // Mots qui contenaient un mot-clé par accident.
-  assert.equal(detectAction("Ton calme n'est pas une faiblesse"), "meditate");
+  assert.equal(detectAction("Ton calme n'est pas une faiblesse"), "calm");
   assert.equal(detectAction("Mon copain est là"), null);
   assert.equal(detectAction("Il a du courage"), null);
 });
