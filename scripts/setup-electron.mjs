@@ -58,6 +58,9 @@ export function sha256File(file) {
   });
 }
 
+/** Set when main() ends on purpose (success, --check, error) — see the exit guard below. */
+let finished = false;
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mb = (n) => `${(n / 1048576).toFixed(1)} Mo`;
 
@@ -114,13 +117,33 @@ export async function downloadResumable(url, dest, { attempts = 60, stallMs = 30
   return dest;
 }
 
+/** Windows 10+ and macOS ship bsdtar, which reads zip files natively. */
+function extractWithSystemTar(zip, dist) {
+  if (process.platform !== "win32" && process.platform !== "darwin") return false;
+  try {
+    execFileSync("tar", ["-xf", resolve(zip), "-C", dist], { stdio: "inherit", timeout: 300000 });
+    return true;
+  } catch (e) {
+    console.log(`  (tar indisponible : ${e.message.split("\n")[0]} — extraction avec extract-zip)`);
+    return false;
+  }
+}
+
 async function extractInto(zip, dir) {
-  const require = createRequire(join(electronDir, "package.json"));
-  const extract = require("extract-zip");
   const dist = join(dir, "dist");
   rmSync(dist, { recursive: true, force: true }); // only the (broken) Electron binary folder
   mkdirSync(dist, { recursive: true });
-  await extract(zip, { dir: dist });
+  if (!extractWithSystemTar(zip, dist)) {
+    // extract-zip (Electron's own extractor). On some very recent Node versions it can stop
+    // without settling its promise; the keep-alive timer turns that into a clear error.
+    const require = createRequire(join(electronDir, "package.json"));
+    const extract = require("extract-zip");
+    let timer;
+    await Promise.race([
+      extract(zip, { dir: dist }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("l'extraction du zip ne se termine pas")), 300000); }),
+    ]).finally(() => clearTimeout(timer));
+  }
   const types = join(dist, "electron.d.ts");
   if (existsSync(types)) renameSync(types, join(dir, "electron.d.ts"));
   writeFileSync(join(dir, "path.txt"), platformInfo().exe);
@@ -130,6 +153,7 @@ async function main() {
   const args = process.argv.slice(2);
   if (!existsSync(join(electronDir, "package.json"))) {
     console.error("node_modules/electron est absent : lancez d'abord « npm install ».");
+    finished = true;
     process.exit(1);
   }
   const state = checkInstalled();
@@ -139,6 +163,7 @@ async function main() {
       console.error(`Electron ${state.version} n'est pas installé correctement (${state.problems.join(", ")}).`);
       console.error("Réparation : npm run setup:electron   (ou, si GitHub coupe toujours : npm run setup:electron -- --mirror)");
     }
+    finished = true;
     process.exit(state.ok ? 0 : 1);
   }
   if (state.ok && !args.includes("--force")) {
@@ -195,7 +220,16 @@ async function main() {
 // Run only when executed directly (not when imported by tests). Case-insensitive for Windows paths.
 const isMain = !!process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();
 if (isMain) {
-  main().catch((e) => {
+  // A promise that never settles would let Node exit silently: say so instead.
+  process.on("exit", (code) => {
+    if (!finished && code === 0) {
+      console.error("\nÉchec : l'installation s'est arrêtée avant la fin (extraction interrompue).");
+      console.error("Relancez : npm run setup:electron -- --zip <fichier.zip>   ou extrayez le zip dans node_modules\\electron\\dist.");
+      process.exitCode = 1;
+    }
+  });
+  main().then(() => { finished = true; }, (e) => {
+    finished = true;
     console.error(`\nÉchec : ${e.message}`);
     console.error("Si GitHub coupe toujours la connexion, essayez : npm run setup:electron -- --mirror");
     process.exit(1);
