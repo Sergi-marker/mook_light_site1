@@ -64,6 +64,8 @@ export async function renderProject(p: Project, media: RenderMedia, o: RenderOpt
   muteSink.connect(ctx.destination);
   const seq = new Sequencer(ctx, mixer, muteSink);
   seq.syncInstruments(p);
+  // Recorded instruments must be decoded before the notes are scheduled.
+  await seq.prepare(p);
   for (const [k, v] of media.samples) seq.samples.set(k, v);
   for (const [k, v] of media.assets) seq.assets.set(k, v);
   seq.opts = { muted: o.muted, metronome: false };

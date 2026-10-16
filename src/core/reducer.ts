@@ -1,5 +1,6 @@
 import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
+import { isSampledInstrument } from "./sampleLibrary.ts";
 import {
   clamp, clampBpm, createInstrument, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS, secondsToSteps, stepsPerBarOf, stepsToSeconds,
@@ -13,7 +14,7 @@ import type {
 export type TrackPatch = Partial<Pick<Track, "name" | "pitch">>;
 export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "solo" | "name" | "output">> & { sends?: Partial<Channel["sends"]> };
 export type NoteUpdate = { id: string } & Partial<Omit<Note, "id">>;
-export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params> };
+export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params>; sample?: string };
 export type VocalPatch = Partial<Pick<VocalTrack, "name" | "armed" | "playProcessed" | "role" | "lyrics">> & { studio?: Partial<VocalTrack["studio"]> };
 export type ProjectPatch = Partial<Pick<Project, "bpm" | "swing" | "key" | "patterns" | "currentPatternId" | "arrangement" | "instruments" | "channels" | "name" | "tracks">>;
 
@@ -508,7 +509,10 @@ export function reduce(p: Project, a: Action): Project {
           n.preset = a.patch.preset;
           n.synth = { ...fresh.synth, ...(a.patch.synth ?? {}) };
           n.color = fresh.color;
+          if (fresh.sample && !a.patch.sample) n.sample = fresh.sample;
         }
+        if (a.patch.sample && isSampledInstrument(a.patch.sample)) n.sample = a.patch.sample;
+        if (n.preset !== "sampler") delete n.sample;
         return n;
       });
       return instruments === p.instruments ? p : { ...p, instruments };

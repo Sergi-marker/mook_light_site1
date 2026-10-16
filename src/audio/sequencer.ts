@@ -81,6 +81,12 @@ export class Sequencer {
     }
   }
 
+  /** Load what one instrument needs for these pitches (preview of a just-chosen sound). */
+  async prepareInstrument(p: Project, instrumentId: string, pitches: number[]): Promise<void> {
+    this.syncInstruments(p);
+    await this.voices.get(instrumentId)?.prepare(pitches);
+  }
+
   private silenced(channelId: string): boolean {
     return this.opts.muted?.has(channelId) ?? false;
   }

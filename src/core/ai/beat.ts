@@ -52,10 +52,12 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   /** Create (or re-voice) the instrument `name` with a sound from the library. */
   const ensureSound = (soundId: string, name: string, fallback: SynthPreset): InstrumentTrack => {
     const snd = SOUND_LIBRARY.find((x) => x.id === soundId);
-    const sp = snd ? soundParams(snd) : { preset: fallback, synth: createInstrument(fallback).synth, bass808: createInstrument(fallback).bass808 };
+    const sp: ReturnType<typeof soundParams> = snd ? soundParams(snd) : { preset: fallback, synth: createInstrument(fallback).synth, bass808: createInstrument(fallback).bass808 };
     const existing = instruments.find((i) => i.name === name);
     const base = createInstrument(sp.preset, name);
     const ins: InstrumentTrack = { ...base, id: existing?.id ?? base.id, synth: sp.synth, bass808: sp.bass808 };
+    if (sp.preset === "sampler") ins.sample = sp.sample ?? base.sample;
+    else delete ins.sample;
     if (existing) instruments[instruments.indexOf(existing)] = ins;
     else {
       instruments.push(ins);

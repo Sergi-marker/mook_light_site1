@@ -103,6 +103,35 @@ await step("audio: AudioContext running, worklets loaded, drums audible", async 
   assert.ok(peak > 0.05, `drums audible (peak ${peak})`);
 });
 
+await step("real instruments: recorded samples load through app:// and play in tune (grand piano, nylon guitar)", async () => {
+  const r = await evalApp(async () => {
+    const { renderProject } = await import("/app/audio/render.js");
+    const { createEmptyProject } = await import("/app/core/project.js");
+    const { reduce } = await import("/app/core/reducer.js");
+    const { pitchTrack, freqToMidi } = await import("/app/core/dsp/yin.js");
+    const out = {};
+    for (const sample of ["grand-piano", "guitar-nylon"]) {
+      let p = createEmptyProject("t");
+      p = reduce(p, { type: "addInstrument", preset: "sampler" });
+      const ins = p.instruments[p.instruments.length - 1];
+      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { sample } });
+      p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch: 57, start: 0, length: 8, velocity: 100 }] });
+      const buf = await renderProject(p, { samples: new Map(), assets: new Map() }, { mode: "pattern", tail: 0.3 });
+      const d = buf.getChannelData(0);
+      let peak = 0;
+      for (const x of d) peak = Math.max(peak, Math.abs(x));
+      const tr = pitchTrack(d.subarray(4410, 44100), buf.sampleRate).filter((x) => x.freq > 0 && x.confidence > 0.85).map((x) => freqToMidi(x.freq)).sort((a, b) => a - b);
+      out[sample] = { peak, midi: tr[tr.length >> 1] };
+    }
+    return out;
+  });
+  for (const [k, v] of Object.entries(r)) {
+    console.log(`  # ${k}: peak ${v.peak.toFixed(3)}, A3 joué → MIDI ${v.midi?.toFixed(2)}`);
+    assert.ok(v.peak > 0.02, `${k} silent`);
+    assert.ok(Math.abs(v.midi - 57) < 0.4, `${k} pitch ${v.midi}`);
+  }
+});
+
 await step("microphone + recording: permission granted by the app, monitoring, take recorded at the cursor", async () => {
   await evalApp(() => window.__app.dispatch({ type: "setKey", key: { root: 5, scale: "minor" } }));
   await page.click('.nav-item:has-text("VOCALS")');

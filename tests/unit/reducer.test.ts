@@ -169,7 +169,8 @@ test("batch applies several actions as one transition", () => {
 test("default project: 7 drum lanes, piano + 808, 4 vocal tracks, buses", () => {
   const p = createDefaultProject();
   assert.deepEqual(p.tracks.map((t) => t.instrument), ["kick", "snare", "clap", "closedHat", "openHat", "perc", "808"]);
-  assert.deepEqual(p.instruments.map((i) => i.preset), ["piano", "808"]);
+  assert.deepEqual(p.instruments.map((i) => i.preset), ["sampler", "808"]);
+  assert.equal(p.instruments[0].sample, "grand-piano");
   assert.deepEqual(p.vocals.map((v) => v.role), ["lead", "double", "adlibs", "backing"]);
   for (const id of ["bus_drums", "bus_music", "bus_vocals", "ret_reverb", "ret_delay", "master"]) assert.ok(getChannel(p, id), id);
   assert.ok(Object.values(currentPattern(p).drums).some((s) => s.some((x) => x.on)));

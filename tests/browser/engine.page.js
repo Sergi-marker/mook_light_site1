@@ -6,6 +6,7 @@ import { createEmptyProject, effect } from "/app/core/project.js";
 import { reduce } from "/app/core/reducer.js";
 import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
 import { SOUND_LIBRARY, soundParams } from "/app/core/soundLibrary.js";
+import { SAMPLED_INSTRUMENTS, playablePitch, sampledInstrument } from "/app/core/sampleLibrary.js";
 import { Yin, freqToMidi } from "/app/core/dsp/yin.js";
 import { measure } from "/app/core/dsp/loudness.js";
 
@@ -104,6 +105,48 @@ window.tests = {
     }
     return out;
   },
+  /**
+   * Every recorded instrument, rendered offline like an export: low / middle / high note of its
+   * range at soft and hard velocity, plus a held note 3 s long (sustained instruments must loop).
+   */
+  async sampledInstruments() {
+    const out = {};
+    for (const inst of SAMPLED_INSTRUMENTS) {
+      const notes = inst.zones.map((z) => z.note);
+      const lo = Math.min(...notes), hi = Math.max(...notes);
+      // The pitch detector reads ~65 Hz–2 kHz reliably: measured notes stay inside C2–A#6.
+      const pitches = [Math.max(lo + 2, 36), Math.round((lo + Math.min(hi, 96)) / 2), Math.min(hi - 2, 94)];
+      let p = empty();
+      // 60 BPM: one step = 0.25 s. 3 notes × 2 velocities (4 s apart), then a 4 s held note —
+      // longer than the recordings, so sustained instruments must loop.
+      p = reduce(p, { type: "setBpm", bpm: 60 });
+      p = reduce(p, { type: "addInstrument", preset: "sampler" });
+      const ins = p.instruments[p.instruments.length - 1];
+      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { sample: inst.id } });
+      p = reduce(p, { type: "setStepCount", stepCount: 64 });
+      const evs = [];
+      pitches.forEach((pt, i) => {
+        evs.push({ pitch: pt, start: i * 16, length: 4, velocity: 40 });
+        evs.push({ pitch: pt, start: i * 16 + 8, length: 4, velocity: 120 });
+      });
+      evs.push({ pitch: pitches[1], start: 48, length: 16, velocity: 100 });
+      p = reduce(p, { type: "addNotes", trackId: ins.id, notes: evs });
+      const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+      const d = buf.getChannelData(0);
+      const rmsAt = (t0, t1) => { let e = 0; const a = Math.floor(t0 * buf.sampleRate), b = Math.floor(t1 * buf.sampleRate); for (let i = a; i < b; i++) e += d[i] * d[i]; return Math.sqrt(e / (b - a)); };
+      out[inst.id] = {
+        sustain: inst.sustain,
+        pitches,
+        midi: pitches.map((_, i) => pitchAt(buf, i * 4 + 2 + 0.25, 30, 8192)),
+        soft: pitches.map((_, i) => rmsAt(i * 4 + 0.02, i * 4 + 0.4)),
+        loud: pitches.map((_, i) => rmsAt(i * 4 + 2 + 0.02, i * 4 + 2 + 0.4)),
+        heldEarly: rmsAt(12.1, 12.6),
+        heldLate: rmsAt(15.3, 15.8),
+        ...stats(buf),
+      };
+    }
+    return out;
+  },
   async bass808Glide() {
     let p = empty();
     const ins = p.instruments.find((i) => i.preset === "808");
@@ -124,11 +167,13 @@ window.tests = {
       const sp = soundParams(snd);
       p = reduce(p, { type: "addInstrument", preset: "piano" });
       const ins = p.instruments[p.instruments.length - 1];
-      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808 } });
+      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample } });
       const pitch = sp.preset === "808" ? 45 : 57;
       p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch, start: 0, length: 8, velocity: 100 }] });
       const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
-      out[snd.id] = { preset: sp.preset, expect: pitch + 12 * (sp.synth.octave ?? 0) + (sp.preset === "808" ? sp.bass808.tune : 0), midi: pitchAt(buf, 0.3, 40, 8192), ...stats(buf) };
+      let expect = pitch + 12 * (sp.synth.octave ?? 0) + (sp.preset === "808" ? sp.bass808.tune : 0);
+      if (sp.preset === "sampler") expect = playablePitch(sampledInstrument(sp.sample), expect);
+      out[snd.id] = { preset: sp.preset, sample: sp.sample, expect, midi: pitchAt(buf, 0.3, 40, 8192), ...stats(buf) };
     }
     return out;
   },

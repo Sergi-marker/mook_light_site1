@@ -19,7 +19,7 @@ import { parseBeatPrompt, type Mood } from "../../core/ai/prompt.ts";
 import type { MixMeasurements } from "../../core/dsp/loudness.ts";
 import { bandBalance } from "../../core/dsp/spectrum.ts";
 import { degreeToMidi, keyLabel, NOTE_NAMES, SCALES, type ScaleId } from "../../core/music.ts";
-import { currentPattern, getChannel, masterChannel } from "../../core/project.ts";
+import { currentPattern, getChannel, masterChannel, SYNTH_PRESETS } from "../../core/project.ts";
 import { reduce, type Action } from "../../core/reducer.ts";
 import type { Effect, Project, SynthPreset } from "../../core/types.ts";
 import { desktop, type App, type View } from "../app.ts";
@@ -196,7 +196,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     const list = p.instruments.filter((i) => presets.includes(i.preset));
     return h("select", { "aria-label": "Instrument cible" },
       ...list.map((i) => h("option", { value: i.id, selected: i.id === value }, i.name)),
-      ...presets.map((pr) => h("option", { value: `new:${pr}`, selected: value === `new:${pr}` }, `+ nouvel instrument ${pr}`)));
+      ...presets.map((pr) => h("option", { value: `new:${pr}`, selected: value === `new:${pr}` }, `+ nouvel instrument ${SYNTH_PRESETS[pr].label}`)));
   };
   /** Resolve a target (creating the instrument if needed) and write notes into the current pattern. */
   const writeNotes = (target: string, notes: { pitch: number; start: number; length: number; velocity: number; slide?: boolean }[], label: string) => {
@@ -238,8 +238,8 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     };
     const progSel = h("select", { "aria-label": "Progression" }, ...progs.map((pr, i) => h("option", { value: i, selected: i === chordState.prog }, `${pr.map(roman).join(" – ")}   (${pr.map(chordName).join(" – ")})`)));
     const styleSel = h("select", { "aria-label": "Style d'accords" }, ...([["sustain", "Tenus (pad)"], ["stabs", "Stabs rythmiques"], ["arp", "Arpège"]] as const).map(([v, l]) => h("option", { value: v, selected: v === chordState.style }, l)));
-    const def = p.instruments.find((i) => ["pad", "strings", "epiano", "piano"].includes(i.preset))?.id ?? "new:pad";
-    const target = targetSelect(["pad", "strings", "epiano", "piano", "synth", "pluck"], chordState.target || def);
+    const def = p.instruments.find((i) => ["pad", "strings", "epiano", "piano", "sampler"].includes(i.preset))?.id ?? "new:pad";
+    const target = targetSelect(["pad", "strings", "sampler", "epiano", "piano", "synth", "pluck"], chordState.target || def);
     m.addEventListener("change", () => { chordState.mood = m.value as Mood; chordState.prog = 0; render(); });
     const make = () => {
       chordState = { ...chordState, mood: m.value as Mood, prog: Number(progSel.value), style: styleSel.value as typeof chordState.style, target: target.value };

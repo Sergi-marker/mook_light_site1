@@ -1,4 +1,5 @@
 import { DEFAULT_BPM, DEFAULT_VELOCITY, INSTRUMENTS, BPM_MAX, BPM_MIN } from "./constants.ts";
+import { DEFAULT_SAMPLED } from "./sampleLibrary.ts";
 import type {
   Bass808Params, Channel, ChannelKind, Effect, EffectType, InstrumentKind, InstrumentTrack, Pattern,
   Project, Step, StepCount, SynthParams, SynthPreset, Track, VocalRole, VocalTrack,
@@ -100,6 +101,7 @@ export const SYNTH_PRESETS: Record<SynthPreset, { label: string; params: SynthPa
   pluck: { label: "Pluck", color: "#34d399", params: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.2, cutoff: 5000, resonance: 1, filterEnv: 0.7, detune: 0, glide: 0, drive: 0, wave: "sawtooth", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
   bells: { label: "Bells", color: "#facc15", params: { attack: 0.001, decay: 2, sustain: 0, release: 1.5, cutoff: 9000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
   bass: { label: "Synth Bass", color: "#fb923c", params: { attack: 0.005, decay: 0.3, sustain: 0.6, release: 0.15, cutoff: 900, resonance: 4, filterEnv: 0.6, detune: 8, glide: 0.04, drive: 0.3, wave: "sawtooth", voices: 2, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: true } },
+  sampler: { label: "Instrument réel (enregistré)", color: "#e2b07a", params: { attack: 0.002, decay: 1, sustain: 1, release: 0.3, cutoff: 20000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: false } },
   "808": { label: "808", color: "#ec4899", params: { attack: 0.002, decay: 1.2, sustain: 0.6, release: 0.3, cutoff: 8000, resonance: 0.5, filterEnv: 0, detune: 0, glide: 0.08, drive: 0, wave: "sine", voices: 1, octave: 0, lfoRate: 5, lfoDepth: 0, lfoFilter: 0, mono: true } },
 };
 
@@ -110,7 +112,9 @@ export const DEFAULT_808: Bass808Params = {
 
 export function createInstrument(preset: SynthPreset, name?: string): InstrumentTrack {
   const p = SYNTH_PRESETS[preset];
-  return { id: newId("ins"), name: name ?? p.label, preset, synth: { ...p.params }, bass808: { ...DEFAULT_808 }, color: p.color };
+  const ins: InstrumentTrack = { id: newId("ins"), name: name ?? p.label, preset, synth: { ...p.params }, bass808: { ...DEFAULT_808 }, color: p.color };
+  if (preset === "sampler") ins.sample = DEFAULT_SAMPLED;
+  return ins;
 }
 
 export function instrumentChannel(t: InstrumentTrack): Channel {
@@ -176,7 +180,7 @@ export function createPattern(p: Pick<Project, "tracks" | "instruments">, name: 
 /** A new empty project: 7 drum lanes, piano + 808 instruments, 4 vocal tracks, full mixer. */
 export function createEmptyProject(name = "Untitled Beat"): Project {
   const tracks = INSTRUMENTS.map((i) => createTrack(i.kind));
-  const instruments = [createInstrument("piano", "Piano"), createInstrument("808", "808 Bass")];
+  const instruments = [createInstrument("sampler", "Piano"), createInstrument("808", "808 Bass")];
   const vocals = (["lead", "double", "adlibs", "backing"] as VocalRole[]).map((r) => createVocalTrack(r));
   const base = { tracks, instruments };
   const pattern = createPattern(base, "Pattern 1");

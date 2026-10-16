@@ -59,7 +59,7 @@ export interface Note {
   slide?: boolean;
 }
 
-export type SynthPreset = "piano" | "epiano" | "synth" | "pad" | "strings" | "pluck" | "bells" | "bass" | "808";
+export type SynthPreset = "piano" | "epiano" | "synth" | "pad" | "strings" | "pluck" | "bells" | "bass" | "808" | "sampler";
 
 export interface SynthParams {
   attack: number;
@@ -125,6 +125,8 @@ export interface InstrumentTrack {
   synth: SynthParams;
   /** Only for preset "808". */
   bass808: Bass808Params;
+  /** Only for preset "sampler": id of the recorded instrument (core/sampleLibrary). */
+  sample?: string;
   color: string;
 }
 

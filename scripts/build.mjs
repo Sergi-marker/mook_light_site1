@@ -1,6 +1,6 @@
 // Build: TypeScript → dist/app (ES modules, no bundler needed), plus static files.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,8 @@ execFileSync(tscCmd[0], [...tscCmd.slice(1), "-p", "tsconfig.json"], { stdio: "i
 
 copyFileSync("index.html", "dist/index.html");
 copyFileSync("src/styles.css", "dist/styles.css");
+// Recorded instruments (see scripts/fetch-samples.mjs).
+if (existsSync("assets/samples")) cpSync("assets/samples", "dist/samples", { recursive: true });
 if (existsSync("public/icon.png")) copyFileSync("public/icon.png", "dist/icon.png");
 // MP3 encoder (LAME, from the `lamejs` package) — copied when installed.
 const lame = ["node_modules/lamejs/lame.min.js", "node_modules/lamejs/lame.all.js"].find((f) => existsSync(f));

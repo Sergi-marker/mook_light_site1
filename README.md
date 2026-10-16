@@ -36,6 +36,13 @@ L'IA tourne **hors ligne, sur votre machine**. Elle produit des patterns, des no
 | ![Melody](docs/screenshot-melody.png) | ![Mixer](docs/screenshot-mixer.png) |
 | ![Vocals](docs/screenshot-vocals.png) | ![AI](docs/screenshot-ai-tools.png) |
 
+## Instruments réels et enregistrement propre
+
+- **Instruments enregistrés** (moteur « Instrument réel », MELODY) : piano à queue Steinway (2 couches de vélocité), piano droit, Wurlitzer, orgue, guitares acoustique / nylon / électrique, basse électrique, harpe, violon, violoncelle, ensemble de cordes, flûte, saxophone, trompette, cor, kalimba, marimba, balafon, vibraphone, glockenspiel. Les sons « Piano », « Dark Piano », « Strings », « Flûte », « Kalimba », « Guitar Pluck »… de la bibliothèque et des styles IA utilisent désormais ces enregistrements. Licences compatibles avec la vente de beats (domaine public, CC0, CC BY) — crédits dans PARAMÈTRES et `assets/samples/CREDITS.md`. Fonctionne hors ligne (≈ 12 Mo inclus).
+- **Test du micro** (VOCALS) : 3 s de silence + 5 s de voix → bruit de fond, niveau, ronflement 50/60 Hz, saturation, conseils et réglages en un clic.
+- **Entrée de la carte son** : Auto n'enregistre que l'entrée où est branché le micro (plus de souffle de l'entrée vide).
+- **Nettoyage automatique** de chaque prise avec le bruit mesuré de votre pièce (la prise brute reste disponible).
+
 ## Installation (Windows)
 
 Prérequis : [Node.js 22 LTS](https://nodejs.org) (≥ 22.18).

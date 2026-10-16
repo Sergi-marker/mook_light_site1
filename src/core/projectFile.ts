@@ -5,6 +5,7 @@ import {
   instrumentChannel, newId, resizeSteps, vocalChannel, EFFECT_DEFAULTS, SYNTH_PRESETS, DEFAULT_808, MASTER, BUS_DRUMS, BUS_MUSIC, BUS_VOCALS,
 } from "./project.ts";
 import { readZip, writeZip, type ZipEntry } from "./io/zip.ts";
+import { DEFAULT_SAMPLED, isSampledInstrument } from "./sampleLibrary.ts";
 import type {
   AudioAsset, Channel, Effect, EffectType, InstrumentKind, InstrumentTrack, Note, Pattern, Project,
   SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack, Waveform,
@@ -246,7 +247,9 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     }
     const bass808 = { ...DEFAULT_808 };
     if (isObj(raw.bass808)) for (const k of Object.keys(bass808) as (keyof typeof bass808)[]) bass808[k] = num(raw.bass808[k], bass808[k]);
-    return [{ id: str(raw.id, "") || fresh.id, name: str(raw.name, fresh.name).slice(0, 40), preset, synth, bass808, color: str(raw.color, fresh.color) }];
+    const ins: InstrumentTrack = { id: str(raw.id, "") || fresh.id, name: str(raw.name, fresh.name).slice(0, 40), preset, synth, bass808, color: str(raw.color, fresh.color) };
+    if (preset === "sampler") ins.sample = isSampledInstrument(raw.sample) ? raw.sample : DEFAULT_SAMPLED;
+    return [ins];
   });
 
   const patterns: Pattern[] = arr(p.patterns).flatMap((raw, i): Pattern[] => {

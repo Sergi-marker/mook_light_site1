@@ -353,6 +353,7 @@ export class AudioEngine {
   async previewNote(instrumentId: string, pitch: number, velocity = 100, duration = 0.4): Promise<void> {
     if (!this.ctx) await this.init();
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
+    await this.seq!.prepareInstrument(this.getProject(), instrumentId, [pitch]);
     this.seq!.previewNote(instrumentId, pitch, velocity, duration);
   }
 

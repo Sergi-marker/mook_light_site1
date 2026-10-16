@@ -2,6 +2,7 @@ import { chooseProgression, generateBass, generateChords, generateMelody } from 
 import { keyLabel } from "../../core/music.ts";
 import { currentPattern, getChannel, SYNTH_PRESETS } from "../../core/project.ts";
 import { SOUND_LIBRARY, soundParams } from "../../core/soundLibrary.ts";
+import { SAMPLE_CATEGORY_LABELS, SAMPLED_INSTRUMENTS, sampledInstrument, type SampleCategory } from "../../core/sampleLibrary.ts";
 import type { Bass808Params, InstrumentTrack, Project, SynthParams, SynthPreset, Waveform } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
@@ -110,7 +111,7 @@ export function createMelodyView(app: App): View {
       const snd = SOUND_LIBRARY.find((x) => x.id === libSel.value);
       if (!snd) return;
       const sp = soundParams(snd);
-      app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808 } });
+      app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample } });
       void app.engine.previewNote(id, sp.preset === "808" || sp.preset === "bass" ? 36 + p.key.root : 60 + p.key.root, 100, 0.6);
       toast(`Son « ${snd.name} » chargé — tous les réglages restent modifiables.`, "ok");
     } }, h("option", { value: "" }, "Charger un son…"),
@@ -122,6 +123,7 @@ export function createMelodyView(app: App): View {
       h("h3", {}, nameIn),
       h("label", { class: "field" }, h("span", { class: "slider-label" }, "Bibliothèque"), libSel),
       h("label", { class: "field" }, h("span", { class: "slider-label" }, "Moteur"), presetSel),
+      ...(ins.preset === "sampler" ? [sampleField(ins)] : []),
       slider({ label: "Volume", min: 0, max: 1.5, step: 0.01, value: ch.volume, format: fmtPct, reset: 0.7, learn: `channel:${id}:volume`, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { volume: v } }, `vol:${id}`) }),
       slider({ label: "Pan", min: -1, max: 1, step: 0.01, value: ch.pan, format: (v) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`), reset: 0, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { pan: v } }, `pan:${id}`) }),
       slider({ label: "Reverb", min: 0, max: 1, step: 0.01, value: ch.sends.reverb, format: fmtPct, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { sends: { reverb: v } } }, `rv:${id}`) }),
@@ -165,8 +167,21 @@ export function createMelodyView(app: App): View {
         slider({ label: "Filtre", min: 200, max: 18000, step: 10, value: s.cutoff, format: fmtHz, onInput: setSynth("cutoff") }),
         slider({ label: "Résonance", min: 0.1, max: 12, step: 0.1, value: s.resonance, format: (v) => v.toFixed(1), onInput: setSynth("resonance") }),
         slider({ label: "Env. filtre", min: 0, max: 1, step: 0.01, value: s.filterEnv, format: fmtPct, onInput: setSynth("filterEnv") }),
-        slider({ label: "Detune", min: 0, max: 40, step: 1, value: s.detune, format: (v) => `${v} ct`, onInput: setSynth("detune") }));
+        ...(ins.preset === "sampler" ? [] : [slider({ label: "Detune", min: 0, max: 40, step: 1, value: s.detune, format: (v) => `${v} ct`, onInput: setSynth("detune") })]));
     }
+  }
+
+  /** Recorded instrument picker (preset "sampler"), with its source / licence. */
+  function sampleField(ins: InstrumentTrack): HTMLElement {
+    const cur = sampledInstrument(ins.sample);
+    const sel = h("select", { "aria-label": "Instrument réel", onchange: () => {
+      app.dispatch({ type: "updateInstrument", trackId: ins.id, patch: { sample: sel.value } });
+      void app.engine.previewNote(ins.id, 60 + store.getState().key.root, 100, 0.8);
+    } }, ...(Object.keys(SAMPLE_CATEGORY_LABELS) as SampleCategory[]).map((cat) => h("optgroup", { label: SAMPLE_CATEGORY_LABELS[cat] },
+      ...SAMPLED_INSTRUMENTS.filter((x) => x.category === cat).map((x) => h("option", { value: x.id, selected: x.id === cur.id }, x.name)))));
+    return h("div", {},
+      h("label", { class: "field" }, h("span", { class: "slider-label" }, "Instrument"), sel),
+      h("p", { class: "hint" }, `🎙 Enregistrement réel · ${cur.credit} · ${cur.license}`));
   }
 
   const rerender = reactive(params, renderParams);
@@ -178,7 +193,7 @@ export function createMelodyView(app: App): View {
       keyInfo.textContent = `KEY : ${keyLabel(p.key)} — les rangées violettes sont dans la gamme`;
       renderList(p);
       const ins = sel();
-      const s = ins ? `${ins.id}|${ins.preset}|${JSON.stringify(ins.synth)}|${JSON.stringify(ins.bass808)}|${JSON.stringify(getChannel(p, ins.id))}` : "";
+      const s = ins ? `${ins.id}|${ins.preset}|${ins.sample ?? ""}|${JSON.stringify(ins.synth)}|${JSON.stringify(ins.bass808)}|${JSON.stringify(getChannel(p, ins.id))}` : "";
       if (s !== paramSig) {
         paramSig = s;
         rerender();

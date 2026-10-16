@@ -3,8 +3,11 @@
 //  • piano / pluck: pre-rendered note buffers (additive piano with inharmonicity, Karplus-Strong)
 //  • epiano / bells: FM pairs   • synth / pad / strings / bass: detuned oscillators + filter
 //  • 808: monophonic voice with glide/slide, punch, ADSR and its own processing chain.
+//  • sampler: REAL recorded instruments (multi-samples, velocity layers, seamless loops).
 
+import { pickZone, playablePitch, sampledInstrument, zoneRate } from "../core/sampleLibrary.ts";
 import type { Bass808Params, InstrumentTrack, SynthParams, SynthPreset } from "../core/types.ts";
+import { loadInstrument, loadedSample } from "./sampler.ts";
 
 const midiHz = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -173,6 +176,12 @@ export class InstrumentVoice {
     this.input.connect(this.shaper).connect(this.output);
     this.applyDrive();
     if (track.preset === "808") this.build808();
+    this.preloadSamples();
+  }
+
+  /** Recorded instrument: start loading all its samples in the background (live play, preview). */
+  private preloadSamples(): void {
+    if (this.track.preset === "sampler") void loadInstrument(this.ctx, sampledInstrument(this.track.sample));
   }
 
   private applyDrive(): void {
@@ -192,6 +201,12 @@ export class InstrumentVoice {
    */
   async prepare(pitches: Iterable<number>): Promise<void> {
     const preset = this.track.preset;
+    if (preset === "sampler") {
+      const octave = Math.round(Math.max(-2, Math.min(2, this.track.synth.octave ?? 0)));
+      const inst = sampledInstrument(this.track.sample);
+      await loadInstrument(this.ctx, inst, [...pitches].map((x) => playablePitch(inst, x + octave * 12)));
+      return;
+    }
     if (preset !== "piano" && preset !== "pluck") return;
     const octave = Math.round(Math.max(-2, Math.min(2, this.track.synth.octave ?? 0)));
     let slice = performance.now();
@@ -206,7 +221,9 @@ export class InstrumentVoice {
 
   update(track: InstrumentTrack): void {
     const presetChanged = track.preset !== this.track.preset;
+    const sampleChanged = track.sample !== this.track.sample;
     this.track = track;
+    if (presetChanged || sampleChanged) this.preloadSamples();
     this.applyDrive();
     if (presetChanged) {
       this.teardown808();
@@ -340,6 +357,58 @@ export class InstrumentVoice {
         const rel = Math.max(0.05, s.release);
         voiceGain.gain.setTargetAtTime(0, end, rel / 4);
         stopAt = Math.min(t + buf.duration, end + rel * 1.5);
+        const { vib } = makeLfo(sources);
+        if (vib) vib.connect(src.detune);
+        src.start(t);
+        sources.unshift(src);
+        for (const x of sources) if (x !== src) x.start(t);
+        break;
+      }
+      case "sampler": {
+        const inst = sampledInstrument(this.track.sample);
+        const sp = playablePitch(inst, pitch);
+        const zone = pickZone(inst, sp, ev.velocity);
+        const buf = loadedSample(zone.file);
+        if (!buf) {
+          // Not decoded yet (prepare() loads everything before playback; this only happens for a
+          // live note played the instant an instrument is chosen): load it, skip this note.
+          void loadInstrument(this.ctx, inst, [sp]);
+          voiceGain.disconnect();
+          return;
+        }
+        const src = c.createBufferSource();
+        src.buffer = buf;
+        const rate = zoneRate(zone, sp);
+        src.playbackRate.value = rate;
+        if (zone.loop && inst.sustain) {
+          src.loop = true;
+          src.loopStart = zone.loop[0];
+          src.loopEnd = zone.loop[1];
+        }
+        let head: AudioNode = src;
+        // Filter only when used (an open filter would still cost CPU per note).
+        const cutoff = Math.min(20000, s.cutoff);
+        if (cutoff < 18000 || (s.filterEnv ?? 0) > 0) {
+          const lp = c.createBiquadFilter();
+          lp.type = "lowpass";
+          lp.Q.value = Math.max(0.1, s.resonance ?? 0.5);
+          // Single-layer instruments: softer notes a little darker, like the real thing.
+          lp.frequency.value = Math.max(80, cutoff * (zone.vel ? 1 : 0.55 + ev.velocity * 0.6));
+          if ((s.filterEnv ?? 0) > 0) filterEnv(lp, t, end, s, ev.velocity);
+          head.connect(lp);
+          head = lp;
+        }
+        head.connect(voiceGain);
+        // Velocity: perceptual curve, louder layers already carry their own timbre.
+        const amp = (0.18 + 0.82 * Math.pow(ev.velocity, 1.4)) * 0.9;
+        const atk = Math.max(0.002, s.attack);
+        voiceGain.gain.setValueAtTime(0, t);
+        voiceGain.gain.linearRampToValueAtTime(amp, t + atk);
+        if (s.sustain < 0.999 && s.decay > 0) voiceGain.gain.setTargetAtTime(amp * Math.max(0, s.sustain), t + atk, Math.max(0.01, s.decay) / 3);
+        const rel = Math.max(0.03, Math.max(s.release, 0.03));
+        voiceGain.gain.setTargetAtTime(0, end, rel / 4);
+        const natural = src.loop ? Infinity : t + buf.duration / rate;
+        stopAt = Math.min(natural, end + rel * 1.5);
         const { vib } = makeLfo(sources);
         if (vib) vib.connect(src.detune);
         src.start(t);

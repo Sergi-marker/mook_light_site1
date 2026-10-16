@@ -2,6 +2,7 @@ import { Recorder, type InputInfo } from "../../audio/recorder.ts";
 import type { App, View } from "../app.ts";
 import { desktop } from "../app.ts";
 import { h } from "../dom.ts";
+import { SAMPLED_INSTRUMENTS } from "../../core/sampleLibrary.ts";
 import type { AppSettings } from "../persistence.ts";
 
 const LATENCY_OPTIONS: { value: AppSettings["latency"]; label: string }[] = [
@@ -94,7 +95,10 @@ export function createSettingsView(app: App): View {
       h("div", { class: "form-row" }, h("label", {}, "Modèle"), model)),
     h("div", { class: "card" }, h("h3", {}, "Interface"), h("div", { class: "form-row" }, h("label", {}, "Mode"), mode)),
     h("div", { class: "card" }, h("h3", {}, "Raccourcis"),
-      h("ul", { class: "shortcuts" }, ...[["Espace", "Play / Stop"], ["R", "Record / Stop record"], ["Entrée", "Retour au début"], ["Ctrl+S", "Sauvegarder"], ["Ctrl+Shift+S", "Sauvegarder sous"], ["Ctrl+O", "Ouvrir"], ["Ctrl+Z", "Annuler"], ["Ctrl+Shift+Z / Ctrl+Y", "Rétablir"], ["M / S", "Mute / Solo de la piste sélectionnée"], ["Alt+1…9", "Changer de page"], ["Piano roll", "Suppr, Ctrl+C/V/D/A, ↑↓←→, L = slide"]].map(([k, v]) => h("li", {}, h("kbd", {}, k), " ", v)))));
+      h("ul", { class: "shortcuts" }, ...[["Espace", "Play / Stop"], ["R", "Record / Stop record"], ["Entrée", "Retour au début"], ["Ctrl+S", "Sauvegarder"], ["Ctrl+Shift+S", "Sauvegarder sous"], ["Ctrl+O", "Ouvrir"], ["Ctrl+Z", "Annuler"], ["Ctrl+Shift+Z / Ctrl+Y", "Rétablir"], ["M / S", "Mute / Solo de la piste sélectionnée"], ["Alt+1…9", "Changer de page"], ["Piano roll", "Suppr, Ctrl+C/V/D/A, ↑↓←→, L = slide"]].map(([k, v]) => h("li", {}, h("kbd", {}, k), " ", v)))),
+    h("div", { class: "card" }, h("h3", {}, "Crédits — instruments enregistrés"),
+      h("p", { class: "muted small" }, "Les instruments réels (moteur « Instrument réel ») sont des enregistrements libres de droits pour un usage commercial : vous pouvez vendre et diffuser les beats faits avec. Merci aux auteurs :"),
+      h("ul", { class: "credits" }, ...SAMPLED_INSTRUMENTS.filter((i) => i.id !== "strings").map((i) => h("li", {}, h("strong", {}, i.name), ` — ${i.credit} · ${i.license}`)))));
   let tick = 0;
   function renderStats(): void {
     const lat = engine.getLatency();
