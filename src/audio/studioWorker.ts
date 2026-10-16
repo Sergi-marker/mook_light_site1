@@ -9,7 +9,7 @@ import { measure } from "../core/dsp/loudness.ts";
 export type StudioRequest =
   | { id: number; op: "pitch"; data: Float32Array; sr: number; params: AutoPitchParams }
   | { id: number; op: "clean"; data: Float32Array; sr: number; level: Exclude<CleanLevel, "off"> }
-  | { id: number; op: "process"; data: Float32Array; sr: number; clean: CleanLevel; pitch: AutoPitchParams | null }
+  | { id: number; op: "process"; data: Float32Array; sr: number; clean: CleanLevel; pitch: AutoPitchParams | null; profile?: Float32Array | null }
   | { id: number; op: "analyze"; data: Float32Array; sr: number }
   | { id: number; op: "measure"; channels: Float32Array[]; sr: number };
 
@@ -31,7 +31,7 @@ scope.onmessage = (e) => {
       }
       case "process": {
         let data = r.data;
-        if (r.clean !== "off") data = studioDenoise(data, r.sr, r.clean).output;
+        if (r.clean !== "off") data = studioDenoise(data, r.sr, r.clean, true, r.profile).output;
         if (r.pitch) data = studioPitchCorrect(data, r.sr, r.pitch).output;
         scope.postMessage({ id: r.id, output: data }, [data.buffer]);
         break;

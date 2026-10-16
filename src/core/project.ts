@@ -59,6 +59,7 @@ export const EFFECT_DEFAULTS: Record<EffectType, Effect["params"]> = {
   autopitch: { preset: "natural", correction: 45, retuneMs: 120, humanize: 60, formant: 0, useProjectKey: true, root: 0, scale: "minor" },
   leveler: { targetDb: -18, maxDb: 9, speedMs: 400, amount: 50 },
   width: { width: 1.3 },
+  dehum: { freq: 50, harmonics: 4 },
 };
 
 function channel(id: string, name: string, kind: ChannelKind, output: string, extra: Partial<Channel> = {}): Channel {

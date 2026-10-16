@@ -286,6 +286,37 @@ export function buildEffect(ctx: BaseAudioContext, e: Effect, env: EffectEnv): E
     case "leveler":
       if (!env.workletReady) return passThrough(ctx, e);
       return workletInsert(ctx, e, env, (x) => x.params);
+    case "dehum": {
+      // Mains hum removal: narrow notches at the fundamental (50 / 60 Hz) and its harmonics.
+      // Native biquads → zero latency, transparent on the voice (each notch is ~3 Hz wide).
+      const input = ctx.createGain();
+      const notches = Array.from({ length: 6 }, () => {
+        const f = ctx.createBiquadFilter();
+        f.type = "notch";
+        return f;
+      });
+      let last: AudioNode = input;
+      for (const n of notches) last = last.connect(n);
+      let bypass = false;
+      let cur = e;
+      const apply = (x: Effect) => {
+        cur = x;
+        const f0 = num(x.params.freq, 50) >= 55 ? 60 : 50;
+        const count = Math.max(1, Math.min(6, Math.round(num(x.params.harmonics, 4))));
+        notches.forEach((n, i) => {
+          const active = !bypass && i < count;
+          // An inactive notch is parked far above the audio band with a tiny width.
+          n.frequency.setValueAtTime(active ? f0 * (i + 1) : 22000, t());
+          n.Q.setValueAtTime(active ? 18 + i * 6 : 1000, t());
+        });
+      };
+      apply(e);
+      return {
+        id: e.id, type: e.type, input, output: notches[notches.length - 1], update: apply,
+        setBypass: (b) => { bypass = b; apply(cur); },
+        dispose: () => [input, ...notches].forEach((n) => n.disconnect()),
+      };
+    }
     case "width": {
       // Stereo width (mid/side): L' = L·a + R·b, R' = R·a + L·b with a = (1+w)/2, b = (1−w)/2.
       // w = 0 → mono, 1 → unchanged, 2 → extra wide. Zero latency.

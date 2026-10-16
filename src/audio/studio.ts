@@ -43,12 +43,12 @@ function call(msg: Record<string, unknown>, transfer: Transferable[] = []): Prom
 }
 
 /** STUDIO processing of a take: optional spectral clean, then optional PSOLA pitch correction. */
-export async function processTake(data: Float32Array, sr: number, clean: CleanLevel, pitch: AutoPitchParams | null): Promise<Float32Array> {
+export async function processTake(data: Float32Array, sr: number, clean: CleanLevel, pitch: AutoPitchParams | null, profile: Float32Array | null = null): Promise<Float32Array> {
   const copy = data.slice();
-  const r = call({ op: "process", data: copy, sr, clean, pitch }, [copy.buffer]);
+  const r = call({ op: "process", data: copy, sr, clean, pitch, profile }, [copy.buffer]);
   if (r) return (await r).output as Float32Array;
   let d = data;
-  if (clean !== "off") d = studioDenoise(d, sr, clean).output;
+  if (clean !== "off") d = studioDenoise(d, sr, clean, true, profile).output;
   if (pitch) d = studioPitchCorrect(d, sr, pitch).output;
   return d;
 }

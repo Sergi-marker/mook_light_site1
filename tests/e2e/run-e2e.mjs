@@ -593,7 +593,9 @@ await step("MIDI: keyboard plays the selected instrument; REC MIDI writes notes;
   await page.click("text=● REC MIDI");
   await evalApp(() => { window.__app.engine.setMode("pattern"); });
   await page.click(".btn-play");
-  await page.waitForTimeout(300);
+  // play() first prepares the notes (piano buffers / samples), then starts the transport.
+  await page.waitForFunction(() => window.__app.engine.isPlaying, null, { timeout: 10000 });
+  await page.waitForTimeout(100);
   const ins = (await state()).instruments.find((i) => i.name === "Piano").id;
   const before = (await state()).patterns.find((p) => p.id === (/** @type any */ (null) ?? undefined) || true) && (await evalApp((id) => { const s = window.__app.store.getState(); return s.patterns.find((x) => x.id === s.currentPatternId).notes[id]?.length ?? 0; }, ins));
   await evalApp(() => window.__midiSend([0x90, 65, 100]));

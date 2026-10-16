@@ -136,14 +136,16 @@ export function defaultChainFor(role: VocalRole): ChainPreset {
  */
 export function buildChain(preset: ChainPreset, current: Effect[]): Effect[] {
   const used = new Set<string>();
-  return preset.chain.map((c) => {
+  // Room-specific fixes from the MIC CHECK (anti-hum) are kept in front of any preset chain.
+  const keep = current.filter((e) => e.type === "dehum");
+  return [...keep, ...preset.chain.map((c) => {
     const ex = current.find((e) => e.type === c.type && !used.has(e.id));
     if (ex) {
       used.add(ex.id);
       return { ...ex, enabled: c.enabled, params: { ...effect(c.type).params, ...(c.params ?? {}) } };
     }
     return effect(c.type, c.params ?? {}, c.enabled);
-  });
+  })];
 }
 
 /** Deep copy of an insert chain with fresh effect ids (copy / paste between channels). */

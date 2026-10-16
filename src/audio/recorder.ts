@@ -23,6 +23,9 @@ export interface RecordingOptions {
   punch?: [number, number];
 }
 
+/** Which input of the audio interface feeds the recording. */
+export type InputChannel = "auto" | "left" | "right" | "mix";
+
 export interface RecordedTake {
   data: Float32Array;
   sampleRate: number;
@@ -37,6 +40,19 @@ export class Recorder {
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private tap: AudioWorkletNode | null = null;
+  // Per-channel routing: audio interfaces expose their inputs as one stereo device (input 1 =
+  // left, input 2 = right). Mixing both (the old behaviour, and what Windows does when asked for
+  // mono) halves the voice and adds the hiss of the unused input. We pick the right one.
+  private splitter: ChannelSplitterNode | null = null;
+  private chanGains: [GainNode, GainNode] | null = null;
+  private mono: GainNode | null = null;
+  private analysers: [AnalyserNode, AnalyserNode] | null = null;
+  private chanTimer: ReturnType<typeof setInterval> | null = null;
+  private chanPeakDb: [number, number] = [-120, -120];
+  /** Requested input channel ("auto" = detect where the microphone is). */
+  inputChannel: InputChannel = "auto";
+  /** Channel actually used, number of input channels, recent levels (dBFS). */
+  channelState: { count: number; used: Exclude<InputChannel, "auto">; levelsDb: [number, number] } = { count: 1, used: "left", levelsDb: [-120, -120] };
   private monitorTarget: string | null = null;
   private chunks: { frame: number; data: Float32Array }[] = [];
   private recordFrame = -1;
@@ -88,7 +104,7 @@ export class Recorder {
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
-          channelCount: { ideal: 1 },
+          channelCount: { ideal: 2 },
           sampleRate: ctx.sampleRate,
         },
       });
@@ -109,7 +125,24 @@ export class Recorder {
     this.source = ctx.createMediaStreamSource(this.stream);
     this.tap = new AudioWorkletNode(ctx, "bs-recorder", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: "explicit" });
     this.tap.port.onmessage = (e: MessageEvent) => this.onTap(e.data as { frame?: number; data?: Float32Array; level?: number });
-    this.source.connect(this.tap);
+    const count = Math.max(1, Math.min(2, Number(settings.channelCount) || this.source.channelCount || 1));
+    this.splitter = ctx.createChannelSplitter(2);
+    this.chanGains = [ctx.createGain(), ctx.createGain()];
+    this.mono = ctx.createGain();
+    this.mono.channelCount = 1;
+    this.mono.channelCountMode = "explicit";
+    this.analysers = [ctx.createAnalyser(), ctx.createAnalyser()];
+    this.source.connect(this.splitter);
+    for (const i of [0, 1] as const) {
+      this.splitter.connect(this.chanGains[i], i).connect(this.mono);
+      this.splitter.connect(this.analysers[i], i);
+      this.analysers[i].fftSize = 2048;
+    }
+    this.mono.connect(this.tap);
+    this.channelState = { count, used: "left", levelsDb: [-120, -120] };
+    this.chanPeakDb = [-120, -120];
+    this.applyChannel(count === 1 ? "left" : this.inputChannel === "auto" ? "left" : this.inputChannel);
+    this.chanTimer = setInterval(() => this.watchChannels(), 200);
     // Keep the tap pulled by the graph even when not monitoring.
     const sink = ctx.createGain();
     sink.gain.value = 0;
@@ -121,6 +154,12 @@ export class Recorder {
   onDisconnect: (() => void) | null = null;
 
   close(): void {
+    if (this.chanTimer) clearInterval(this.chanTimer);
+    this.chanTimer = null;
+    for (const n of [this.splitter, this.mono, ...(this.chanGains ?? []), ...(this.analysers ?? [])]) n?.disconnect();
+    this.splitter = this.mono = null;
+    this.chanGains = null;
+    this.analysers = null;
     this.stopCapture();
     this.tap?.port.postMessage({ dispose: true });
     this.tap?.disconnect();
@@ -130,6 +169,50 @@ export class Recorder {
     this.source = null;
     this.stream = null;
     this.level = 0;
+  }
+
+  /** Choose the input channel (user setting). */
+  setInputChannel(c: InputChannel): void {
+    this.inputChannel = c;
+    if (!this.chanGains) return;
+    if (c !== "auto") this.applyChannel(this.channelState.count === 1 ? "left" : c);
+    else this.watchChannels(true);
+  }
+
+  private applyChannel(used: Exclude<InputChannel, "auto">): void {
+    if (!this.chanGains) return;
+    const [l, r] = used === "left" ? [1, 0] : used === "right" ? [0, 1] : [0.5, 0.5];
+    const t = this.engine.context!.currentTime;
+    this.chanGains[0].gain.setTargetAtTime(l, t, 0.01);
+    this.chanGains[1].gain.setTargetAtTime(r, t, 0.01);
+    this.channelState.used = used;
+  }
+
+  /**
+   * Measure each input; in "auto", use the input that carries the voice: when one input is
+   * ≥ 12 dB louder than the other (an empty interface input only carries preamp hiss), only
+   * that one is recorded. Never switches during a take.
+   */
+  private watchChannels(force = false): void {
+    if (!this.analysers) return;
+    const buf = new Float32Array(2048);
+    for (const i of [0, 1] as const) {
+      this.analysers[i].getFloatTimeDomainData(buf);
+      let pk = 0;
+      for (const x of buf) pk = Math.max(pk, Math.abs(x));
+      const db = pk > 1e-6 ? 20 * Math.log10(pk) : -120;
+      // Fast attack, slow decay: remembers the last time someone spoke on that input.
+      this.chanPeakDb[i] = Math.max(db, this.chanPeakDb[i] - 0.4);
+    }
+    this.channelState.levelsDb = [Math.round(this.chanPeakDb[0]), Math.round(this.chanPeakDb[1])];
+    if (this.inputChannel !== "auto" || (this.opts && !force)) return;
+    const [l, r] = this.chanPeakDb;
+    let used: Exclude<InputChannel, "auto"> = "mix";
+    if (this.channelState.count === 1 || r < -90) used = "left";
+    else if (l < -90) used = "right";
+    else if (l - r >= 12) used = "left";
+    else if (r - l >= 12) used = "right";
+    if (used !== this.channelState.used) this.applyChannel(used);
   }
 
   /** Route the (raw) microphone into a vocal channel so it is heard through its live chain. */

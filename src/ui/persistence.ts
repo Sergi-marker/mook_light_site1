@@ -193,10 +193,16 @@ export interface AppSettings {
   /** Optional Anthropic API key for the online song assistant (stored locally only). */
   aiApiKey: string;
   aiModel: string;
+  /** Input of the audio interface used for recording. */
+  inputChannel: "auto" | "left" | "right" | "mix";
+  /** Clean every new take automatically (non-destructive: RAW is kept). */
+  autoCleanTakes: boolean;
+  /** Last MIC CHECK: room noise spectrum and the cleaning level it recommended. */
+  micCheck: { at: string; sampleRate: number; profile: number[]; clean: "low" | "medium" | "high"; noiseFloorDb: number; snrDb: number } | null;
 }
 
 const SETTINGS_KEY = "bs.settings";
-export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5" };
+export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5", inputChannel: "auto", autoCleanTakes: true, micCheck: null };
 
 export function loadSettings(): AppSettings {
   try {

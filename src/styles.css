@@ -335,3 +335,13 @@ textarea.lyrics { width: 100%; box-sizing: border-box; background: #0f121a; colo
 .style-chip:hover { border-color: var(--accent); }
 .style-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .style-desc { margin: 10px 0 6px; padding: 8px 12px; border-left: 3px solid var(--accent); background: rgba(124, 92, 255, 0.08); border-radius: 4px; }
+
+/* Mic check */
+label.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; }
+.mic-test { border-left: 4px solid var(--accent); }
+.mic-test.verdict-excellent, .mic-test.verdict-good { border-left-color: var(--ok); }
+.mic-test.verdict-noisy { border-left-color: var(--warn); }
+.mic-test.verdict-bad { border-left-color: var(--danger); }
+.mic-test.running .mic-test-step { font-size: 16px; font-weight: 600; animation: mic-pulse 1.2s ease-in-out infinite; }
+.mic-test ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
+@keyframes mic-pulse { 50% { opacity: .55; } }

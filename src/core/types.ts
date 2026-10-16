@@ -233,7 +233,7 @@ export interface VocalTrack {
 
 export type EffectType =
   | "eq" | "compressor" | "limiter" | "saturation" | "distortion" | "deesser"
-  | "gate" | "reverb" | "delay" | "denoise" | "autopitch" | "leveler" | "width";
+  | "gate" | "reverb" | "delay" | "denoise" | "autopitch" | "leveler" | "width" | "dehum";
 
 export type ParamValue = number | string | boolean;
 

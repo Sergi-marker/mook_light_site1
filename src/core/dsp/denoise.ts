@@ -68,11 +68,45 @@ export interface StudioDenoiseResult {
   reductionDb: number;
 }
 
-export function studioDenoise(data: Float32Array, _sr: number, level: Exclude<CleanLevel, "off">, reduceSilence = true): StudioDenoiseResult {
-  const cfg = CLEAN_LEVELS[level];
-  const N = 2048, H = 512;
+const STFT_N = 2048, STFT_H = 512;
+
+function sqrtHann(N: number): Float64Array {
   const win = new Float64Array(N);
   for (let i = 0; i < N; i++) win[i] = Math.sqrt(0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N)); // sqrt-Hann (WOLA)
+  return win;
+}
+
+/**
+ * Spectrum of a recording of the room's silence (same STFT as studioDenoise): per-bin
+ * 50th percentile of the magnitudes ×1.5. Measured once by the MIC CHECK, it is far more
+ * accurate than guessing the noise from the pauses of each take.
+ */
+export function noiseProfile(silence: Float32Array): Float32Array {
+  const N = STFT_N, H = STFT_H, bins = N / 2 + 1;
+  const win = sqrtHann(N);
+  const cols: number[][] = Array.from({ length: bins }, () => []);
+  for (let start = 0; start + N <= silence.length; start += H) {
+    const re = new Float64Array(N), im = new Float64Array(N);
+    for (let i = 0; i < N; i++) re[i] = silence[start + i] * win[i];
+    fft(re, im);
+    for (let k = 0; k < bins; k++) cols[k].push(Math.hypot(re[k], im[k]));
+  }
+  const out = new Float32Array(bins);
+  for (let k = 0; k < bins; k++) {
+    const c = cols[k].sort((a, b) => a - b);
+    out[k] = c.length ? c[Math.floor(c.length * 0.5)] * 1.5 : 0;
+  }
+  return out;
+}
+
+/**
+ * @param profile optional room-noise spectrum from noiseProfile() (MIC CHECK); otherwise the
+ *   noise is estimated from the quietest frames of the take itself.
+ */
+export function studioDenoise(data: Float32Array, _sr: number, level: Exclude<CleanLevel, "off">, reduceSilence = true, profile?: Float32Array | null): StudioDenoiseResult {
+  const cfg = CLEAN_LEVELS[level];
+  const N = STFT_N, H = STFT_H;
+  const win = sqrtHann(N);
   const bins = N / 2 + 1;
   const frames = Math.max(1, Math.ceil((data.length + N) / H));
   const mags: Float32Array[] = [];
@@ -109,6 +143,8 @@ export function studioDenoise(data: Float32Array, _sr: number, level: Exclude<Cl
     col.sort((a, b) => a - b);
     noise[k] = col[Math.floor(col.length * 0.15)] * 1.5;
   }
+  // A measured room profile wins where it is higher (constant hiss / hum the take never let rest).
+  if (profile && profile.length === bins) for (let k = 0; k < bins; k++) noise[k] = Math.max(noise[k] * 0.5, profile[k]);
   const noiseEnergy = noise.reduce((s, x) => s + x * x, 0);
   const minGain = Math.pow(10, -cfg.maxReductionDb / 20);
   const silenceGain = Math.pow(10, -cfg.silenceDb / 20);

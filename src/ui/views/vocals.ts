@@ -7,6 +7,7 @@ import { compTakes, takeScores, type CompSegment } from "../../core/ai/takeComp.
 import { buildChain, VOCAL_CHAIN_PRESETS, type ChainPreset } from "../../core/effectPresets.ts";
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../../core/dsp/autopitch.ts";
 import { integratedLoudness } from "../../core/dsp/loudness.ts";
+import { analyzeMicCheck, type MicCheckResult } from "../../core/dsp/micCheck.ts";
 import type { VoiceAnalysis, VoiceRecommendation } from "../../core/dsp/voiceAnalysis.ts";
 import { keyLabel } from "../../core/music.ts";
 import { effect, getChannel, secondsToSteps, stepsPerBarOf, stepsToSeconds } from "../../core/project.ts";
@@ -28,6 +29,7 @@ export function createVocalsView(app: App): View {
   let analysis: { a: VoiceAnalysis; r: VoiceRecommendation; source: string; trackId: string; previous: Effect[] } | null = null;
   let comp: { trackId: string; segments: CompSegment[]; choice: Record<number, string> } | null = null;
   let punch = false;
+  let micTest: { phase: "silence" | "voice" | "analyzing" | "done"; result?: MicCheckResult } | null = null;
   let stopPlay: (() => void) | null = null;
 
   const inMeter = meter();
@@ -45,6 +47,74 @@ export function createVocalsView(app: App): View {
     inputs = await Recorder.listInputs();
     outputs = await Recorder.listOutputs();
     render();
+  }
+
+  // --- MIC CHECK ---------------------------------------------------------------------------
+  async function runMicTest(): Promise<void> {
+    if (!recorder.isOpen && !(await app.openMic())) return;
+    await refreshDevices();
+    micTest = { phase: "silence" };
+    render();
+    await new Promise((r) => setTimeout(r, 700));
+    const silence = await recorder.captureSnapshot(3);
+    micTest = { phase: "voice" };
+    render();
+    await new Promise((r) => setTimeout(r, 400));
+    const voice = await recorder.captureSnapshot(5);
+    micTest = { phase: "analyzing" };
+    render();
+    await new Promise((r) => setTimeout(r, 30));
+    micTest = { phase: "done", result: analyzeMicCheck(silence.data, voice.data, silence.sampleRate) };
+    render();
+  }
+
+  function applyMicTest(res: MicCheckResult): void {
+    const p = store.getState();
+    const sr = engine.context?.sampleRate ?? 44100;
+    void app.applySettings({ ...app.settings, autoCleanTakes: true, micCheck: { at: new Date().toISOString(), sampleRate: sr, profile: Array.from(res.profile, (x) => Math.round(x * 1e6) / 1e6), clean: res.settings.clean === "off" ? "low" : res.settings.clean, noiseFloorDb: res.noiseFloorDb, snrDb: res.snrDb } });
+    const actions: Action[] = [];
+    // Same room settings on every vocal track.
+    for (const v of p.vocals) {
+      const ch = getChannel(p, v.id)!;
+      let inserts = ch.inserts.map((e) => {
+        if (e.type === "gate") return { ...e, enabled: res.settings.gateThresholdDb !== null, params: { ...e.params, thresholdDb: res.settings.gateThresholdDb ?? e.params.thresholdDb, rangeDb: 18 } };
+        if (e.type === "denoise") return { ...e, enabled: res.settings.liveDenoiseDb !== null, params: { ...e.params, amountDb: res.settings.liveDenoiseDb ?? e.params.amountDb } };
+        if (e.type === "dehum") return { ...e, enabled: res.settings.dehum !== null, params: { ...e.params, freq: String(res.settings.dehum ?? 50) } };
+        return e;
+      });
+      if (res.settings.dehum && !inserts.some((e) => e.type === "dehum")) inserts = [effect("dehum", { freq: String(res.settings.dehum), harmonics: 4 }), ...inserts];
+      actions.push({ type: "setInserts", channelId: v.id, inserts });
+      actions.push({ type: "updateVocalTrack", trackId: v.id, patch: { studio: { ...v.studio, clean: res.settings.clean } } });
+    }
+    app.applyActions(actions, "Réglages du test micro appliqués : porte de bruit, anti-ronflement, nettoyage automatique des prises avec le bruit réel de votre pièce.");
+    micTest = null;
+    render();
+  }
+
+  function micTestCard(): HTMLElement | null {
+    if (!micTest) return null;
+    if (micTest.phase !== "done") {
+      const msg = micTest.phase === "silence" ? "1/2 — SILENCE complet pendant 3 secondes (ne parlez pas, laissez la pièce comme pendant un enregistrement)…"
+        : micTest.phase === "voice" ? "2/2 — Maintenant chantez ou rappez NORMALEMENT pendant 5 secondes, à votre distance habituelle du micro…"
+        : "Analyse…";
+      return h("div", { class: "card mic-test running" }, h("h3", {}, "🎚 Test du micro"), h("p", { class: "mic-test-step" }, msg));
+    }
+    const r = micTest.result!;
+    const label = { excellent: "Excellent", good: "Bon", noisy: "Bruyant", bad: "Très bruyant" }[r.verdict];
+    return h("div", { class: `card mic-test verdict-${r.verdict}` },
+      h("h3", {}, `🎚 Test du micro — ${label}`),
+      h("div", { class: "an-grid" },
+        h("div", { class: "an-row" }, h("span", {}, "Bruit de fond"), h("strong", {}, `${r.noiseFloorDb.toFixed(0)} dBFS`)),
+        h("div", { class: "an-row" }, h("span", {}, "Voix (pic)"), h("strong", {}, `${r.voicePeakDb.toFixed(1)} dBFS`)),
+        h("div", { class: "an-row" }, h("span", {}, "Rapport voix / bruit"), h("strong", {}, `${r.snrDb.toFixed(0)} dB`)),
+        h("div", { class: "an-row" }, h("span", {}, "Ronflement électrique"), h("strong", {}, r.hum ? `${r.hum.freq} Hz` : "aucun")),
+        h("div", { class: "an-row" }, h("span", {}, "Entrée utilisée"), h("strong", {}, ({ left: "entrée 1", right: "entrée 2", mix: "entrées 1+2" } as const)[recorder.channelState.used]))),
+      h("ul", {}, ...r.advice.map((a) => h("li", {}, a))),
+      h("p", { class: "hint" }, `Réglages proposés : porte de bruit ${r.settings.gateThresholdDb === null ? "désactivée" : `à ${r.settings.gateThresholdDb} dB`} · réduction de bruit live ${r.settings.liveDenoiseDb ?? "off"} · anti-ronflement ${r.settings.dehum ? `${r.settings.dehum} Hz` : "off"} · nettoyage automatique des prises ${r.settings.clean.toUpperCase()} avec le bruit mesuré de votre pièce.`),
+      h("div", { class: "button-row" },
+        h("button", { class: "btn btn-primary", onclick: () => applyMicTest(r) }, "Appliquer les réglages"),
+        h("button", { class: "btn", onclick: () => void runMicTest() }, "Refaire le test"),
+        h("button", { class: "btn", onclick: () => { micTest = null; render(); } }, "Fermer")));
   }
 
   // --- AUTO VOICE ----------------------------------------------------------------------
@@ -298,8 +368,22 @@ export function createVocalsView(app: App): View {
           render();
         } }, bypassed ? "RAW" : "PROCESSED") : null,
         latencyEl),
+      h("div", { class: "row-inline" },
+        h("label", { class: "field", title: "Sur une carte son, l'entrée 1 et l'entrée 2 arrivent séparément. Auto choisit celle où se trouve votre micro (sans le souffle de l'entrée vide)." },
+          h("span", { class: "slider-label" }, "ENTRÉE DE LA CARTE"),
+          h("select", { "aria-label": "Entrée de la carte son", onchange: (e: Event) => void app.applySettings({ ...app.settings, inputChannel: (e.target as HTMLSelectElement).value as typeof app.settings.inputChannel }) },
+            ...([["auto", "Auto (recommandé)"], ["left", "Entrée 1"], ["right", "Entrée 2"], ["mix", "Les deux"]] as const).map(([k, l]) => h("option", { value: k, selected: app.settings.inputChannel === k }, l)))),
+        recorder.isOpen ? h("span", { class: "hint chan-state" }, recorder.channelState.count < 2 ? "Entrée mono détectée"
+          : `Utilisée : ${({ left: "entrée 1", right: "entrée 2", mix: "entrées 1+2" } as const)[recorder.channelState.used]} · niveaux ${recorder.channelState.levelsDb[0]} / ${recorder.channelState.levelsDb[1]} dB`) : null,
+        h("label", { class: "check", title: "Après chaque prise, AI VOICE CLEAN retire le bruit de fond (avec le bruit mesuré par le test micro). La prise brute reste disponible." },
+          h("input", { type: "checkbox", checked: app.settings.autoCleanTakes, onchange: (e: Event) => void app.applySettings({ ...app.settings, autoCleanTakes: (e.target as HTMLInputElement).checked }) }),
+          " Nettoyage auto des prises"),
+        h("button", { class: "btn btn-primary", disabled: !!micTest && micTest.phase !== "done", title: "8 secondes : mesure le bruit de votre pièce et votre niveau, puis règle tout automatiquement", onclick: () => void runMicTest() }, "🎚 Test du micro"),
+        app.settings.micCheck ? h("span", { class: "hint" }, `Dernier test : rapport voix/bruit ${app.settings.micCheck.snrDb.toFixed(0)} dB`) : null),
       h("p", { class: "hint" }, "Le monitoring passe par toute la chaîne temps réel (gate, EQ, de-esser, compresseur, AUTO PITCH LIVE…). Les prises sont toujours enregistrées brutes : le traitement reste modifiable après coup."),
     ));
+    const mt = micTestCard();
+    if (mt) body.append(mt);
 
     // Recording card
     const m = p.metronome;

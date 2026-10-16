@@ -120,6 +120,12 @@ await step("microphone + recording: permission granted by the app, monitoring, t
   assert.equal(v.clips[0].start, 16);
   assert.ok(v.clips[0].duration > 3, `duration ${v.clips[0].duration}`);
   await evalApp(() => window.__app.recorder.setMonitoring(null));
+  // Automatic cleaning of the take (setting on by default), raw take kept.
+  await page.waitForFunction(() => window.__app.store.getState().vocals.some((x) => x.takes.some((t) => t.processedAssetId)), null, { timeout: 120000 });
+  const auto = await evalApp(() => { const x = window.__app.store.getState().vocals.find((y) => y.takes.length); return { w: x.takes[0].processedWith, play: x.playProcessed, ch: window.__app.recorder.channelState }; });
+  console.log(`  # auto-clean: ${auto.w} · input ${auto.ch.count} ch, used ${auto.ch.used}`);
+  assert.match(auto.w, /"clean":"low"/);
+  assert.equal(auto.play, true);
 });
 
 await step("vocal processing: STUDIO pitch correction puts the voice in key, AI VOICE CLEAN applied", async () => {
@@ -127,7 +133,7 @@ await step("vocal processing: STUDIO pitch correction puts the voice in key, AI 
   await page.click('.presets button:has-text("Hard Tune")'); // 100 % correction
   await page.click('.row-inline button:has-text("MEDIUM")');
   await page.click("text=Appliquer le traitement STUDIO");
-  await page.waitForFunction(() => window.__app.store.getState().vocals.some((x) => x.takes.some((t) => t.processedAssetId)), null, { timeout: 120000 });
+  await page.waitForFunction(() => window.__app.store.getState().vocals.some((x) => x.takes.some((t) => /"clean":"medium"/.test(t.processedWith ?? ""))), null, { timeout: 120000 });
   await page.waitForFunction(() => !window.__app.busy, null, { timeout: 120000 });
   const res = await evalApp(async () => {
     const { pitchTrack, freqToMidi } = await import("/app/core/dsp/yin.js");
@@ -144,6 +150,22 @@ await step("vocal processing: STUDIO pitch correction puts the voice in key, AI 
   assert.ok(Math.abs(res.raw - 69.46) < 0.2, `raw ${res.raw}`);
   assert.ok(Math.abs(res.processed - 70) < 0.15, `processed ${res.processed}`);
   assert.match(res.processedWith, /"clean":"medium"/);
+});
+
+await step("mic test: silence + voice capture, verdict and advice, settings applied to the vocal chain", async () => {
+  await page.click("text=🎚 Test du micro");
+  await page.waitForSelector(".mic-test.running", { timeout: 5000 });
+  await page.waitForSelector(".mic-test:not(.running) h3", { timeout: 30000 });
+  const title = await page.textContent(".mic-test h3");
+  const advice = await page.$$eval(".mic-test li", (els) => els.map((e) => e.textContent));
+  console.log(`  # ${title} · ${advice.length} conseil(s) : ${advice[0]}`);
+  assert.match(title, /Test du micro — (Excellent|Bon|Bruyant|Très bruyant)/);
+  assert.ok(advice.length >= 2);
+  await page.click(".mic-test >> text=Appliquer les réglages");
+  await page.waitForFunction(() => !!window.__app.settings.micCheck, null, { timeout: 5000 });
+  const mc = await evalApp(() => ({ s: window.__app.settings.micCheck, sr: window.__app.engine.context.sampleRate }));
+  assert.equal(mc.s.sampleRate, mc.sr);
+  assert.equal(mc.s.profile.length, 1025);
 });
 
 await step("export MP3 192 kbps through the UI (LAME), decodable file", async () => {

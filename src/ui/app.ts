@@ -169,6 +169,7 @@ export class App {
     if (next.outputDevice !== prev.outputDevice && this.engine.isReady) {
       await this.engine.setOutputDevice(next.outputDevice).catch((e) => toast(`Audio device unavailable: ${(e as Error).message}`, "error"));
     }
+    if (next.inputChannel !== prev.inputChannel) this.recorder.setInputChannel(next.inputChannel);
     if (next.inputDevice !== prev.inputDevice) {
       this.recorder.inputDeviceId = next.inputDevice;
       if (this.recorder.isOpen) await this.openMic().catch(() => {});
@@ -362,6 +363,7 @@ export class App {
   async openMic(): Promise<boolean> {
     if (!(await this.ensureAudio())) return false;
     try {
+      this.recorder.inputChannel = this.settings.inputChannel;
       await this.recorder.open(this.settings.inputDevice);
       this.emit();
       return true;
@@ -419,7 +421,39 @@ export class App {
     const advice = clipped
       ? " ⚠ Saturation détectée : baissez le gain du micro (sur l'interface ou dans Windows) et refaites la prise."
       : quiet ? ` ⚠ Niveau très faible (pic ${(20 * Math.log10(Math.max(1e-6, take.peak))).toFixed(0)} dBFS) : rapprochez-vous du micro ou montez son gain.` : "";
-    toast(`${t.name} enregistrée sur « ${track.name} » (${(take.data.length / take.sampleRate).toFixed(1)} s, latence compensée ${(take.compensation * 1000).toFixed(0)} ms).${advice}`, clipped || quiet ? "error" : "ok", 8000);
+    toast(`${t.name} enregistrée sur « ${track.name} » (${(take.data.length / take.sampleRate).toFixed(1)} s, latence compensée ${(take.compensation * 1000).toFixed(0)} ms).${advice}${this.settings.autoCleanTakes ? " Nettoyage automatique en cours (la version brute est conservée)…" : ""}`, clipped || quiet ? "error" : "ok", 8000);
+    if (this.settings.autoCleanTakes) void this.autoCleanTake(track.id, t.id).catch((e) => toast(`Nettoyage automatique impossible : ${(e as Error).message}`, "error"));
+  }
+
+  /** Room-noise spectrum from the last MIC CHECK (only valid at the current sample rate). */
+  roomProfile(): Float32Array | null {
+    const m = this.settings.micCheck;
+    const sr = this.engine.context?.sampleRate;
+    return m && sr && m.sampleRate === sr ? Float32Array.from(m.profile) : null;
+  }
+
+  /**
+   * Automatic, non-destructive cleaning of a new take (AI VOICE CLEAN with the room profile,
+   * + STUDIO PITCH when enabled). Runs in the worker; RAW stays available.
+   */
+  private async autoCleanTake(trackId: string, takeId: string): Promise<void> {
+    const p = this.store.getState();
+    const v = p.vocals.find((x) => x.id === trackId);
+    const t = v?.takes.find((x) => x.id === takeId);
+    const raw = t && this.takeData(t);
+    if (!v || !t || !raw) return;
+    const clean = v.studio.clean !== "off" ? v.studio.clean : this.settings.micCheck?.clean ?? "low";
+    const pitch = v.studio.pitch.enabled ? { key: p.key, correction: v.studio.pitch.correction, retuneMs: v.studio.pitch.retuneMs, humanize: v.studio.pitch.humanize, formant: v.studio.pitch.formant } : null;
+    const profile = this.roomProfile();
+    const out = await processTake(raw.data, raw.sampleRate, clean, pitch, profile);
+    const id = newId("aud");
+    const wav = encodeWav({ sampleRate: raw.sampleRate, channels: [out] }, 24);
+    this.audioBytes.set(id, wav);
+    this.engine.setAsset(id, this.engine.createBuffer([out], raw.sampleRate));
+    void writeMedia("audio", id, wav);
+    const sig = JSON.stringify({ clean, pitch, key: p.key, room: profile ? this.settings.micCheck?.at : null });
+    this.dispatch({ type: "setTakeProcessed", trackId, takeId, asset: { id, name: `${t.name} (studio)`, sampleRate: raw.sampleRate, frames: out.length, channels: 1 }, processedWith: sig });
+    this.dispatch({ type: "updateVocalTrack", trackId, patch: { playProcessed: true, studio: { ...v.studio, clean } } });
   }
 
   /** Audio data of a take (raw or processed). */
@@ -442,7 +476,8 @@ export class App {
     const preset = AUTO_PITCH_PRESETS[st.pitch.preset as AutoPitchPreset];
     const pitch = st.pitch.enabled ? { key: p.key, correction: st.pitch.correction, retuneMs: st.pitch.retuneMs, humanize: st.pitch.humanize, formant: st.pitch.formant } : null;
     void preset;
-    const sig = JSON.stringify({ clean: st.clean, pitch, key: p.key });
+    const profile = this.roomProfile();
+    const sig = JSON.stringify({ clean: st.clean, pitch, key: p.key, room: profile ? this.settings.micCheck?.at : null });
     await this.task("Traitement STUDIO…", async () => {
       let i = 0;
       for (const t of v.takes) {
@@ -452,7 +487,7 @@ export class App {
         if (t.processedWith === sig && t.processedAssetId && this.engine.getAsset(t.processedAssetId)) continue;
         const raw = this.takeData(t);
         if (!raw) continue;
-        const out = await processTake(raw.data, raw.sampleRate, st.clean, pitch);
+        const out = await processTake(raw.data, raw.sampleRate, st.clean, pitch, profile);
         const id = newId("aud");
         const wav = encodeWav({ sampleRate: raw.sampleRate, channels: [out] }, 24);
         this.audioBytes.set(id, wav);

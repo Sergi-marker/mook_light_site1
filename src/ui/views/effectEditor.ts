@@ -20,7 +20,7 @@ const ratio = (v: number) => `${v.toFixed(1)}:1`;
 export const EFFECT_LABELS: Record<EffectType, string> = {
   eq: "EQ", compressor: "Compressor", limiter: "Limiter", saturation: "Saturation", distortion: "Distortion",
   deesser: "De-Esser", gate: "Noise Gate", reverb: "Reverb", delay: "Delay", denoise: "Noise Reduction (live)",
-  autopitch: "AUTO PITCH (live)", leveler: "AUTO LEVEL / Consistency", width: "Stereo Width",
+  autopitch: "AUTO PITCH (live)", leveler: "AUTO LEVEL / Consistency", width: "Stereo Width", dehum: "Anti-ronflement (50/60 Hz)",
 };
 
 export const EFFECT_SPECS: Record<EffectType, Spec[]> = {
@@ -44,6 +44,7 @@ export const EFFECT_SPECS: Record<EffectType, Spec[]> = {
     { key: "root", label: "Key (manuelle)", kind: "select", options: NOTE_NAMES.map((n, i) => ({ value: String(i), label: n })) },
     { key: "scale", label: "Scale (manuelle)", kind: "select", options: Object.entries(SCALES).map(([k, v]) => ({ value: k, label: v.label })) },
   ],
+  dehum: [{ key: "freq", label: "Secteur", kind: "select", options: [{ value: "50", label: "50 Hz (Europe, Afrique)" }, { value: "60", label: "60 Hz (Amériques)" }] }, r("harmonics", "Harmoniques", 1, 6, 1, (v) => String(v))],
   width: [r("width", "Largeur", 0, 2, 0.01, (v) => (v < 0.02 ? "mono" : `${Math.round(v * 100)}%`))],
   leveler: [r("amount", "Consistency", 0, 100, 1, (v) => `${v}%`), r("targetDb", "Niveau cible", -30, -8, 0.5, db), r("maxDb", "Correction max", 1, 18, 0.5, db), r("speedMs", "Vitesse", 50, 2000, 10, fmtMs)],
 };
@@ -111,4 +112,4 @@ function noteOf(m: number): string {
   return `${NOTE_NAMES[((r % 12) + 12) % 12]}${Math.floor(r / 12) - 1}`;
 }
 
-export const ADDABLE: EffectType[] = ["eq", "compressor", "deesser", "gate", "saturation", "distortion", "limiter", "reverb", "delay", "denoise", "autopitch", "leveler", "width"];
+export const ADDABLE: EffectType[] = ["eq", "compressor", "deesser", "gate", "saturation", "distortion", "limiter", "reverb", "delay", "denoise", "autopitch", "leveler", "width", "dehum"];
