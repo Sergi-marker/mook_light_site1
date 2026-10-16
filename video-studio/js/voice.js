@@ -5,6 +5,7 @@
 // au premier usage puis gardés par le navigateur (stockage privé de l'origine) : ensuite tout marche hors ligne.
 
 import { VOICE_LEAD, plainText } from "./script.js";
+import { fxParams, fxKey, isNeutral, processVoice } from "./voicefx.js";
 
 const PIPER_URL = "https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.5/dist/piper-tts-web.js";
 
@@ -85,26 +86,65 @@ function piper() {
 
 /** Clips déjà générés : clé « voix|texte » → AudioBuffer. Le texte est lu sans les *étoiles* de mise en forme. */
 const cache = new Map();
+/** Clips retraités (hauteur, vitesse, effet) : clé « voix|texte|réglage » → AudioBuffer. */
+const processed = new Map();
 const key = (voiceId, text) => `${voiceId}|${plainText(text)}`;
 const speakable = (s) => s.kind !== "pause" && plainText(s.text) !== "";
+
+/** Réglage de voix en cours : effet, hauteur (demi-tons) et vitesse. */
+let style = fxParams();
+export function setVoiceStyle(fx = "natural", pitch = 0, rate = 1) {
+  style = fxParams(fx, pitch, rate);
+}
+export function voiceStyle() { return style; }
 
 export function cachedClip(voiceId, text) {
   return cache.get(key(voiceId, text)) ?? null;
 }
 
-/**
- * voiceOf(scene) → identifiant de la voix qui lit cette scène (narrateur ou personnage).
- * rate : vitesse de lecture (1 = normale) ; elle raccourcit ou allonge la durée de la voix.
- */
-export function voiceDurations(scenes, voiceOf, rate = 1) {
+/** Clip tel qu'on l'entend : retraité selon le réglage en cours, ou brut (rate = vitesse de lecture à appliquer). */
+export function playableClip(voiceId, text) {
+  const raw = cachedClip(voiceId, text);
+  if (!raw) return null;
+  if (isNeutral(style)) return { buffer: raw, rate: 1 };
+  const p = processed.get(`${key(voiceId, text)}|${fxKey(style)}`);
+  return p ? { buffer: p, rate: 1 } : { buffer: raw, rate: style.rate };
+}
+
+/** voiceOf(scene) → identifiant de la voix qui lit cette scène (narrateur ou personnage). */
+export function voiceDurations(scenes, voiceOf) {
   return scenes.map((s) => {
-    const b = speakable(s) ? cachedClip(voiceOf(s), s.text) : null;
-    return b ? b.duration / rate : null;
+    const c = speakable(s) ? playableClip(voiceOf(s), s.text) : null;
+    return c ? c.buffer.duration / c.rate : null;
   });
 }
 
+/** Scènes dont la voix manque (à générer) ou n'est pas encore retraitée avec le réglage en cours. */
 export function missingCount(scenes, voiceOf) {
-  return scenes.filter((s) => speakable(s) && voiceOf(s) && !cachedClip(voiceOf(s), s.text)).length;
+  return scenes.filter((s) => speakable(s) && voiceOf(s) && (!cachedClip(voiceOf(s), s.text) || needsProcessing(voiceOf(s), s.text))).length;
+}
+
+function needsProcessing(voiceId, text) {
+  return !isNeutral(style) && !processed.has(`${key(voiceId, text)}|${fxKey(style)}`);
+}
+
+/** Applique le réglage de voix en cours aux clips déjà générés. */
+export async function processVoices(scenes, voiceOf, onProgress = () => {}, signal) {
+  if (isNeutral(style)) return 0;
+  const todo = scenes.filter((s) => speakable(s) && voiceOf(s) && cachedClip(voiceOf(s), s.text) && needsProcessing(voiceOf(s), s.text));
+  let done = 0;
+  for (const s of todo) {
+    if (signal?.aborted) throw new Error("ABORTED");
+    onProgress({ phase: "fx", done, total: todo.length });
+    const q = style;
+    const buf = await processVoice(cachedClip(voiceOf(s), s.text), q);
+    if (processed.size > 400) processed.clear();
+    processed.set(`${key(voiceOf(s), s.text)}|${fxKey(q)}`, buf);
+    done++;
+    // Laisse respirer l'interface entre deux phrases.
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return todo.length;
 }
 
 /**
@@ -113,6 +153,7 @@ export function missingCount(scenes, voiceOf) {
  */
 export async function generateVoices(audioCtx, scenes, voiceOf, onProgress = () => {}, signal) {
   const todo = scenes.filter((s) => speakable(s) && voiceOf(s) && !cachedClip(voiceOf(s), s.text));
+  if (!todo.length) return processVoices(scenes, voiceOf, onProgress, signal);
   const needsPiper = todo.some((s) => !isKokoro(voiceOf(s)));
   const tts = needsPiper ? await piper() : null;
   // Le premier appel télécharge le modèle (puis le garde) ; on ne passe pas par tts.download(),
@@ -147,6 +188,7 @@ export async function generateVoices(audioCtx, scenes, voiceOf, onProgress = () 
     done++;
   }
   onProgress({ phase: "speak", done, total: todo.length });
+  await processVoices(scenes, voiceOf, onProgress, signal);
   return todo.length;
 }
 
@@ -163,14 +205,15 @@ export class VoicePlayer {
   disconnect(node) { try { this.out.disconnect(node); } catch { /* déjà fait */ } }
   setVolume(v) { this.out.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); }
 
-  /** items : éléments de la timeline ({ scene, start }) ; voiceOf(scene) : voix utilisée ; rate : vitesse. */
-  start(items, voiceOf, offset = 0, delay = 0.05, rate = 1) {
+  /** items : éléments de la timeline ({ scene, start }) ; voiceOf(scene) : voix utilisée. */
+  start(items, voiceOf, offset = 0, delay = 0.05) {
     this.stop();
     const t0 = this.ctx.currentTime + delay - offset;
     for (const it of items) {
       if (it.scene.kind === "pause") continue;
-      const buf = cachedClip(voiceOf(it.scene), it.scene.text);
-      if (!buf) continue;
+      const clip = playableClip(voiceOf(it.scene), it.scene.text);
+      if (!clip) continue;
+      const { buffer: buf, rate } = clip;
       const begin = it.start + VOICE_LEAD;
       const end = begin + buf.duration / rate;
       if (end <= offset) continue;

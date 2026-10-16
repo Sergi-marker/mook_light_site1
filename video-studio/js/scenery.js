@@ -2,7 +2,7 @@
 // Ils sont dessinés dans le repère de la caméra, autour du personnage : J = figureJoints(…) donne
 // la position à l'écran de ses articulations, J.h sa taille en pixels et J.d le côté où il regarde.
 
-const { sin, cos, PI, max, min, abs } = Math;
+const { sin, cos, PI, min, abs } = Math;
 
 /** Petit hasard stable (même valeur à chaque image) pour placer gouttes, étoiles, silhouettes. */
 const hash = (i) => {
@@ -106,7 +106,7 @@ const BEHIND = {
 
   crowd(ctx, p, J, t) {
     const { h } = J;
-    const [bx, gy] = J.base;
+    const gy = J.base[1];
     const cx = J.hip[0];
     const spots = [[-1.5, 0.8], [1.5, 0.8], [-1.12, 0.9], [1.12, 0.9], [-0.75, 1.0], [0.75, 1.0]];
     spots.forEach(([ox, s], i) => {
@@ -217,7 +217,7 @@ const BEHIND = {
 
   bed(ctx, p, J) {
     const { h, d } = J;
-    const [bx, gy] = J.base;
+    const gy = J.base[1];
     const cx = J.hip[0] + d * h * 0.02, top = gy - h * 0.17;
     const x0 = cx - h * 0.62, x1 = cx + h * 0.62;
     // Tête de lit côté tête.

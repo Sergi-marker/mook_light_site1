@@ -3,11 +3,12 @@
 import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";
 import { drawFigure, PRESETS, SKIN_TONES, morphFrom } from "./figure.js";
-import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS } from "./renderer.js";
+import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS, EFFECTS, TRANSITIONS } from "./renderer.js";
 import { BUILTIN_STYLES, styleFrom, applyStyle } from "./styles.js";
 import { MusicPlayer, MOODS, LANGS, voicesFor, speak, stopSpeaking } from "./audio.js";
 import { recordVideo, bestMimeType } from "./export.js";
-import { NEURAL_VOICES, defaultVoice, voiceByGender, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer } from "./voice.js";
+import { NEURAL_VOICES, defaultVoice, voiceByGender, generateVoices, voiceDurations, missingCount, VoicePlayer, TrackPlayer, setVoiceStyle, cachedClip } from "./voice.js";
+import { VOICE_FX } from "./voicefx.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
 import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi, refundExport } from "./account.js";
@@ -27,11 +28,11 @@ function defaultProject() {
       uiLang: "fr", format: "9:16", theme: "nuit", captionStyle: "words", uppercase: true, captionScale: 1,
       accent: "#ffd84d", handle: "", progressBar: false, wps: 2.4,
       characters: [{ ...PRESETS.penseur.morph }, { ...PRESETS.gris.morph }],
-      voiceMode: "neural", neuralVoice: "", charVoice0: "", charVoice1: "", voiceRate: 1, voiceVol: 1, trackVol: 0.8,
+      voiceMode: "neural", neuralVoice: "", charVoice0: "", charVoice1: "", fps: 30, voiceRate: 1, voiceFx: "natural", voicePitch: 0, voiceVol: 1, trackVol: 0.8,
       voiceLang: "fr", voice: "", rate: 1, pitch: 1,
       music: "melancolie", musicVol: 0.35, mic: false,
       // Décor, sous-titres et marque.
-      backdrop: "none", bgImage: "", captionFont: "montserrat", captionPos: "top", captionBox: "none", captionColor: "#ffffff",
+      backdrop: "none", transition: "auto", bgImage: "", captionFont: "montserrat", captionPos: "top", captionBox: "none", captionColor: "#ffffff",
       speakerLabels: true, hook: "", outro: "", logo: "", logoPos: "tr", logoSize: 0.14,
     },
   };
@@ -81,7 +82,9 @@ const voiceOf = (sc) => (sc.speaker === 0 || sc.speaker === 1 ? charVoice(sc.spe
 const allScenes = () => withBrand(project.scenes, project.settings);
 function computeTimeline() {
   const scenes = allScenes();
-  return timeline(scenes, project.settings.wps, neuralOn() ? voiceDurations(scenes, voiceOf, project.settings.voiceRate) : null);
+  const st = project.settings;
+  setVoiceStyle(st.voiceFx, st.voicePitch, st.voiceRate);
+  return timeline(scenes, st.wps, neuralOn() ? voiceDurations(scenes, voiceOf) : null);
 }
 let tl = computeTimeline();
 let saveTimer = 0;
@@ -188,7 +191,7 @@ function startAudio(offset) {
   music.setVolume(s.musicVol);
   music.start(s.music, offset);
   voices.setVolume(s.voiceVol);
-  if (neuralOn()) voices.start(tl.items, voiceOf, offset, 0.05, s.voiceRate);
+  if (neuralOn()) voices.start(tl.items, voiceOf, offset, 0.05);
   track.setVolume(s.trackVol);
   track.start(offset);
 }
@@ -428,7 +431,9 @@ function scenesPanel() {
       s.kind === "pause" ? null : h("div", { class: "row wrap" },
         h("label", { class: "mini-field" }, h("span", {}, "🎥"), select(s.camera ?? "auto", opts(CAMERAS), (v) => update({ camera: v }))),
         h("label", { class: "mini-field" }, h("span", {}, "🖼"), select(s.bg ?? "auto", bgOptions, (v) => update({ bg: v }))),
-        duo ? null : h("label", { class: "mini-field" }, h("span", {}, "↔"), select(s.pos ?? "auto", opts(POSITIONS), (v) => update({ pos: v })))),
+        duo ? null : h("label", { class: "mini-field" }, h("span", {}, "↔"), select(s.pos ?? "auto", opts(POSITIONS), (v) => update({ pos: v }))),
+        h("label", { class: "mini-field" }, h("span", {}, "✨"), select(s.fx ?? "auto", opts(EFFECTS), (v) => update({ fx: v }))),
+        h("label", { class: "mini-field" }, h("span", {}, "⇄"), select(s.transition ?? "auto", opts(TRANSITIONS), (v) => update({ transition: v })))),
       h("div", { class: "row wrap" },
         h("input", { type: "number", min: "0.5", max: "30", step: "0.5", class: "num", placeholder: t("auto"), value: s.duration ?? "", title: t("duration"),
           onchange: (e) => update({ duration: e.target.value ? Math.max(0.5, Number(e.target.value)) : undefined }) }),
@@ -609,6 +614,7 @@ function stylePanel() {
       h("div", { class: "grid2" },
         field(t("format"), select(s.format, Object.entries(FORMATS).map(([k, v]) => [k, v.label]), (v) => set({ format: v }))),
         field(t("bgColors"), select(s.theme, Object.entries(THEMES).map(([k, v]) => [k, pick(v.label)]), (v) => set({ theme: v }))),
+        field("⇄", select(s.transition ?? "auto", Object.entries(TRANSITIONS).map(([k, v]) => [k, pick(v)]), (v) => set({ transition: v }))),
         field(t("decor"), select(s.backdrop ?? "none", Object.entries(BACKDROPS).filter(([k]) => k !== "image" || s.bgImage).map(([k, v]) => [k, pick(v)]), (v) => set({ backdrop: v })))),
       h("div", { class: "row wrap" },
         imagePicker(t("bgImport"), (url) => setAndRender({ bgImage: url, backdrop: "image" }), 1920, "image/jpeg"),
@@ -662,7 +668,7 @@ async function ensureVoices(status) {
   voiceAbort = new AbortController();
   try {
     await generateVoices(audioCtx, allScenes(), voiceOf, (p) => {
-      status.textContent = p.phase === "download" ? `${t("voiceDownload")} ${p.percent ?? 0} %` : `${t("voiceGenerating")} ${p.done}/${p.total}`;
+      status.textContent = p.phase === "download" ? `${t("voiceDownload")} ${p.percent ?? 0} %` : p.phase === "fx" ? `${t("voiceFxApplying")} ${p.done}/${p.total}` : `${t("voiceGenerating")} ${p.done}/${p.total}`;
     }, voiceAbort.signal);
     rebuildTimeline();
     status.textContent = `${t("voiceReady")} · ${fmtTime(tl.total)}`;
@@ -691,6 +697,18 @@ function soundPanel() {
   // Voix neuronale : enregistrée dans la vidéo.
   const status = h("div", { class: "status" }, voiceStatusText());
   const neuralBox = h("div", { class: "stack" });
+  // Nouveau réglage de voix : on retraite les phrases déjà générées (quelques instants), sans les régénérer.
+  let restyleTimer = null;
+  const restyle = () => {
+    rebuildTimeline();
+    status.textContent = voiceStatusText();
+    clearTimeout(restyleTimer);
+    restyleTimer = setTimeout(async () => {
+      if (voiceAbort) return;
+      const raw = allScenes().some((sc) => sc.kind !== "pause" && sc.text.trim() && cachedClip(voiceOf(sc), sc.text));
+      if (raw) await ensureVoices(status);
+    }, 500);
+  };
   const fillNeural = () => {
     const list = NEURAL_VOICES[s.voiceLang];
     const genBtn = h("button", { class: "btn primary", onclick: async () => {
@@ -707,7 +725,9 @@ function soundPanel() {
           field(t("voiceNarrator"), select(voiceId(), list, (v) => { set({ neuralVoice: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
           field(`${t("voiceOfChar")} 1`, select(charVoice(0), list, (v) => { set({ charVoice0: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
           field(`${t("voiceOfChar")} 2`, select(charVoice(1), list, (v) => { set({ charVoice1: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
-          field(t("voiceSpeed"), range(s.voiceRate, 0.8, 1.25, 0.05, (v) => { set({ voiceRate: v }); rebuildTimeline(); })),
+          field(t("voiceSpeed"), range(s.voiceRate, 0.6, 1.6, 0.05, (v) => { set({ voiceRate: v }); restyle(); })),
+          field(t("voiceEffect"), select(s.voiceFx ?? "natural", Object.entries(VOICE_FX).map(([k, v]) => [k, pick(v.label)]), (v) => { set({ voiceFx: v }); restyle(); })),
+          field(t("voicePitch"), range(s.voicePitch ?? 0, -12, 12, 1, (v) => { set({ voicePitch: v }); restyle(); })),
           field(t("volume"), range(s.voiceVol, 0, 1.5, 0.05, (v) => { set({ voiceVol: v }); voices?.setVolume(v); })))
         : h("p", { class: "help" }, t("voiceNoNeural")),
       list ? h("div", { class: "row wrap" }, genBtn, stopBtn) : null,
@@ -829,6 +849,8 @@ function exportPanel() {
         audioStream: dest.stream,
         signal: exportAbort.signal,
         draw: (tt) => renderFrame(ctx, project, tl, tt),
+        fps: project.settings.fps === 60 ? 60 : 30,
+        bitrate: project.settings.fps === 60 ? 14_000_000 : 8_000_000,
         onTime: (tt) => { bar.value = tt / tl.total; status.textContent = `${fmtTime(tt)} / ${fmtTime(tl.total)}`; },
       });
       const name = `video-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.${ext}`;
@@ -860,6 +882,7 @@ function exportPanel() {
   } }, `🎬 ${t("exportBtn")}`);
   return h("div", { class: "stack" },
     h("p", {}, `${t("duration")} : ${fmtTime(tl.total)} · ${FORMATS[project.settings.format].label}`),
+    field(t("fps"), select(String(project.settings.fps ?? 30), [["30", t("fps30")], ["60", t("fps60")]], (v) => { project.settings.fps = Number(v); save(); })),
     h("div", { class: "row" }, btn, cancelBtn),
     exportNotice(tl.total) ? h("p", { class: "notice" }, exportNotice(tl.total)) : null,
     bar, status,

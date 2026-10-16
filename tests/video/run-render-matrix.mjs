@@ -15,7 +15,7 @@ await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await page.waitForFunction(() => window.__videoStudio?.project);
 
 const result = await page.evaluate(async () => {
-  const { renderFrame, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS } = await import("./js/renderer.js");
+  const { renderFrame, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS, EFFECTS, TRANSITIONS } = await import("./js/renderer.js");
   const { ACTIONS } = await import("./js/poses.js");
   const { PRESETS } = await import("./js/figure.js");
   const { BUILTIN_STYLES, applyStyle } = await import("./js/styles.js");
@@ -74,6 +74,14 @@ const result = await page.evaluate(async () => {
   for (const action of Object.keys(ACTIONS))
     for (const figures of [1, 2])
       check(`action ${action} x${figures}`, { scenes: [{ id: "a", kind: "scene", text: "Test.", action, figures, seed: 3 }, { id: "b", kind: "scene", text: "Suite.", action: "idle", seed: 4 }], settings: base }, sample(6));
+  // Chaque effet de mise en scène et chaque transition (images juste avant, pendant et après le changement de scène).
+  for (const fx of Object.keys(EFFECTS))
+    for (const transition of Object.keys(TRANSITIONS))
+      for (const figures of [1, 2])
+        check(`effet ${fx} / transition ${transition} x${figures}`, {
+          scenes: [{ id: "a", kind: "scene", text: "Avant.", action: "explode", fx, figures, seed: 3 }, { id: "b", kind: "scene", text: "Après.", action: "door", fx: "none", transition, figures, seed: 4 }],
+          settings: { ...base, transition: "auto" },
+        }, (total) => [0.05, 0.3, 1.2, 1.9, 2.0, 2.1, 2.2, 2.25, 2.4, 2.6, 2.8, total * 0.8, total]);
   for (const [id, pr] of Object.entries(PRESETS))
     for (const eyes of ["dots", "big", "lashes", "sleepy"])
       check(`perso ${id}/${eyes}`, { scenes, settings: { ...base, characters: [{ ...pr.morph, eyes }, { ...pr.morph, eyes, top: "dress", bottom: "shorts" }] } }, sample(3));

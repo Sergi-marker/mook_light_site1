@@ -216,6 +216,23 @@ await step("voix HD Kokoro (française) : générée hors de l'interface, scène
   console.log(`  voix HD : ${it.voiceDur.toFixed(2)} s`);
 });
 
+await step("effets de voix : voix grave et plus rapide, sans régénérer la voix", async () => {
+  const [before, rate0] = await page.evaluate(() => [window.__videoStudio.timeline.items[0].voiceDur, window.__videoStudio.project.settings.voiceRate]);
+  await page.getByLabel("Effet de voix").selectOption("narrator");
+  await page.getByLabel("Vitesse de la voix").fill("1.3");
+  await page.getByText(/Voix prête/).waitFor({ timeout: 60000 });
+  await page.waitForFunction((b) => Math.abs(window.__videoStudio.timeline.items[0].voiceDur - b) > 0.2, before, { timeout: 60000 });
+  const after = await page.evaluate(() => window.__videoStudio.timeline.items[0].voiceDur);
+  // Plus rapide : ≈ durée × vitesse d'avant / 1,3 (plus la petite réverbération de l'effet).
+  const expected = (before * rate0) / 1.3;
+  assert.ok(after > expected - 0.1 && after < expected + 0.6, `durée ${before} → ${after}`);
+  console.log(`  effet « bande-annonce » ×1,3 : ${before.toFixed(2)} s → ${after.toFixed(2)} s`);
+  // Retour au réglage naturel pour la suite.
+  await page.getByLabel("Effet de voix").selectOption("natural");
+  await page.getByLabel("Vitesse de la voix").fill(String(rate0));
+  await page.waitForFunction((b) => Math.abs(window.__videoStudio.timeline.items[0].voiceDur - b) < 0.01, before, { timeout: 30000 });
+});
+
 await step("export d'une vraie vidéo 16:9 avec la voix dans le fichier", async () => {
   await page.evaluate(() => {
     const p = window.__videoStudio.project;

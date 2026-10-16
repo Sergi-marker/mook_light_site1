@@ -35,7 +35,8 @@ Après l'export, **Partager (lien)** met la vidéo en ligne et donne un lien pub
      - **Voix ✦ HD** : [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (modèle de 2025, licence Apache 2.0, utilisable commercialement), bien plus naturelle. Disponible en français (voix de femme), anglais (9 voix), espagnol, italien et portugais. Pour les langues autres que l'anglais, la prononciation est calculée par espeak-ng puis donnée au modèle. Le modèle tourne dans un worker (l'interface reste fluide) et utilise la carte graphique (WebGPU) si elle est disponible. Premier téléchargement : environ 90 Mo (300 Mo en mode carte graphique).
      - **Voix standard** : [Piper](https://github.com/rhasspy/piper), pour l'allemand, les voix d'homme françaises et les autres langues.
    - **Voix du téléphone** : la voix du système, pour un aperçu rapide (elle n'est pas enregistrée dans le fichier).
-   - **Musique d'ambiance** générée : mélancolique, calme, motivation, mystère.
+   - **Musique d'ambiance** générée (14 ambiances) : mélancolique, piano triste, calme, méditation, romantique, inspirant, motivation, épique / cinéma, électro, joyeux, lo-fi, trap / hip-hop, mystère, suspense.
+   - **Effets de voix** : vitesse de 0,6× à 1,6× sans changer la hauteur, hauteur réglable (−12 à +12 demi-tons) sans changer la vitesse, et 15 effets : naturelle, douce et rassurante, grave, très grave (bande-annonce), géant, aiguë, enfant, petite créature, podcast, radio, téléphone, écho, grande salle, mystérieuse, robot. Les phrases déjà générées sont retraitées en quelques instants, sans les régénérer.
    - **Votre propre audio** : importez une voix off ou une musique (MP3, WAV, M4A), mixée dans l'export ; ou enregistrez votre voix au micro pendant l'export.
 6. **Exporter** : enregistre un fichier MP4 (ou WebM selon le navigateur), à télécharger ou partager directement.
 
@@ -66,7 +67,19 @@ Le script peut aussi être importé depuis un fichier `.txt`, Word (`.docx`) ou 
 
 Le personnage a un contour net et un halo de contre-jour qui le détachent du décor, un léger modelé (lumière du projecteur), des mains, des pieds et des épaules arrondies. Ses mouvements ont de l'inertie (la tête et les bras suivent le corps avec un léger retard), il s'étire dans les sauts, et les changements de scène se font avec un petit rebond.
 
-30 animations : repos, réfléchit, perdu, idée, triste, pleure, seul, fatigué, marche, court, rit, surpris, en colère, amour, joie, hausse les épaules, tombe, salue, assis sur un banc, téléphone, lit une histoire, musculation, squats, médite, et à deux personnages : se moque, dispute, parle, accuse, ignore, câlin. Elles bougent en continu (respiration, clignement des yeux, gestes), passent en douceur d'une scène à l'autre, et la caméra varie (zoom lent, léger décalage, personnage tourné d'un côté ou de l'autre) pour que deux scènes ne soient jamais identiques.
+63 animations : repos, réfléchit, perdu, idée, triste, pleure, seul, fatigué, marche, court, rit, surpris, en colère, amour, joie, hausse les épaules, tombe, salue, assis sur un banc, téléphone, lit une histoire, musculation, squats, médite, et à deux personnages : se moque, dispute, parle, accuse, ignore, câlin. Elles bougent en continu (respiration, clignement des yeux, gestes), passent en douceur d'une scène à l'autre, et la caméra varie (zoom lent, léger décalage, personnage tourné d'un côté ou de l'autre) pour que deux scènes ne soient jamais identiques.
+
+Nouvelles animations, chacune avec son décor animé :
+- **Émotions** : anxieux, honte, sous la pluie (nuage qui suit le personnage), cœur brisé, masque / faux sourire, poids sur les épaules, face au mur, explosion de colère (fumée, écran qui tremble), respire / se calme, se relève, miroir (le reflet ne sourit pas), foule qui juge.
+- **Relations (à deux)** : main tendue (l'autre se relève), s'éloigne, dos à dos, check / high five, chuchote un secret, manipulation (fils de marionnette).
+- **Sport** : pompes, corde à sauter, boxe (sac qui balance), gainage avec chrono, ligne d'arrivée (ruban, confettis), podium avec médaille, abandonne puis repart.
+- **Histoires** : dort et rêve (lit, bulle de rêve), ouvre une porte vers la lumière, monte un escalier, attend sous un lampadaire, court après un rêve, regarde les étoiles.
+
+Elles sont reconnues automatiquement dans le texte (français, allemand, anglais, espagnol), ou choisies scène par scène.
+
+**Mise en scène** (onglet Scènes, ou automatique selon le texte) : ralenti dramatique, flash + choc, tremblement d'écran, projecteur qui suit le personnage, lumière qui s'éteint ; transitions fondu enchaîné, fondu au noir (« trois ans plus tard… »), glissement (« pendant ce temps… »), zoom, flash blanc.
+
+**Export** en 30 ou 60 images par seconde.
 
 L'animation est choisie à partir des mots de la phrase, en français, allemand, anglais et espagnol (« pleure / weint / cry » → pleure, « muscu / Krafttraining / workout » → musculation…). Si aucun mot ne correspond, l'application alterne des animations neutres pour que la vidéo ne soit jamais figée.
 

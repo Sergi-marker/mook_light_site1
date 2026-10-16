@@ -5,7 +5,7 @@ import { PRESETS } from "./figure.js";
 
 /** Réglages qui font partie d'un style (le texte, l'accroche et la langue n'en font pas partie). */
 export const STYLE_KEYS = [
-  "theme", "backdrop", "bgImage", "format",
+  "theme", "backdrop", "bgImage", "format", "transition", "voiceFx", "voicePitch",
   "captionFont", "captionPos", "captionBox", "captionStyle", "captionColor", "captionScale", "accent", "uppercase", "speakerLabels", "progressBar",
   "characters", "music", "musicVol", "neuralVoice", "charVoice0", "charVoice1", "voiceRate",
   "handle", "logo", "logoPos", "logoSize", "outro",
@@ -14,7 +14,7 @@ export const STYLE_KEYS = [
 /** Valeurs communes aux styles prêts : un style prêt remet ces réglages à zéro (mais garde @signature et logo). */
 const BUILTIN_BASE = {
   backdrop: "none", bgImage: "", captionScale: 1, captionColor: "#ffffff", speakerLabels: true, progressBar: false,
-  voiceRate: 1, neuralVoice: "", charVoice0: "", charVoice1: "",
+  voiceRate: 1, neuralVoice: "", charVoice0: "", charVoice1: "", transition: "auto", voiceFx: "natural", voicePitch: 0,
 };
 
 export const BUILTIN_STYLES = {
