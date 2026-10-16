@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Mots de passe (scrypt) et jetons de session. Seule l'empreinte des jetons est stockée en base.
 
 import { scryptSync, randomBytes, timingSafeEqual, createHash } from "node:crypto";

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Rendu d'une image de la vidéo à l'instant t sur un canvas 2D.
 
 import { poseAt, lerpPose, DUO_ACTIONS } from "./poses.js";

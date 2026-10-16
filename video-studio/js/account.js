@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Compte utilisateur, offres, quota d'export, partage et publicité (côté navigateur).
 // Parle au serveur (server/) ; si l'application est servie sans serveur (npm run video), elle reste
 // utilisable en « mode local » sans compte ni limites.

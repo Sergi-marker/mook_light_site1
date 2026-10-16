@@ -1,4 +1,5 @@
 /* global caches */
+// © la triche — Animots
 // Service worker d'Animots : l'application s'ouvre même sans connexion, et les moteurs de voix
 // déjà téléchargés (fichiers de jsDelivr) ne sont pas retéléchargés.
 //

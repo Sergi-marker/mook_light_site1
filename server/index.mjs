@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Démarrage du serveur : node server/index.mjs (configuration par variables d'environnement, voir server/README.md).
 
 import { fileURLToPath } from "node:url";

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Envoi d'e-mails (réinitialisation du mot de passe) via l'API HTTP de Resend.
 // Sans clé configurée, le lien est écrit dans le journal du serveur (pratique en développement).
 

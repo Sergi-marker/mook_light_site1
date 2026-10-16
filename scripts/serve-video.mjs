@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Serveur statique minimal pour Animots (video-studio/). Usage : node scripts/serve-video.mjs [port] [--host 0.0.0.0] [--dir dist-free]
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Décors liés à une action (pluie, mur, porte, escalier, lit, lampadaire, foule, ciel étoilé…).
 // Ils sont dessinés dans le repère de la caméra, autour du personnage : J = figureJoints(…) donne
 // la position à l'écran de ses articulations, J.h sa taille en pixels et J.d le côté où il regarde.

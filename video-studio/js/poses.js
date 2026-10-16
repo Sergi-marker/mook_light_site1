@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Poses et animations du personnage. Module pur (aucun accès au DOM).
 //
 // Un squelette est décrit par des angles (radians). 0 = membre vers le bas, +π/2 = vers l'avant

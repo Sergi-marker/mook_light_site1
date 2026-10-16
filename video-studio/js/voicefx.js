@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Effets de voix : hauteur (plus grave / plus aiguë) sans changer la vitesse, vitesse sans changer
 // la hauteur, et couleur du son (douce et rassurante, radio, téléphone, écho, grande salle, robot…).
 //

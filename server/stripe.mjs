@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Paiements Stripe (abonnements mensuels) par l'API HTTP de Stripe, sans dépendance.
 
 import { createHmac, timingSafeEqual } from "node:crypto";

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Serveur de Animots : application web, comptes, quotas, abonnements Stripe, partage de vidéos.
 
 import { createServer } from "node:http";

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Texte → scènes. Module pur (aucun accès au DOM) : testable sous Node.
 //
 // Règles :

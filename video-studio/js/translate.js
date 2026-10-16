@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Traduction et mise en scène par Claude (optionnel, avec la clé API Anthropic de l'utilisateur).
 // Le SDK officiel est chargé à la demande depuis le CDN : rien n'est téléchargé tant qu'on n'utilise pas ces fonctions.
 

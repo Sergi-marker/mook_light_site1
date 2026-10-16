@@ -1,6 +1,7 @@
 {
   "id": "./",
   "name": "Animots — vos mots prennent vie",
+  "author": "la triche",
   "short_name": "Animots",
   "description": "Collez un texte : il devient une vidéo animée avec un personnage pictogramme, des sous-titres, une voix et une musique. Pour TikTok, Reels, Shorts et YouTube.",
   "lang": "fr",

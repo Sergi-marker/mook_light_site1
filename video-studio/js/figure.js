@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Dessin d'un personnage « pictogramme » (membres épais et arrondis, grosse tête, deux yeux),
 // avec morphologie et accessoires réglables. Toutes les coordonnées sont en unités « hauteur = 1 ».
 

@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Version gratuite (stores) : construite, installable (PWA), utilisable hors ligne, sans serveur de comptes,
 // sans appel à Google Fonts, avec sa page de confidentialité.
 import assert from "node:assert/strict";
@@ -52,6 +53,7 @@ await step("ouverture : aucun appel au serveur de comptes ni à Google, pied de 
   assert.ok(!requests.some((u) => u.includes("/api/")), "appel /api");
   assert.ok(!requests.some((u) => /fonts\.(googleapis|gstatic)\.com/.test(u)), "appel Google Fonts");
   assert.ok(await page.locator("#appFooter").isVisible());
+  assert.match(await page.locator("#appFooter").textContent(), /créé par la triche/);
   assert.ok(!(await page.locator("#accountBtn").isVisible()));
   assert.equal(await page.getByRole("tab", { name: /Compte/ }).count(), 0);
   // La police des sous-titres est bien chargée depuis l'application.

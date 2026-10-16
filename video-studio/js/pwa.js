@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Application installable : service worker (marche hors ligne), bouton « Installer l'appli »,
 // et, dans la version gratuite (stores), lien vers la politique de confidentialité.
 
@@ -8,7 +9,11 @@ const S = {
   iosHint: ["Sur iPhone : touchez Partager puis « Sur l'écran d'accueil ».", "Auf dem iPhone: Teilen und dann „Zum Home-Bildschirm“.", "On iPhone: tap Share, then “Add to Home Screen”."],
   privacy: ["Confidentialité", "Datenschutz", "Privacy"],
   about: ["À propos", "Über", "About"],
+  by: ["créé par", "erstellt von", "made by"],
 };
+
+/** Signature de l'auteur, présente sur tout ce que nous publions. */
+export const SIGNATURE = "la triche";
 const tr = (k) => S[k][uiIndex()] ?? S[k][0];
 
 /** Version gratuite sans serveur (stores) : ni compte, ni publicité, ni paiement. */
@@ -36,7 +41,7 @@ export function initPwa() {
 const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone();
 
-/** Bouton d'installation (en-tête) et pied de page de la version gratuite. À rappeler au changement de langue. */
+/** Bouton d'installation (en-tête) et pied de page signé (liens légaux dans la version gratuite). À rappeler au changement de langue. */
 export function renderPwaUi() {
   const btn = document.getElementById("installBtn");
   if (btn) {
@@ -53,10 +58,11 @@ export function renderPwaUi() {
   }
   const foot = document.getElementById("appFooter");
   if (foot) {
-    foot.hidden = !FREE_MODE;
-    if (FREE_MODE) {
-      const lang = ["fr", "de", "en"][uiIndex()] ?? "fr";
-      foot.innerHTML = `<a href="./privacy.html#${lang}">${tr("privacy")}</a> · <a href="./privacy.html#about-${lang}">${tr("about")}</a> · Animots`;
-    }
+    foot.hidden = false;
+    const sign = `Animots — ${tr("by")} <strong>${SIGNATURE}</strong>`;
+    const lang = ["fr", "de", "en"][uiIndex()] ?? "fr";
+    foot.innerHTML = FREE_MODE
+      ? `<a href="./privacy.html#${lang}">${tr("privacy")}</a> · <a href="./privacy.html#about-${lang}">${tr("about")}</a> · ${sign}`
+      : sign;
   }
 }

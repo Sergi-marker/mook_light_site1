@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Base de données SQLite (module node:sqlite intégré à Node 22, aucune dépendance).
 
 import { DatabaseSync } from "node:sqlite";

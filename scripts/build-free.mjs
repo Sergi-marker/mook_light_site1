@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Construit la version gratuite d'Animots, pour un hébergement statique (Cloudflare Pages, GitHub Pages…)
 // et pour les stores (paquets créés par PWABuilder) : ni compte, ni publicité, ni paiement.
 //
@@ -128,7 +129,7 @@ function privacyPage(op) {
 </ul>
 <h3>Vos droits</h3>
 <p>Toutes vos données sont sur votre appareil : vous pouvez les effacer à tout moment en supprimant les données du site ou en désinstallant l'application. Pour toute question : voir le contact ci-dessous.</p>`,
-      aboutBody: `<p>Animots — vos mots prennent vie. Voix : Kokoro (Apache 2.0) et Piper (voir la licence de chaque voix). Polices : Google Fonts (SIL Open Font License).</p>`,
+      aboutBody: `<p>Animots — vos mots prennent vie. Créé par <strong>la triche</strong>. Voix : Kokoro (Apache 2.0) et Piper (voir la licence de chaque voix). Polices : Google Fonts (SIL Open Font License).</p>`,
       contact: "Contact",
     },
     de: {
@@ -144,7 +145,7 @@ function privacyPage(op) {
 </ul>
 <h3>Ihre Rechte</h3>
 <p>Alle Daten liegen auf Ihrem Gerät: Sie können sie jederzeit löschen (Websitedaten löschen oder App deinstallieren). Fragen: siehe Kontakt unten.</p>`,
-      aboutBody: `<p>Animots — Worte werden lebendig. Stimmen: Kokoro (Apache 2.0) und Piper (Lizenz der jeweiligen Stimme). Schriften: Google Fonts (SIL Open Font License).</p>`,
+      aboutBody: `<p>Animots — Worte werden lebendig. Erstellt von <strong>la triche</strong>. Stimmen: Kokoro (Apache 2.0) und Piper (Lizenz der jeweiligen Stimme). Schriften: Google Fonts (SIL Open Font License).</p>`,
       contact: "Kontakt / Verantwortlicher",
     },
     en: {
@@ -160,7 +161,7 @@ function privacyPage(op) {
 </ul>
 <h3>Your rights</h3>
 <p>All your data is on your device: you can delete it at any time by clearing the site data or uninstalling the app. Questions: see the contact below.</p>`,
-      aboutBody: `<p>Animots — your words come alive. Voices: Kokoro (Apache 2.0) and Piper (see each voice's license). Fonts: Google Fonts (SIL Open Font License).</p>`,
+      aboutBody: `<p>Animots — your words come alive. Made by <strong>la triche</strong>. Voices: Kokoro (Apache 2.0) and Piper (see each voice's license). Fonts: Google Fonts (SIL Open Font License).</p>`,
       contact: "Contact",
     },
   };

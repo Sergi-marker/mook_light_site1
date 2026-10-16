@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Textes de l'interface : français, allemand, anglais.
 
 export const UI_LANGS = { fr: 0, de: 1, en: 2 };

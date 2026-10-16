@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Interface de Animots.
 
 import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";

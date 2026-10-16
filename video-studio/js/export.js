@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Export vidéo : enregistre le canvas (et l'audio : musique + micro éventuel) avec MediaRecorder.
 
 const TYPES = [

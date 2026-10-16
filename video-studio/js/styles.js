@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Styles de chaîne : un ensemble de réglages (décor, personnages, sous-titres, musique, voix, marque)
 // appliqué d'un coup, pour que toutes les vidéos d'une chaîne se ressemblent.
 

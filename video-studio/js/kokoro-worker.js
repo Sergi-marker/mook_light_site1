@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Voix « HD » Kokoro (modèle neuronal de 2025, licence Apache 2.0), exécutée dans un worker
 // pour que l'interface reste fluide pendant la génération.
 //

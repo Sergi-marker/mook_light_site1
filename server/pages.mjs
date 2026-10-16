@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Pages HTML rendues par le serveur : page de partage d'une vidéo, réinitialisation du mot de passe,
 // et pages légales (mentions légales / Impressum, confidentialité, conditions d'utilisation).
 
@@ -36,7 +37,7 @@ ${head}
 </head><body><main>
 <a class="brand" href="${esc(publicUrl)}/"><img src="/img/logo.svg" alt="" width="34" height="34" style="vertical-align:middle;border-radius:9px;margin-right:8px">Animots</a>
 ${body}
-<p class="muted"><a href="/legal/impressum">Mentions légales / Impressum</a> · <a href="/legal/privacy">Confidentialité</a> · <a href="/legal/terms">Conditions</a></p>
+<p class="muted"><a href="/legal/impressum">Mentions légales / Impressum</a> · <a href="/legal/privacy">Confidentialité</a> · <a href="/legal/terms">Conditions</a> · Animots — créé par <strong>la triche</strong></p>
 </main></body></html>`;
 }
 

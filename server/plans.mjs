@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Offres et règles de quota. Module pur : testable sans base de données.
 
 export const PLANS = {

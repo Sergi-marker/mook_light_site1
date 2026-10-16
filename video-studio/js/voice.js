@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Voix off neuronale (Piper) générée dans le navigateur : chaque scène reçoit un vrai fichier audio,
 // qui est joué dans l'aperçu ET enregistré dans la vidéo exportée.
 //

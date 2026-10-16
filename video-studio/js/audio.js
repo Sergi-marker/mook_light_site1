@@ -1,3 +1,4 @@
+// © la triche — Animots
 // Musique d'ambiance générée (Web Audio) et voix de synthèse (Web Speech).
 
 /**
