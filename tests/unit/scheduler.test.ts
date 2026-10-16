@@ -107,3 +107,32 @@ test("stop prevents further scheduling", () => {
   assert.equal(events.length, 1);
   assert.equal(s.isRunning, false);
 });
+
+test("adaptive look-ahead: after a main-thread stall the window grows, so the next stall drops nothing", () => {
+  let now = 0;
+  const events: number[] = [];
+  const s = new StepScheduler({
+    now: () => now,
+    getTiming: () => ({ bpm: 140, swing: 0, stepCount: 64 }),
+    onStep: (step) => events.push(step),
+    lookahead: 0.25,
+    maxLookahead: 0.8,
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+  s.start(0.05, 0);
+  const advance = (dt: number) => { now += dt; s.tick(); };
+  for (let i = 0; i < 20; i++) advance(0.025);
+  // First stall of 300 ms (longer than the 250 ms window): a couple of steps can be missed…
+  advance(0.3);
+  const lostFirst = s.lateSteps;
+  assert.ok(s.window >= 0.5, `window grew to ${s.window}`);
+  for (let i = 0; i < 20; i++) advance(0.025);
+  // …but an identical stall afterwards loses nothing.
+  advance(0.3);
+  for (let i = 0; i < 20; i++) advance(0.025);
+  assert.equal(s.lateSteps, lostFirst, "no new dropped step");
+  // Every step is played exactly once, in order, apart from the first stall's losses.
+  assert.equal(new Set(events).size, events.length);
+  assert.ok(s.window <= 0.8);
+});

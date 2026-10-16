@@ -185,6 +185,25 @@ export class InstrumentVoice {
     return this.active.size;
   }
 
+  /**
+   * Pre-render the note buffers this instrument will need (piano / pluck are synthesised per
+   * pitch). Done before playback, in small slices that yield to the UI, so no note is ever
+   * computed in the middle of playback (that used to stall the scheduler → audible gaps).
+   */
+  async prepare(pitches: Iterable<number>): Promise<void> {
+    const preset = this.track.preset;
+    if (preset !== "piano" && preset !== "pluck") return;
+    const octave = Math.round(Math.max(-2, Math.min(2, this.track.synth.octave ?? 0)));
+    let slice = performance.now();
+    for (const p of new Set([...pitches].map((x) => x + octave * 12))) {
+      cached(this.ctx, `${preset}:${p}`, () => (preset === "piano" ? renderPianoNote(p, this.ctx.sampleRate) : renderPluckNote(p, this.ctx.sampleRate)));
+      if (performance.now() - slice > 25) {
+        await new Promise((r) => setTimeout(r, 0));
+        slice = performance.now();
+      }
+    }
+  }
+
   update(track: InstrumentTrack): void {
     const presetChanged = track.preset !== this.track.preset;
     this.track = track;

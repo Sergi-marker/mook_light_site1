@@ -158,6 +158,9 @@ export class AudioEngine {
       now: () => ctx.currentTime,
       getTiming: () => this.timing(),
       onStep: (pos, time) => this.handleStep(pos, time),
+      // 350 ms ahead (edits during playback are heard ≤ 0.35 s later), up to 800 ms on a busy PC.
+      lookahead: 0.35,
+      maxLookahead: 0.8,
     });
     if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     this.resumeAfterInit = false;
@@ -214,6 +217,9 @@ export class AudioEngine {
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
     if (this.isPlaying) return;
     const start = from ?? this.pausedAt ?? (this.mode === "song" ? this.cursor : 0);
+    // Nothing may be computed during playback: prepare every note first (instant when cached).
+    await this.prepare();
+    if (this.isPlaying) return;
     this.startTransport(start);
   }
 
@@ -227,6 +233,12 @@ export class AudioEngine {
     if (this.mode === "song" && whole >= 0) this.seq!.startRunningClips(this.getProject(), whole, startTime);
     this.scheduler.start(startTime, whole);
     this.emit();
+  }
+
+  /** Prepare the project's sounds ahead of playback (also called after loading / generating). */
+  async prepare(): Promise<void> {
+    if (!this.seq) return;
+    await this.seq.prepare(this.getProject());
   }
 
   /** Stop and return to the cursor. */

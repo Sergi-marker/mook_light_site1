@@ -71,6 +71,16 @@ export class Sequencer {
     }
   }
 
+  /** Pre-render / load everything the project's instruments will play (see InstrumentVoice.prepare). */
+  async prepare(p: Project): Promise<void> {
+    this.syncInstruments(p);
+    for (const ins of p.instruments) {
+      const pitches: number[] = [];
+      for (const pat of p.patterns) for (const n of pat.notes[ins.id] ?? []) pitches.push(n.pitch);
+      await this.voices.get(ins.id)?.prepare(pitches);
+    }
+  }
+
   private silenced(channelId: string): boolean {
     return this.opts.muted?.has(channelId) ?? false;
   }

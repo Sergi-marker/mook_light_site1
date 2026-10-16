@@ -18,6 +18,12 @@ export interface SchedulerOptions {
   onStep: (step: number, time: number) => void;
   /** How far ahead (s) events are scheduled. Bigger = more robust, slower reaction to edits. */
   lookahead?: number;
+  /**
+   * Upper bound (s) for the adaptive look-ahead: when the timer wakes up late (main thread busy:
+   * UI work, GC, a slow PC), the window grows so the next stall of the same size causes no gap.
+   * Equal to `lookahead` = fixed window.
+   */
+  maxLookahead?: number;
   /** Timer period (ms) that wakes the scheduler. */
   intervalMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -41,10 +47,14 @@ export class StepScheduler {
   private running = false;
   /** Steps dropped because the scheduler woke up too late (main thread stalled). */
   lateSteps = 0;
+  /** Current look-ahead window (s); grows after stalls. */
+  window = 0;
+  private lastTickAt = -1;
 
   constructor(opts: SchedulerOptions) {
     this.opts = {
       lookahead: 0.12,
+      maxLookahead: opts.lookahead ?? 0.12,
       intervalMs: 25,
       setTimer: (fn, ms) => setInterval(fn, ms),
       clearTimer: (h) => clearInterval(h as ReturnType<typeof setInterval>),
@@ -62,6 +72,8 @@ export class StepScheduler {
     this.nextGridTime = startTime;
     this.stepIndex = fromStep;
     this.lateSteps = 0;
+    this.window = this.opts.lookahead;
+    this.lastTickAt = -1;
     this.tick();
     this.handle = this.opts.setTimer(() => this.tick(), this.opts.intervalMs);
   }
@@ -75,7 +87,15 @@ export class StepScheduler {
   tick(): void {
     if (!this.running) return;
     const now = this.opts.now();
-    const horizon = now + this.opts.lookahead;
+    // Adaptive window: a gap between two ticks close to the window means the main thread was
+    // blocked; widen the window so the same stall would still find notes already scheduled.
+    if (this.lastTickAt >= 0) {
+      const gap = now - this.lastTickAt;
+      if (gap > this.window * 0.6 && this.window < this.opts.maxLookahead) this.window = Math.min(this.opts.maxLookahead, gap * 1.6 + 0.05);
+    }
+    this.lastTickAt = now;
+    if (this.window <= 0) this.window = this.opts.lookahead;
+    const horizon = now + this.window;
     // Max steps per tick guards against an infinite loop on absurd clock values.
     for (let guard = 0; guard < 4096 && this.nextGridTime < horizon; guard++) {
       const { bpm, swing, stepCount, loopStart = 0 } = this.opts.getTiming();
