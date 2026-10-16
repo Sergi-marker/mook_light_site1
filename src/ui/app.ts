@@ -12,13 +12,15 @@ import { encodeWav, decodeWav } from "../core/io/wav.ts";
 import { currentPattern, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
 import { parseProject, ProjectFileError, projectToJson, referencedAssetIds, safeFileName, serializeProject } from "../core/projectFile.ts";
 import type { Action } from "../core/reducer.ts";
+import type { GeneratedSong } from "../core/ai/beat.ts";
+import { emptyMemory, learn, type MemoryEvent, type SoundRole, type TasteMemory } from "../core/ai/memory.ts";
 import { ProjectStore } from "../core/store.ts";
 import { projectFromTemplate } from "../core/templates.ts";
 import type { AudioAsset, Project, Take } from "../core/types.ts";
 import { confirmDialog, h, readFileBytes, toast } from "./dom.ts";
 import {
   clearAutosave, forgetFileHandle, loadSettings, markSessionClosed, markSessionOpen, pickFile, pruneMedia,
-  readAutosave, readMedia, saveProjectFile, saveSettings, writeAutosave, writeMedia, type AppSettings,
+  loadGuide, loadMemory, readAutosave, readMedia, saveGuide, saveMemory, saveProjectFile, saveSettings, writeAutosave, writeMedia, type AppSettings,
 } from "./persistence.ts";
 import { createShell } from "./shell.ts";
 
@@ -50,6 +52,10 @@ export class App {
   readonly recorder: Recorder;
   readonly midi = new MidiController();
   settings: AppSettings;
+  /** AI producer memory: your taste, learnt from your choices (stored only on this computer). */
+  memory: TasteMemory = loadMemory();
+  /** Last generated beat applied: what the AI chose, to learn from what you change afterwards. */
+  private taste: { styleId: string; sounds: Record<SoundRole, string>; bpm: number; roleIds: Record<SoundRole, string>; kit: string | null } | null = null;
   /** Imported drum samples: original bytes. */
   readonly sampleBytes = new Map<string, Uint8Array>();
   /** Recorded / processed audio: WAV bytes (what is saved). */
@@ -94,7 +100,70 @@ export class App {
     for (const fn of this.listeners) fn();
   }
 
-  dispatch = (a: Action, coalesceKey?: string): void => this.store.dispatch(a, coalesceKey ? { coalesceKey } : {});
+  dispatch = (a: Action, coalesceKey?: string): void => {
+    this.observe(a);
+    this.store.dispatch(a, coalesceKey ? { coalesceKey } : {});
+  };
+
+  // --- AI producer memory ------------------------------------------------------------
+
+  /** Guided mode: a step that cannot be read from the project (master applied, export done…). */
+  markGuide(step: string): void {
+    const g = loadGuide();
+    const k = this.store.getState().createdAt;
+    if ((g[k] ??= []).includes(step)) return;
+    g[k].push(step);
+    saveGuide(g);
+    this.emit();
+  }
+
+  guideDone(step: string): boolean {
+    return loadGuide()[this.store.getState().createdAt]?.includes(step) ?? false;
+  }
+
+  remember(e: MemoryEvent): void {
+    this.memory = learn(this.memory, e);
+    saveMemory(this.memory);
+  }
+
+  forgetTaste(): void {
+    this.memory = emptyMemory();
+    this.taste = null;
+    saveMemory(this.memory);
+  }
+
+  /** A generated beat was applied: remember it, and watch what you change afterwards. */
+  startTasteSession(song: GeneratedSong): void {
+    this.commitTasteSession();
+    this.remember({ type: "apply", styleId: song.styleId, sounds: song.sounds });
+    this.taste = { styleId: song.styleId, sounds: { ...song.sounds }, bpm: song.patch.bpm ?? this.store.getState().bpm, roleIds: song.roleIds, kit: null };
+  }
+
+  /** Learn the final tempo / kit of the last generated beat (next generation, or closing the app). */
+  commitTasteSession(): void {
+    const t = this.taste;
+    if (!t) return;
+    const bpm = this.store.getState().bpm;
+    if (bpm !== t.bpm) this.remember({ type: "tempo", styleId: t.styleId, offset: bpm - t.bpm });
+    if (t.kit) this.remember({ type: "kit", styleId: t.styleId, kitId: t.kit });
+    this.taste = null;
+  }
+
+  /** You picked a library sound for an instrument (MELODY, commands). */
+  noteSoundChoice(instrumentId: string, soundId: string): void {
+    const t = this.taste;
+    if (!t) return;
+    const role = (Object.keys(t.roleIds) as SoundRole[]).find((r) => t.roleIds[r] === instrumentId);
+    if (!role || t.sounds[role] === soundId) return;
+    this.remember({ type: "soundChange", styleId: t.styleId, role, from: t.sounds[role], to: soundId });
+    this.markGuide("adjust");
+    t.sounds[role] = soundId;
+  }
+
+  private observe(a: Action): void {
+    if (a.type === "batch") for (const x of a.actions) this.observe(x);
+    else if (a.type === "applyDrumKit" && this.taste) this.taste.kit = a.kitId;
+  }
 
   /** Run a long task with a busy indicator; errors become a clear message instead of a crash. */
   async task<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
@@ -221,6 +290,7 @@ export class App {
   }
 
   applyActions(actions: Action[], label = ""): void {
+    for (const a of actions) this.observe(a);
     this.preview = null;
     this.previewLabel = "";
     if (actions.length) this.store.dispatch({ type: "batch", actions });
@@ -332,6 +402,7 @@ export class App {
       const m = res.measurements;
       toast(m ? `Export terminé : ${res.files[0].name} — ${m.integratedLufs.toFixed(1)} LUFS, true peak ${m.truePeakDb.toFixed(1)} dBTP.` : `Export terminé : ${res.files[0].name}`, "ok", 9000);
       this.lastExport = { files: res.files.map((f) => ({ name: f.name, size: f.bytes.length })), measurements: m };
+      this.markGuide("export");
       this.emit();
     });
   }
@@ -616,7 +687,10 @@ export class App {
 
   async restoreOnStartup(): Promise<void> {
     const crashed = markSessionOpen();
-    window.addEventListener("pagehide", () => markSessionClosed());
+    window.addEventListener("pagehide", () => {
+      this.commitTasteSession();
+      markSessionClosed();
+    });
     window.addEventListener("beforeunload", (e) => {
       if (this.store.isDirty()) {
         void this.autosaveNow();

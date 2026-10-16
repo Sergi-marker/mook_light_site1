@@ -54,7 +54,7 @@ function findPattern(p: Project, re: RegExp): Pattern | undefined {
 const trackOf = (p: Project, k: InstrumentKind) => p.tracks.find((t) => t.instrument === k);
 
 /** Actions that add energy to a pattern: rolls, open hats, perc, louder accents, counter-melody. */
-function energize(p: Project, pat: Pattern): Action[] {
+export function energize(p: Project, pat: Pattern): Action[] {
   const actions: Action[] = [{ type: "selectPattern", patternId: pat.id }];
   const hat = trackOf(p, "closedHat");
   if (hat) {

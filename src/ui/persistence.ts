@@ -1,3 +1,4 @@
+import { emptyMemory, parseMemory, type TasteMemory } from "../core/ai/memory.ts";
 import { PROJECT_EXTENSION } from "../core/constants.ts";
 
 // Autosave lives in IndexedDB (localStorage is limited to ~5 MB, too small once samples
@@ -202,6 +203,45 @@ export interface AppSettings {
 }
 
 const SETTINGS_KEY = "bs.settings";
+const MEMORY_KEY = "bs.aiMemory";
+
+const GUIDE_KEY = "bs.guide";
+
+/** Guided mode: steps reached per project (key = project creation date). */
+export function loadGuide(): Record<string, string[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GUIDE_KEY) ?? "{}");
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveGuide(g: Record<string, string[]>): void {
+  try {
+    // Keep the 30 most recent projects.
+    localStorage.setItem(GUIDE_KEY, JSON.stringify(Object.fromEntries(Object.entries(g).slice(-30))));
+  } catch {
+    /* storage disabled */
+  }
+}
+
+/** AI producer memory (taste learnt from your choices) — only on this computer. */
+export function loadMemory(): TasteMemory {
+  try {
+    return parseMemory(JSON.parse(localStorage.getItem(MEMORY_KEY) ?? "null"));
+  } catch {
+    return emptyMemory();
+  }
+}
+
+export function saveMemory(m: TasteMemory): void {
+  try {
+    localStorage.setItem(MEMORY_KEY, JSON.stringify(m));
+  } catch {
+    /* storage disabled */
+  }
+}
 export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5", inputChannel: "auto", autoCleanTakes: true, micCheck: null };
 
 export function loadSettings(): AppSettings {

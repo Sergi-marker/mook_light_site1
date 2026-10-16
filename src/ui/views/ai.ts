@@ -23,14 +23,22 @@ import { currentPattern, getChannel, masterChannel, SYNTH_PRESETS } from "../../
 import { reduce, type Action } from "../../core/reducer.ts";
 import type { Effect, Project, SynthPreset } from "../../core/types.ts";
 import { desktop, type App, type View } from "../app.ts";
+import { COMMAND_EXAMPLES, interpretCommand } from "../../core/ai/commands.ts";
+import { describeMemory, favouriteStyles, preferencesFor } from "../../core/ai/memory.ts";
+import { DRUM_KITS } from "../../core/drumSamples.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import type { Route } from "../shell.ts";
 
-type Tab = "beat" | "melody" | "chords" | "bass" | "drums" | "variation" | "structure" | "assistant" | "mix" | "master";
-const TABS: [Tab, string][] = [["beat", "BEAT GENERATOR"], ["melody", "MELODY GENERATOR"], ["chords", "CHORDS"], ["bass", "808 / BASS"], ["drums", "GENERATE DRUMS"], ["variation", "VARIATIONS"], ["structure", "STRUCTURE"], ["assistant", "SONG ASSISTANT"], ["mix", "AI MIX ASSISTANT"], ["master", "AI MASTER"]];
+type Tab = "producer" | "beat" | "melody" | "chords" | "bass" | "drums" | "variation" | "structure" | "assistant" | "mix" | "master";
+const TABS: [Tab, string][] = [["producer", "🧠 PRODUCTEUR"], ["beat", "BEAT GENERATOR"], ["melody", "MELODY GENERATOR"], ["chords", "CHORDS"], ["bass", "808 / BASS"], ["drums", "GENERATE DRUMS"], ["variation", "VARIATIONS"], ["structure", "STRUCTURE"], ["assistant", "SONG ASSISTANT"], ["mix", "AI MIX ASSISTANT"], ["master", "AI MASTER"]];
 const MOODS: Mood[] = ["dark", "sad", "aggressive", "happy", "chill", "epic", "romantic"];
 
 let lastTab: Tab = "beat";
+
+/** Open the AI page on a given tab (guided mode). */
+export function setAiTab(t: Tab): void {
+  lastTab = t;
+}
 const chat: { role: "user" | "assistant"; text: string; answer?: AssistantAnswer; remote?: boolean }[] = [];
 let remoteConsent = false;
 
@@ -66,18 +74,28 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
       beatState.style = req.style;
       beatState.results = Array.from({ length: count }, (_, i) => {
         const seed = Math.floor(Math.random() * 1e6) + i * 7919;
-        return { seed, req, song: generateSong(store.getState(), req, seed, i) };
+        // Version 1 follows what the producer learnt about your taste; the others explore.
+        const prefs = preferencesFor(app.memory, req.style, styleById(req.style).sounds);
+        return { seed, req, song: generateSong(store.getState(), req, seed, i, prefs) };
       });
       app.cancelPreview();
       render();
     };
+    const favs = new Set(favouriteStyles(app.memory).slice(0, 5));
     const families = STYLE_FAMILIES.map((fam) => h("div", { class: "style-family" },
       h("span", { class: "slider-label" }, fam),
       h("div", { class: "style-chips" }, ...STYLES.filter((x) => x.family === fam).map((x) => h("button", {
         class: `style-chip ${x.id === beatState.style ? "active" : ""}`, title: `${x.description} (${x.bpm[0]}–${x.bpm[2]} BPM)`,
         onclick: () => { beatState.style = x.id; render(); },
-      }, x.label)))));
-    const resultCard = (res: BeatResult, i: number) => h("div", { class: "card" },
+      }, favs.has(x.id) ? `★ ${x.label}` : x.label)))));
+    const rated = new Set<number>();
+    const rate = (res: BeatResult, i: number, liked: boolean) => {
+      if (rated.has(i)) return;
+      rated.add(i);
+      app.remember({ type: "rate", styleId: res.song.styleId, sounds: res.song.sounds, liked });
+      toast(liked ? "👍 Noté : l'IA s'en souviendra pour vos prochains beats." : "👎 Noté : ces sons seront moins proposés pour ce style.", "ok");
+    };
+    const resultCard = (res: BeatResult, i: number) => h("div", { class: `card ${res.song.learned ? "learned" : ""}` },
       h("h3", {}, beatState.results.length > 1 ? `Version ${i + 1}` : "Proposition"),
       h("ul", {}, ...res.song.summary.map((x) => h("li", {}, x))),
       h("div", { class: "button-row" },
@@ -91,9 +109,12 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
         h("button", { class: "btn btn-primary", onclick: () => {
           app.engine.stop();
           app.applyActions([{ type: "patchProject", patch: res.song.patch }, { type: "setAiSettings", ai: { lastBeatPrompt: beatState.prompt } }], `${styleById(res.req.style).label} généré : tout est éditable dans BEAT, MELODY et ARRANGEMENT (Ctrl+Z pour annuler).`);
+          app.startTasteSession(res.song);
           beatState.results = [];
           navigate("arrangement");
-        } }, "Appliquer au projet")));
+        } }, "Appliquer au projet"),
+        h("button", { class: "btn btn-sm", title: "J'aime : l'IA s'en souviendra", "aria-label": "J'aime", onclick: (e: Event) => { rate(res, i, true); (e.currentTarget as HTMLButtonElement).classList.add("rated"); } }, "👍"),
+        h("button", { class: "btn btn-sm", title: "Je n'aime pas : ces sons seront moins proposés", "aria-label": "Je n'aime pas", onclick: (e: Event) => { rate(res, i, false); (e.currentTarget as HTMLButtonElement).classList.add("rated"); } }, "👎")));
     return h("div", {},
       h("p", {}, "1. Choisissez un style  2. Ajoutez des détails si vous voulez (BPM, tonalité, humeur, « 808 lourde »…)  3. Générez une ou trois versions et écoutez-les."),
       ...families,
@@ -108,6 +129,44 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
       beatState.results.length ? h("div", { class: "options" }, ...beatState.results.map(resultCard)) : null,
       beatState.results.length ? h("p", { class: "hint" }, "Chaque version crée les patterns Intro / Verse / Chorus / Bridge / Outro, les instruments du style et l'arrangement complet. Vos patterns existants sont conservés.") : null,
     );
+  }
+
+  // --- PRODUCER: plain-language commands + what the AI learnt ---------------------------
+  let producerLog: { text: string; done: string[]; notUnderstood: string[] }[] = [];
+  function producerTab(): HTMLElement {
+    const input = h("input", { type: "text", class: "cmd-input", placeholder: "Ex. : plus de basse et change le piano en guitare", "aria-label": "Commande pour le producteur IA" }) as HTMLInputElement;
+    const exec = (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      const r = interpretCommand(store.getState(), t);
+      if (r.actions.length) {
+        app.applyActions(r.actions, "");
+        for (const c of r.soundChanges) app.noteSoundChoice(c.trackId, c.soundId);
+        app.remember({ type: "command", text: t });
+        app.markGuide("adjust");
+      }
+      producerLog = [{ text: t, done: r.done, notUnderstood: r.notUnderstood }, ...producerLog].slice(0, 12);
+      render();
+      (panel.querySelector(".cmd-input") as HTMLInputElement | null)?.focus();
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") exec(input.value); });
+    const names = (id: string) => styleById(id).id === id ? styleById(id).label : SOUND_LIBRARY.find((x) => x.id === id)?.name ?? DRUM_KITS.find((k) => k.id === id)?.name ?? id;
+    return h("div", {},
+      h("p", {}, "Parlez au producteur comme à un beatmaker : il modifie le projet directement (chaque commande s'annule avec Ctrl+Z). Plusieurs demandes à la fois : séparez par « et » ou une virgule."),
+      h("div", { class: "row-inline cmd-row" }, input, h("button", { class: "btn btn-ai", onclick: () => exec(input.value) }, "Appliquer")),
+      h("div", { class: "chips" }, ...COMMAND_EXAMPLES.map((ex) => h("button", { class: "chip", onclick: () => exec(ex) }, ex))),
+      producerLog.length ? h("div", { class: "card cmd-log" }, ...producerLog.map((l) => h("div", { class: "cmd-entry" },
+        h("strong", {}, `« ${l.text} »`),
+        h("ul", {}, ...l.done.map((d) => h("li", { class: "ok" }, `✓ ${d}`)), ...l.notUnderstood.map((n) => h("li", { class: "warn" }, `? Pas compris : « ${n} » — essayez une des suggestions ci-dessus.`)))))) : null,
+      h("div", { class: "card" },
+        h("h3", {}, "🧠 Ce que l'IA a appris de vous"),
+        h("ul", {}, ...describeMemory(app.memory, names).map((x) => h("li", {}, x))),
+        h("p", { class: "hint" }, "Appris à partir de vos 👍 / 👎, des versions appliquées, des sons que vous remplacez, du tempo et de la batterie que vous choisissez ensuite. La « Version 1 » de chaque génération suit ces goûts ; les versions 2 et 3 continuent d'explorer. Stocké uniquement sur cet ordinateur."),
+        h("button", { class: "btn btn-sm", onclick: async () => {
+          if (!(await confirmDialog("Effacer la mémoire de l'IA ?", "L'IA oubliera vos goûts et repartira des réglages de chaque style.", "Effacer", "Annuler", true))) return;
+          app.forgetTaste();
+          render();
+        } }, "Effacer la mémoire")));
   }
 
   // --- MELODY ---------------------------------------------------------------------------
@@ -532,6 +591,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     app.cancelPreview();
     let inserts = masterState.proposal.map((e) => ({ ...e, params: { ...e.params } }));
     app.dispatch({ type: "batch", actions: [{ type: "setInserts", channelId: "master", inserts }, { type: "setAiSettings", ai: { masterTarget: masterState.target } }] });
+    app.markGuide("master");
     await app.task("AI MASTER : vérification…", async () => {
       // Verify on the real render, correct the limiter gain once, and make sure TP ≤ ceiling.
       let res = await renderMaster(store.getState(), false);
@@ -586,7 +646,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     tabs.textContent = "";
     for (const [id, label] of TABS) tabs.append(h("button", { class: `tab ${tab === id ? "active" : ""}`, role: "tab", "aria-selected": String(tab === id), onclick: () => { tab = id; render(); } }, label));
     panel.textContent = "";
-    const views: Record<Tab, () => HTMLElement> = { beat: beatTab, melody: melodyTab, chords: chordsTab, bass: bassTab, drums: drumsTab, variation: variationTab, structure: structureTab, assistant: assistantTab, mix: mixTab, master: masterTab };
+    const views: Record<Tab, () => HTMLElement> = { producer: producerTab, beat: beatTab, melody: melodyTab, chords: chordsTab, bass: bassTab, drums: drumsTab, variation: variationTab, structure: structureTab, assistant: assistantTab, mix: mixTab, master: masterTab };
     panel.append(views[tab]());
   }
 

@@ -346,3 +346,25 @@ label.check { display: inline-flex; align-items: center; gap: 6px; cursor: point
 .mic-test ul { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
 @keyframes mic-pulse { 50% { opacity: .55; } }
 .credits { margin: 6px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+/* AI producer */
+.cmd-row { gap: 8px; }
+.cmd-input { flex: 1; min-width: 260px; padding: 9px 12px; font-size: 15px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chip { border: 1px solid var(--accent); background: transparent; color: inherit; border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+.chip:hover { background: var(--accent); color: #fff; }
+.cmd-log ul { margin: 4px 0 10px; padding-left: 18px; }
+.cmd-log li.ok { color: var(--ok); }
+.cmd-log li.warn { color: var(--warn); }
+.card.learned { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.btn.rated { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* Guided mode */
+.guide-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.guide-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 6px 0 10px; }
+.guide-bar i { display: block; height: 100%; background: var(--ok); transition: width .3s; }
+.guide-steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+.guide-steps li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.guide-steps li.done { opacity: .65; }
+.guide-steps li.current { font-size: 15px; }
+.guide-steps li p { margin: 4px 0 0; font-size: 13px; }

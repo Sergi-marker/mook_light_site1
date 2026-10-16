@@ -11,10 +11,19 @@ import { rng } from "./rng.ts";
 import { styleById, styleDrumKit } from "./styles.ts";
 import { SOUND_LIBRARY, soundParams } from "../soundLibrary.ts";
 import { drumKit } from "../drumSamples.ts";
+import type { Preferences, SoundRole } from "./memory.ts";
 
 export interface GeneratedSong {
   patch: ProjectPatch;
   summary: string[];
+  /** What was chosen (for the producer memory). */
+  styleId: string;
+  sounds: Record<SoundRole, string>;
+  kitId: string;
+  /** Version shaped by what the AI learnt about your taste. */
+  learned: boolean;
+  /** Instrument track of each role. */
+  roleIds: Record<SoundRole, string>;
 }
 
 function leadPreset(genre: Genre, mood: Mood, seed: number): SynthPreset {
@@ -45,8 +54,19 @@ const SECTION_COLORS: Record<string, string> = { Intro: "#64748b", Verse: "#2563
  * @param variant 0 = the style's reference sounds; 1, 2… = alternative lead sound of the same
  *   family and another progression (the "3 versions" button).
  */
-export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 100000, variant = 0): GeneratedSong {
-  const style = styleById(req.style);
+/**
+ * @param prefs what the producer memory learnt (applied to version 0 only; versions 1, 2…
+ *   keep exploring so taste can still evolve).
+ */
+export function generateSong(p: Project, reqIn: BeatRequest, seed = Date.now() % 100000, variant = 0, prefs?: Preferences): GeneratedSong {
+  const style = styleById(reqIn.style);
+  const learned = variant === 0 && prefs ? prefs : undefined;
+  const req: BeatRequest = learned?.bpmOffset ? { ...reqIn, bpm: Math.round(Math.max(50, Math.min(200, reqIn.bpm + learned.bpmOffset))) } : reqIn;
+  const sounds: Record<SoundRole, string> = {
+    lead: learned?.sounds.lead ?? style.sounds.lead,
+    chords: learned?.sounds.chords ?? style.sounds.chords,
+    bass: learned?.sounds.bass ?? style.sounds.bass,
+  };
   const summary: string[] = [];
   const instruments: InstrumentTrack[] = [...p.instruments];
   let channels = [...p.channels];
@@ -66,11 +86,11 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
     }
     return ins;
   };
-  const bassSound = SOUND_LIBRARY.find((x) => x.id === style.sounds.bass);
+  const bassSound = SOUND_LIBRARY.find((x) => x.id === sounds.bass);
   const bassIs808 = !bassSound || bassSound.preset === "808";
   // The project's existing 808 keeps its name; other basses get their own track.
   const bassName = bassIs808 ? (instruments.find((i) => i.preset === "808")?.name ?? "808 Bass") : "Bass";
-  let bass = ensureSound(style.sounds.bass, bassName, "808");
+  let bass = ensureSound(sounds.bass, bassName, "808");
   // The 808 track becomes "Log Drum" in amapiano (and back to "808 Bass" in other styles).
   const wantName = style.bassMode === "log" ? "Log Drum" : bass.name === "Log Drum" ? "808 Bass" : bass.name;
   if (bass.preset === "808" && wantName !== bass.name) {
@@ -82,9 +102,9 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
     bass = { ...bass, bass808: { ...bass.bass808, saturation: Math.max(bass.bass808.saturation, 0.7), distortion: Math.max(bass.bass808.distortion, 0.3), lowBoostDb: Math.max(bass.bass808.lowBoostDb, 3), punch: Math.max(bass.bass808.punch, 0.6) } };
     instruments[instruments.findIndex((i) => i.id === bass.id)] = bass;
   }
-  const leadId = variant === 0 ? style.sounds.lead : altSound(style.sounds.lead, variant);
+  const leadId = variant === 0 ? sounds.lead : altSound(style.sounds.lead, variant);
   const lead = ensureSound(leadId, "Melody", leadPreset(req.genre, req.mood, seed));
-  const chords = ensureSound(style.sounds.chords, "Chords", chordPreset(req.genre, req.mood));
+  const chords = ensureSound(sounds.chords, "Chords", chordPreset(req.genre, req.mood));
   const bassId = bass.id;
   const r = rng(seed * 31 + 7);
   const progression = style.progressions.length
@@ -94,7 +114,7 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   const kindId = (k: InstrumentKind) => p.tracks.find((t) => t.instrument === k)?.id;
   // Drum kit tuning of the style (e.g. higher cowbell-like perc for phonk).
   // and its drum sounds: recorded percussion for afro / amapiano / boom bap / R&B, electronic for trap.
-  const kit = drumKit(styleDrumKit(style));
+  const kit = drumKit(learned?.kit ?? styleDrumKit(style));
   const tracks = p.tracks.map((t) => {
     const next: Track = { ...t, pitch: style.kit?.[t.instrument] ?? t.pitch };
     if (kit && t.instrument !== "808") {
@@ -163,7 +183,9 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   }
   const soundName = (id: string) => SOUND_LIBRARY.find((x) => x.id === id)?.name ?? id;
   summary.push(`${style.label.toUpperCase()} · ${req.bpm} BPM · ${["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][req.key.root]} ${req.key.scale} · humeur ${req.mood}`);
-  summary.push(`Sons : mélodie « ${soundName(leadId)} », accords « ${soundName(style.sounds.chords)} », basse « ${soundName(style.sounds.bass)} »${req.heavy808 ? " (saturée)" : ""}.`);
+  summary.push(`Sons : mélodie « ${soundName(leadId)} », accords « ${soundName(sounds.chords)} », basse « ${soundName(sounds.bass)} »${req.heavy808 ? " (saturée)" : ""}.`);
+  const tasteApplied = !!learned && (Object.keys(learned.sounds).length > 0 || learned.bpmOffset !== 0 || !!learned.kit);
+  if (tasteApplied) summary.unshift("🧠 Version selon vos goûts (ce que l'IA a appris de vos choix).");
   summary.push(`Progression (degrés) : ${progression.map((d) => ["I", "II", "III", "IV", "V", "VI", "VII"][d]).join(" – ")} · écriture ${style.melody.mode} · accords ${style.chordStyle}${style.bassMode === "log" ? " · log drum qui rebondit et glisse" : style.slides >= 0.4 ? " · 808 qui glisse beaucoup" : ""}${style.chordSize === 5 ? " · accords de 9e" : style.chordSize === 4 ? " · accords de 7e" : ""}.`);
   summary.push(`Structure : ${sections.map((s) => `${s.name} (${s.length})`).join(" → ")} = ${bar} mesures.`);
   return {
@@ -179,6 +201,11 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
       arrangement: { ...p.arrangement, clips, sections, lanes: Math.max(1, p.arrangement.lanes) },
     },
     summary,
+    styleId: style.id,
+    sounds: { lead: leadId, chords: sounds.chords, bass: sounds.bass },
+    kitId: kit?.id ?? "synth",
+    learned: tasteApplied,
+    roleIds: { lead: lead.id, chords: chords.id, bass: bass.id },
   };
 }
 

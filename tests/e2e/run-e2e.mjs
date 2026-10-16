@@ -185,7 +185,7 @@ await step("6. melody: piano roll notes (scale lock), audible", async () => {
   await clickCanvas(".pr-canvas", 6 * stepW + 3, yFor(71)); // B4 → not in F minor → snapped
   await clickCanvas(".pr-canvas", 10 * stepW + 3, yFor(68)); // G#4/Ab4 in F minor
   const p = await state();
-  const ins = p.instruments.find((i) => i.preset === "piano").id;
+  const ins = p.instruments.find((i) => i.name === "Piano").id;
   const notes = p.patterns[0].notes[ins];
   assert.equal(notes.length, 3, JSON.stringify(notes));
   const inF = (m) => [0, 2, 3, 5, 7, 8, 10].includes((((m - 5) % 12) + 12) % 12);
@@ -634,6 +634,52 @@ await step("AI styles: pick Love drill, 3 versions, apply one (tempo, sounds, st
   await page.click(".btn-play");
   assert.ok((await maxPeak(1500)) > 0.05, "love drill audible");
   await page.click(".btn-play");
+});
+
+await step("AI producer: 👍 + apply learnt, plain-language commands applied, memory shown, guided mode follows progress", async () => {
+  await evalApp(() => { localStorage.removeItem("bs.aiMemory"); window.__app.forgetTaste(); });
+  await nav("AI");
+  await page.click('.tab:has-text("BEAT GENERATOR")');
+  await page.click('.style-chip:has-text("Amapiano")');
+  await page.click('button:has-text("✨ 3 versions")');
+  const card = page.locator(".ai-panel .options .card").nth(0);
+  await card.locator('button[aria-label="J\'aime"]').click();
+  await card.locator('button:has-text("Appliquer au projet")').click();
+  await page.waitForSelector(".arrangement-view");
+  let p = await state();
+  const logDrum = p.instruments.find((i) => i.name === "Log Drum");
+  assert.ok(logDrum, "amapiano has a Log Drum track");
+  assert.equal(p.tracks.find((t) => t.instrument === "closedHat").builtinSample, "shaker-down", "amapiano kit");
+  const vol0 = p.channels.find((c) => c.id === logDrum.id).volume;
+  // Plain-language commands, two at once.
+  await nav("AI");
+  await page.click('.tab:has-text("PRODUCTEUR")');
+  await page.fill(".cmd-input", "plus de basse et change le piano en guitare espagnole");
+  await page.press(".cmd-input", "Enter");
+  await page.waitForSelector(".cmd-log li.ok");
+  p = await state();
+  assert.ok(p.channels.find((c) => c.id === logDrum.id).volume > vol0 * 1.3, "bass +3 dB");
+  assert.ok(p.instruments.some((i) => i.sample === "guitar-nylon"), "piano → nylon guitar");
+  assert.equal(await page.locator(".cmd-log li.warn").count(), 0);
+  await page.click('.chip:has-text("kit afro")');
+  await page.waitForFunction(() => window.__app.store.getState().tracks.find((t) => t.instrument === "closedHat").builtinSample === "shaker");
+  // Memory: rating, applied version, replaced sound, commands — saved on this computer.
+  const mem = await evalApp(() => JSON.parse(localStorage.getItem("bs.aiMemory")));
+  assert.ok(mem.styles.amapiano.liked >= 1 && mem.styles.amapiano.applied >= 1, JSON.stringify(mem.styles));
+  assert.ok(mem.commands.includes("kit afro"));
+  assert.ok((await page.textContent(".ai-panel")).includes("choix enregistrés"));
+  // Guided mode: beat and "adjust" steps ticked from the real project state.
+  await nav("HOME");
+  const guideText = await page.textContent(".guide");
+  assert.match(guideText, /\d \/ 6 étapes/);
+  assert.ok((await page.locator(".guide-steps li.done").count()) >= 2, guideText);
+  console.log(`     guide: ${guideText.match(/\d \/ 6 étapes/)[0]}`);
+  // The next generation of the same style uses the learnt taste (version 1).
+  await nav("AI");
+  await page.click('.tab:has-text("BEAT GENERATOR")');
+  await page.click('.style-chip:has-text("Amapiano")');
+  await page.click('button:has-text("✨ GENERATE BEAT")');
+  assert.ok((await page.textContent(".ai-panel .options .card")).includes("vos goûts"), "version follows the learnt taste");
 });
 
 await step("no page errors during the whole session", async () => {

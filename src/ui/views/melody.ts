@@ -112,6 +112,7 @@ export function createMelodyView(app: App): View {
       if (!snd) return;
       const sp = soundParams(snd);
       app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample } });
+      app.noteSoundChoice(id, snd.id);
       void app.engine.previewNote(id, sp.preset === "808" || sp.preset === "bass" ? 36 + p.key.root : 60 + p.key.root, 100, 0.6);
       toast(`Son « ${snd.name} » chargé — tous les réglages restent modifiables.`, "ok");
     } }, h("option", { value: "" }, "Charger un son…"),
@@ -176,6 +177,8 @@ export function createMelodyView(app: App): View {
     const cur = sampledInstrument(ins.sample);
     const sel = h("select", { "aria-label": "Instrument réel", onchange: () => {
       app.dispatch({ type: "updateInstrument", trackId: ins.id, patch: { sample: sel.value } });
+      const lib = SOUND_LIBRARY.find((x) => x.preset === "sampler" && x.sample === sel.value);
+      if (lib) app.noteSoundChoice(ins.id, lib.id);
       void app.engine.previewNote(ins.id, 60 + store.getState().key.root, 100, 0.8);
     } }, ...(Object.keys(SAMPLE_CATEGORY_LABELS) as SampleCategory[]).map((cat) => h("optgroup", { label: SAMPLE_CATEGORY_LABELS[cat] },
       ...SAMPLED_INSTRUMENTS.filter((x) => x.category === cat).map((x) => h("option", { value: x.id, selected: x.id === cur.id }, x.name)))));
