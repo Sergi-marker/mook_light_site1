@@ -19,7 +19,7 @@ export type Layout = "standard" | "hookFirst" | "short" | "long";
 export interface StyleDef {
   id: string;
   label: string;
-  family: "Trap" | "Drill" | "Afro" | "Old school" | "R&B / Chill" | "Club / Latin" | "Pop / Alternatif";
+  family: "Trap" | "Drill" | "Afro" | "Caraïbes" | "Old school" | "R&B / Chill" | "Club / Latin" | "Pop / Alternatif";
   description: string;
   /** Base family used for generic behaviour (melody rhythms fallback, bass). */
   genre: Genre;
@@ -44,6 +44,12 @@ export interface StyleDef {
   heavy808?: boolean;
   melody: { mode: MelodyMode; rhythms?: GridString[]; range?: [number, number]; density?: number };
   chordStyle: "sustain" | "stabs" | "arp";
+  /** 3 = triads, 4 = 7th chords, 5 = 9th chords. */
+  chordSize?: number;
+  /** Stab rhythm (16th positions in the bar) for chordStyle "stabs". */
+  chordHits?: number[];
+  /** Bass writing: held notes (808 / bass) or amapiano log drum bounces. */
+  bassMode?: "follow" | "log";
   /** Scale-degree progressions (one chord per bar). */
   progressions: number[][];
   /** Drum kit tuning in semitones. */
@@ -154,6 +160,22 @@ export const STYLES: StyleDef[] = [
     keywords: /\b(drift ?phonk|brazilian ?phonk|kordhell|car ?edit)\b/,
   },
   {
+    id: "guitar-trap", label: "Trap guitare (mélancolique)", family: "Trap", description: "Rod Wave, Lil Tjay, Toosii : guitare acoustique ou nylon en arpèges, accords tristes, 808 longue, chant émotionnel.",
+    genre: "trap", bpm: [130, 140, 150], swing: 0, scales: ["minor", "major"], mood: "sad", energy: 0.6, complexity: 0.55,
+    drums: { kick: "X.....x...x.....", snare: "........X.......", clap: "........x.......", closedHat: "X-X-X-X-X-X-X-X-", openHat: "..............-.", perc: "................" },
+    hatRolls: 0.4, slides: 0.25, sounds: { lead: "guitar-nylon", chords: "guitar-acoustic", bass: "808-long" },
+    melody: { mode: "arp", range: [55, 79] }, chordStyle: "arp", progressions: SAD, layout: "hookFirst", drumKit: "trap-hybrid",
+    keywords: /\b(guitar ?trap|trap ?guitare|rod ?wave|lil ?tjay|toosii|polo ?g)\b/,
+  },
+  {
+    id: "orchestral-trap", label: "Trap orchestrale / épique", family: "Trap", description: "Cordes, cuivres et piano à queue : intro de film, tension, 808 massive (Metro Boomin « Heroes & Villains »).",
+    genre: "trap", bpm: [130, 140, 150], swing: 0, scales: ["harmonicMinor", "minor"], mood: "epic", energy: 0.85, complexity: 0.6,
+    drums: { kick: "X......x..x.....", snare: "........X.......", clap: "........X.......", closedHat: "X-X-X-X-X-XoX-X-", openHat: "................", perc: "...........-...." },
+    hatRolls: 0.45, slides: 0.2, heavy808: true, sounds: { lead: "horns", chords: "strings", bass: "808-dist" },
+    melody: { mode: "sparse", range: [55, 79] }, chordStyle: "sustain", progressions: TENSE, layout: "standard",
+    keywords: /\b(orchestr\w*|cin[ée]matique|heroes|villains|trap ?[ée]pique|epic ?trap)\b/,
+  },
+  {
     id: "trap-fr", label: "Trap FR", family: "Trap", description: "Trap à la française : piano et cordes mélodiques, 808 propre, ambiance street-mélancolique.",
     genre: "trap", bpm: [135, 140, 150], swing: 0, scales: ["harmonicMinor", "minor"], mood: "sad", energy: 0.7, complexity: 0.5,
     drums: { kick: "X......x..x...-.", snare: "........X.......", clap: "........x.......", closedHat: "X-X-X-X-X-X-XoX-", openHat: "...............-", perc: "................" },
@@ -195,6 +217,30 @@ export const STYLES: StyleDef[] = [
     keywords: /\b(drill ?fr|french ?drill|drill ?fran[cç]aise|gazo|tiakola|ziak|kerchak)\b/,
   },
   {
+    id: "chicago-drill", label: "Chicago drill", family: "Drill", description: "L'originale (Chief Keef, King Von) : trap lente et menaçante, piano/cloches sombres, 808 lourde peu glissante, charleys en triolets.",
+    genre: "drill", bpm: [62, 66, 72], swing: 0, scales: ["harmonicMinor", "minor"], mood: "dark", energy: 0.75, complexity: 0.5,
+    drums: { kick: "X..x......x.....", snare: "........X.......", clap: "........x.......", closedHat: "X.X.X.X.X.X.X.X.", openHat: "...........-....", perc: "......-........." },
+    hatRolls: 0.5, tripletRolls: true, slides: 0.15, heavy808: true, sounds: { lead: "bells", chords: "dark-piano", bass: "808-dist" },
+    melody: { mode: "motif", range: [62, 82] }, chordStyle: "sustain", progressions: TENSE, layout: "standard",
+    keywords: /\b(chicago ?drill|chi ?drill|chief ?keef|king ?von|lil ?durk|g ?herbo)\b/,
+  },
+  {
+    id: "sexy-drill", label: "Sexy drill", family: "Drill", description: "Drill sur des samples R&B des années 2000 (Cash Cobain) : guitare et piano électrique chauds, drill rebondie, 808 qui glisse.",
+    genre: "drill", bpm: [138, 142, 146], swing: 0, scales: ["minor", "dorian"], mood: "romantic", energy: 0.7, complexity: 0.55,
+    drums: { kick: "X.........x..o..", snare: "....X.......X...", clap: "....x.......x...", closedHat: "X..X..X.X..X..X.", openHat: "........-.......", perc: "..-.......-....." },
+    hatRolls: 0.3, tripletRolls: true, bassGrid: "X.........x..o..", slides: 0.5, sounds: { lead: "guitar-electric", chords: "suitcase", bass: "808-drill" },
+    melody: { mode: "motif", range: [62, 81] }, chordStyle: "stabs", chordSize: 4, progressions: LOVE, layout: "hookFirst", drumKit: "trap-hybrid",
+    keywords: /\b(sexy ?drill|cash ?cobain|bay ?swag)\b/,
+  },
+  {
+    id: "afro-drill", label: "Afro drill", family: "Drill", description: "Drill + percussions africaines : charleys en triolets, congas et shakers réels, kalimba ou guitare, 808 drill.",
+    genre: "drill", bpm: [138, 142, 146], swing: 6, scales: ["minor"], mood: "dark", energy: 0.8, complexity: 0.6,
+    drums: { kick: "X..o......x..o..", snare: "....X.......X...", clap: "....x.......x...", closedHat: "X..X..X.X..X..X.", openHat: "................", perc: "..x..x....x..x.x" },
+    hatRolls: 0.3, tripletRolls: true, bassGrid: "X..o......x..o..", slides: 0.5, sounds: { lead: "kalimba", chords: "dark-piano", bass: "808-drill" },
+    melody: { mode: "motif", range: [64, 83] }, chordStyle: "stabs", progressions: DARK, layout: "standard", drumKit: "afro",
+    keywords: /\b(afro ?drill)\b/,
+  },
+  {
     id: "jersey", label: "Jersey club / Jersey drill", family: "Club / Latin", description: "Kicks en rebond (5 coups), claps rapides, énergie dansante, tempo ~145.",
     genre: "drill", bpm: [138, 145, 150], swing: 0, scales: ["minor"], mood: "aggressive", energy: 0.9, complexity: 0.55,
     drums: { kick: "X..X..X.X..X..X.", snare: "....X.......X...", clap: "....X..x....X...", closedHat: "X.X.X.X.X.X.X.X.", openHat: "..............x.", perc: "..x.......x....." },
@@ -217,15 +263,47 @@ export const STYLES: StyleDef[] = [
     drums: { kick: "X.....x...X.....", snare: "....X.......X...", clap: "....x.......x...", closedHat: "X-X-X-X-X-X-X-X-", openHat: ".......-........", perc: "...x.x...x.x...o" },
     hatRolls: 0.3, slides: 0.15, sounds: { lead: "afro-lead", chords: "warm-pad", bass: "808-trap" },
     melody: { mode: "motif", range: [64, 83] }, chordStyle: "stabs", progressions: HAPPY, layout: "short",
-    keywords: /\b(afro ?trap|mhd|afro ?drill)\b/,
+    keywords: /\b(afro ?trap|mhd)\b/,
   },
   {
-    id: "amapiano", label: "Amapiano", family: "Afro", description: "Afrique du Sud : kick en 4/4, shakers, log drum qui rebondit, accords jazzy.",
+    id: "amapiano", label: "Amapiano", family: "Afro", description: "Afrique du Sud (Kabza De Small, Focalistic) : kick 4/4, shakers, log drum qui rebondit et glisse, accords de piano jazzy (7e, 9e) en stabs syncopés.",
     genre: "afrobeat", bpm: [110, 113, 116], swing: 14, scales: ["dorian", "minor"], mood: "chill", energy: 0.65, complexity: 0.55,
-    drums: { kick: "X...X...X...X...", snare: "................", clap: "....x.......x...", closedHat: "-o-o-o-o-o-o-o-o", openHat: "..o...o...o...o.", perc: "..x..x....x..x.." },
-    hatRolls: 0, bassGrid: "X..o..o...o.x...", slides: 0, sounds: { lead: "grand", chords: "rnb-rhodes", bass: "log-drum" },
-    melody: { mode: "sparse", range: [64, 81] }, chordStyle: "stabs", progressions: JAZZY, layout: "long",
-    keywords: /\b(amapiano|piano ?piano|log ?drum|kabza|asake ?amapiano)\b/,
+    drums: { kick: "X...X...X...X...", snare: "................", clap: "....X.......X...", closedHat: "xoxoxoxoxoxoxoxo", openHat: "..o...o...o...X.", perc: "...x..x.-..x..x." },
+    hatRolls: 0, bassGrid: "X..x..x...x.x..o", bassMode: "log", slides: 0.4, sounds: { lead: "grand", chords: "wurli", bass: "log-drum" },
+    melody: { mode: "sparse", range: [67, 86], density: 0.45 }, chordStyle: "stabs", chordSize: 4, chordHits: [0, 3, 6, 10, 13], progressions: JAZZY, layout: "long",
+    keywords: /\b(amapiano|piano ?piano|log ?drum|kabza|focalistic|asake ?amapiano)\b/,
+  },
+  {
+    id: "amapiano-private", label: "Amapiano « private school »", family: "Afro", description: "La version douce et jazzy (Kelvin Momo, Mhaw Keys) : log drum profond, saxophone, accords de 9e, plus lent et plus aéré.",
+    genre: "afrobeat", bpm: [108, 111, 113], swing: 16, scales: ["dorian", "major"], mood: "romantic", energy: 0.5, complexity: 0.65,
+    drums: { kick: "X...X...X...X...", snare: "................", clap: "....x.......x...", closedHat: "-o-o-o-o-o-o-o-o", openHat: "..-...o...-...o.", perc: "......x.......x." },
+    hatRolls: 0, bassGrid: "X.....x...x.....", bassMode: "log", slides: 0.5, sounds: { lead: "sax", chords: "grand", bass: "log-drum-deep" },
+    melody: { mode: "sparse", range: [62, 81], density: 0.35 }, chordStyle: "stabs", chordSize: 5, chordHits: [0, 6, 10], progressions: JAZZY, layout: "long", drumKit: "amapiano",
+    keywords: /\b(private ?school|kelvin ?momo|mhaw ?keys|soulful ?amapiano|amapiano ?(doux|jazz))\b/,
+  },
+  {
+    id: "afro-house", label: "Afro house", family: "Afro", description: "Club africain (Black Coffee, Keinemusik) : kick 4/4, congas et shakers, accords profonds, groove hypnotique.",
+    genre: "afrobeat", bpm: [118, 122, 125], swing: 8, scales: ["minor", "dorian"], mood: "chill", energy: 0.7, complexity: 0.5,
+    drums: { kick: "X...X...X...X...", snare: "................", clap: "....X.......X...", closedHat: "..X...X...X...X.", openHat: "......-.......o.", perc: "x..x..x...x..x.." },
+    hatRolls: 0, bassGrid: "X.....x...X.....", slides: 0, sounds: { lead: "kalimba", chords: "warm-pad", bass: "sub-sine" },
+    melody: { mode: "sparse", range: [64, 84], density: 0.4 }, chordStyle: "stabs", chordSize: 4, chordHits: [2, 6, 10, 14], progressions: JAZZY, layout: "long", drumKit: "afro",
+    keywords: /\b(afro ?house|black ?coffee|keinemusik|afro ?tech)\b/,
+  },
+  {
+    id: "gqom", label: "Gqom", family: "Afro", description: "Durban : kick cassé et lourd, pas de charleys continus, toms sombres, ambiance brute et hypnotique.",
+    genre: "afrobeat", bpm: [122, 126, 130], swing: 0, scales: ["phrygian", "minor"], mood: "dark", energy: 0.85, complexity: 0.45,
+    drums: { kick: "X..X..X...X..X..", snare: "........X.......", clap: "....x.......x...", closedHat: "................", openHat: "..-.......-.....", perc: "...x......x..x.." },
+    hatRolls: 0, slides: 0, sounds: { lead: "dark-piano", chords: "dark-pad", bass: "sub-sine" },
+    melody: { mode: "sparse", range: [55, 72], density: 0.3 }, chordStyle: "sustain", progressions: TENSE, layout: "long", drumKit: "live",
+    keywords: /\b(gqom|durban|dj ?lag)\b/,
+  },
+  {
+    id: "coupe-decale", label: "Coupé-décalé", family: "Afro", description: "Côte d'Ivoire (DJ Arafat, Serge Beynaud) : tempo rapide, caisse claire sèche, percussions qui roulent, guitare et synthés joyeux.",
+    genre: "afrobeat", bpm: [122, 128, 134], swing: 6, scales: ["major", "minor"], mood: "happy", energy: 0.9, complexity: 0.6,
+    drums: { kick: "X...X...X...X...", snare: "....X.......X...", clap: "....x.......x..-", closedHat: "XxXxXxXxXxXxXxXx", openHat: "..o...o...o...o.", perc: "x.xx.x.xx.x.xx.x" },
+    hatRolls: 0, bassGrid: "X..x..X.X..x..X.", slides: 0, sounds: { lead: "afro-guitar", chords: "bright-piano", bass: "bass-electric" },
+    melody: { mode: "bounce", range: [64, 86] }, chordStyle: "stabs", progressions: HAPPY, layout: "short", drumKit: "afro",
+    keywords: /\b(coup[ée] ?d[ée]cal[ée]|arafat|serge ?beynaud|ivoir)\b/,
   },
   {
     id: "afroswing", label: "Afroswing (UK)", family: "Afro", description: "Londres : dancehall + afrobeats, rythme syncopé, ambiance chaude.",
@@ -278,6 +356,22 @@ export const STYLES: StyleDef[] = [
     keywords: /\b(trap ?soul|bryson|6lack|the ?weeknd|weeknd|pnd)\b/,
   },
   // ---------------------------------------------------------------- CLUB / LATIN
+  {
+    id: "kompa", label: "Kompa (konpa)", family: "Caraïbes", description: "Haïti (Carimi, T-Vice, Kenny Haiti) : groove chaloupé, cloche continue, guitare en riffs, claviers, basse ronde.",
+    genre: "dancehall", bpm: [95, 104, 118], swing: 10, scales: ["major", "minor"], mood: "romantic", energy: 0.6, complexity: 0.55,
+    drums: { kick: "X.....x.X.....x.", snare: "....X.......X...", clap: "................", closedHat: "x.xxx.xxx.xxx.xx", openHat: "................", perc: "X.x.X.x.X.x.X.x." },
+    hatRolls: 0, bassGrid: "X..x..x.X..x..x.", slides: 0, sounds: { lead: "guitar-electric", chords: "organ", bass: "bass-electric" },
+    melody: { mode: "motif", range: [62, 84] }, chordStyle: "stabs", chordSize: 4, chordHits: [0, 3, 6, 8, 11, 14], progressions: LOVE, layout: "long", drumKit: "dancehall",
+    keywords: /\b(kompa|konpa|compas|ha[iï]ti|carimi|t-?vice|kenny ?haiti|gouyad)\b/,
+  },
+  {
+    id: "zouk", label: "Zouk", family: "Caraïbes", description: "Antilles (Kassav', Kalash, Tayc) : rythme tibwa syncopé, accords doux et romantiques, basse qui chante.",
+    genre: "dancehall", bpm: [88, 94, 100], swing: 8, scales: ["minor", "major"], mood: "romantic", energy: 0.55, complexity: 0.5,
+    drums: { kick: "X..x..x.X..x..x.", snare: "......X.......X.", clap: "...x..x....x..x.", closedHat: "x.x.x.x.x.x.x.x.", openHat: "................", perc: "x..x..x.x..x..x." },
+    hatRolls: 0, bassGrid: "X..x..x.X..x....", slides: 0.1, sounds: { lead: "guitar-nylon", chords: "wurli", bass: "bass-electric" },
+    melody: { mode: "motif", range: [62, 81] }, chordStyle: "stabs", chordSize: 4, progressions: LOVE, layout: "standard", drumKit: "dancehall",
+    keywords: /\b(zouk|kassav|kalash|antilles|martinique|guadeloupe|tayc)\b/,
+  },
   {
     id: "dancehall", label: "Dancehall", family: "Club / Latin", description: "Jamaïque : rythme 3+3+2, percussions, ambiance festive.",
     genre: "dancehall", bpm: [92, 100, 108], swing: 8, scales: ["minor"], mood: "happy", energy: 0.75, complexity: 0.5,
@@ -339,8 +433,8 @@ export function styleForGenre(g: Genre): StyleDef {
  */
 export function detectStyle(text: string): StyleDef | null {
   const t = ` ${text.toLowerCase().replace(/[,.;!?]/g, " ")} `;
-  const order = ["love-drill", "drill-fr", "ny-drill", "uk-drill", "jersey", "drift-phonk", "phonk", "pluggnb", "plugg", "afro-trap", "afroswing", "amapiano", "afrobeats",
-    "trap-soul", "latin-trap", "trap-fr", "dark-trap", "mumble", "rage", "cloud", "emo", "detroit", "hyperpop", "reggaeton", "dancehall", "jazz-rap", "lofi", "boombap", "rnb", "pop-rap", "trap"];
+  const order = ["chicago-drill", "sexy-drill", "afro-drill", "love-drill", "drill-fr", "ny-drill", "uk-drill", "jersey", "drift-phonk", "phonk", "pluggnb", "plugg", "afro-trap", "afroswing", "amapiano-private", "amapiano", "afro-house", "gqom", "coupe-decale", "kompa", "zouk", "afrobeats",
+    "trap-soul", "latin-trap", "orchestral-trap", "trap-fr", "dark-trap", "mumble", "rage", "cloud", "guitar-trap", "emo", "detroit", "hyperpop", "reggaeton", "dancehall", "jazz-rap", "lofi", "boombap", "rnb", "pop-rap", "trap"];
   for (const id of order) {
     if (styleById(id).keywords.test(t)) return styleById(id);
     // Generic words, checked once their specific variants have had their chance.

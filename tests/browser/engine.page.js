@@ -8,6 +8,9 @@ import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
 import { SOUND_LIBRARY, soundParams } from "/app/core/soundLibrary.js";
 import { SAMPLED_INSTRUMENTS, playablePitch, sampledInstrument } from "/app/core/sampleLibrary.js";
 import { DRUM_KITS } from "/app/core/drumSamples.js";
+import { STYLES } from "/app/core/ai/styles.js";
+import { generateSong } from "/app/core/ai/beat.js";
+import { parseBeatPrompt } from "/app/core/ai/prompt.js";
 import { Yin, freqToMidi } from "/app/core/dsp/yin.js";
 import { measure } from "/app/core/dsp/loudness.js";
 
@@ -167,6 +170,24 @@ window.tests = {
         const rise = 10 * Math.log10((win(1.0, 1.02) + 1e-12) / (win(0.98, 1.0) + 1e-12));
         out[kit.id][lane] = { sound: kit.sounds[lane], onsets: onsets(d, buf.sampleRate, peak * 0.2, 0.3), rise, db: rms(d, 0, buf.sampleRate), ...stats(buf) };
       }
+    }
+    return out;
+  },
+  /** Every AI style: generate a song, render its chorus (pattern mode) like an export. */
+  async styleRenders() {
+    const out = {};
+    for (const st of STYLES) {
+      let p = createEmptyProject("style");
+      p = reduce(p, { type: "patchProject", patch: generateSong(p, parseBeatPrompt(st.label, st.id, 0), 5).patch });
+      const chorus = p.patterns.find((x) => /chorus|refrain|hook/i.test(x.name)) ?? p.patterns[p.patterns.length - 1];
+      p = reduce(p, { type: "selectPattern", patternId: chorus.id });
+      const buf = await renderProject(p, media, { mode: "pattern", tail: 0.5 });
+      // Loudness over the whole pattern, per second: a gap (silent second) would show as a dip.
+      const d = buf.getChannelData(0);
+      const sec = buf.sampleRate;
+      const perSec = [];
+      for (let i = 0; i + sec <= d.length - 0.5 * sec; i += sec) { let e = 0; for (let j = i; j < i + sec; j++) e += d[j] * d[j]; perSec.push(10 * Math.log10(e / sec + 1e-12)); }
+      out[st.id] = { bpm: p.bpm, perSec, ...stats(buf) };
     }
     return out;
   },

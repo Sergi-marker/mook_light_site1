@@ -103,3 +103,45 @@ test("the 3 versions really differ (lead sound and/or progression); no key in th
   const all = new Set([sig(0), sig(1), sig(2)]);
   assert.equal(all.size, 3);
 });
+
+test("new styles and variants are recognised in prompts", () => {
+  const cases: [string, string][] = [
+    ["amapiano private school avec du sax", "amapiano-private"],
+    ["un son afro house à la Black Coffee", "afro-house"],
+    ["gqom de Durban", "gqom"],
+    ["coupé-décalé façon DJ Arafat", "coupe-decale"],
+    ["kompa romantique", "kompa"],
+    ["un zouk pour Kalash", "zouk"],
+    ["chicago drill comme King Von", "chicago-drill"],
+    ["sexy drill", "sexy-drill"],
+    ["afro drill", "afro-drill"],
+    ["trap guitare triste façon Rod Wave", "guitar-trap"],
+    ["trap orchestrale épique", "orchestral-trap"],
+  ];
+  for (const [text, id] of cases) assert.equal(detectStyle(text)?.id, id, text);
+});
+
+test("amapiano: bouncing log drum (short notes, octave jumps, glides), 7th-chord stabs, real piano", () => {
+  const p = createEmptyProject("ama");
+  const song = generateSong(p, parseBeatPrompt("amapiano", "amapiano", 2), 7);
+  const ins = song.patch.instruments!;
+  const bass = ins.find((i) => i.name === "Log Drum")!;
+  assert.ok(bass, "track named Log Drum");
+  assert.equal(bass.bass808.tune, 12, "808 engine an octave up");
+  assert.equal(bass.preset, "808");
+  const pats = song.patch.patterns!;
+  const logNotes = pats.flatMap((pt) => pt.notes[bass.id] ?? []);
+  assert.ok(logNotes.length > 16);
+  assert.ok(logNotes.every((n) => n.length <= 3), "short punchy hits");
+  const range = Math.max(...logNotes.map((n) => n.pitch)) - Math.min(...logNotes.map((n) => n.pitch));
+  assert.ok(range >= 10, `bounces over ~an octave (${range})`);
+  assert.ok(logNotes.some((n) => n.slide), "glides");
+  const chords = ins.find((i) => i.name === "Chords")!;
+  assert.equal(chords.preset, "sampler");
+  const byStart = new Map<string, number>();
+  for (const pt of pats) for (const n of pt.notes[chords.id] ?? []) byStart.set(`${pt.id}:${n.start}`, (byStart.get(`${pt.id}:${n.start}`) ?? 0) + 1);
+  assert.ok(byStart.size > 8);
+  assert.ok([...byStart.values()].every((c) => c === 4), "7th chords (4 notes)");
+  const lead = ins.find((i) => i.name === "Melody")!;
+  assert.equal(lead.sample, "grand-piano");
+});

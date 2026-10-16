@@ -77,7 +77,11 @@ export const SOUND_LIBRARY: LibrarySound[] = [
   { id: "synth-bass", name: "Synth Bass", category: "Bass", preset: "bass" },
   { id: "reese", name: "Reese Bass", category: "Bass", preset: "bass", synth: { voices: 4, detune: 22, cutoff: 700, lfoFilter: 0.2, lfoRate: 0.5 } },
   { id: "sub-sine", name: "Sub Sine", category: "Bass", preset: "bass", synth: { wave: "sine", voices: 1, cutoff: 600, filterEnv: 0, resonance: 0.5, drive: 0.1 } },
-  { id: "log-drum", name: "Log Drum (amapiano)", category: "Bass", preset: "bass", synth: { wave: "sine", voices: 1, detune: 0, attack: 0.001, decay: 0.22, sustain: 0.1, release: 0.1, cutoff: 1400, resonance: 3, filterEnv: 0.8, drive: 0.45, mono: false } },
+  // Log drum: a short pitched hit an octave above the 808, with a pitch drop (punch), saturation
+  // and glides between notes — the signature of amapiano.
+  { id: "log-drum", name: "Log Drum (amapiano)", category: "Bass", preset: "808", bass808: { tune: 12, glide: 0.07, attack: 0.001, decay: 0.3, sustain: 0.06, release: 0.08, distortion: 0.3, saturation: 0.65, lowBoostDb: 1, highCutHz: 5200, compression: 0.45, punch: 0.9 } },
+  { id: "log-drum-deep", name: "Log Drum profond (private school)", category: "Bass", preset: "808", bass808: { tune: 12, glide: 0.09, attack: 0.002, decay: 0.45, sustain: 0.12, release: 0.12, distortion: 0.1, saturation: 0.45, lowBoostDb: 3, highCutHz: 3500, compression: 0.35, punch: 0.65 } },
+  { id: "synth-log-drum", name: "Log Drum (ancien, synthé)", category: "Bass", preset: "bass", synth: { wave: "sine", voices: 1, detune: 0, attack: 0.001, decay: 0.22, sustain: 0.1, release: 0.1, cutoff: 1400, resonance: 3, filterEnv: 0.8, drive: 0.45, mono: false } },
   { id: "afro-bass", name: "Afro Log Bass", category: "Bass", preset: "bass", synth: { wave: "triangle", voices: 1, decay: 0.25, sustain: 0.3, cutoff: 1100, filterEnv: 0.7, drive: 0.35 } },
   // 808
   { id: "808-clean", name: "808 Clean", category: "808", preset: "808", bass808: { distortion: 0, saturation: 0.15, punch: 0.3 } },

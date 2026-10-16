@@ -63,6 +63,10 @@ export interface ChordGenOptions {
   seed: number;
   /** Rhythm: sustained pads vs rhythmic stabs. */
   style?: "sustain" | "stabs" | "arp";
+  /** Notes per chord: 3 = triads, 4 = 7th chords, 5 = 9th chords (jazzy, deep house, amapiano). */
+  size?: number;
+  /** Stab positions (16ths) inside the bar, instead of the generic ones. */
+  hits?: number[];
 }
 
 export function generateChords(o: ChordGenOptions): GenNote[] {
@@ -73,13 +77,13 @@ export function generateChords(o: ChordGenOptions): GenNote[] {
   const style = o.style ?? (o.genre === "afrobeat" || o.genre === "dancehall" ? "stabs" : "sustain");
   for (let b = 0; b < bars; b++) {
     const deg = o.progression[b % o.progression.length];
-    const chord = voiceChord(deg, o.key, prev, 60, o.genre === "rnb" || o.genre === "lofi" ? 4 : 3);
+    const chord = voiceChord(deg, o.key, prev, 60, o.size ?? (o.genre === "rnb" || o.genre === "lofi" ? 4 : 3));
     prev = chord;
     const t0 = b * 16;
     if (style === "sustain") {
       for (const p of chord) notes.push({ pitch: p, start: t0, length: 16, velocity: 78 + Math.round(r() * 10) });
     } else if (style === "stabs") {
-      const hits = [0, 3, 6, 10, 12].filter((_, i) => i === 0 || r() < 0.65);
+      const hits = o.hits ? o.hits.filter((_, i) => i === 0 || r() < 0.85) : [0, 3, 6, 10, 12].filter((_, i) => i === 0 || r() < 0.65);
       for (const h of hits) for (const p of chord) notes.push({ pitch: p, start: t0 + h, length: 2, velocity: 84 + Math.round(r() * 12) });
     } else {
       for (let i = 0; i < 16; i += 2) notes.push({ pitch: chord[(i / 2) % chord.length] + (i >= 8 ? 12 : 0), start: t0 + i, length: 2, velocity: 80 + Math.round(r() * 15) });
@@ -227,6 +231,11 @@ export interface BassGenOptions {
   slides: boolean;
   /** 0–1 slide probability (style); default 0.35 drill / 0.2 other. */
   slideAmount?: number;
+  /**
+   * "follow": notes held until the next hit (808, bass). "log": amapiano log drum — short
+   * punchy hits that bounce between root, octave and fifth, gliding into the jumps.
+   */
+  mode?: "follow" | "log";
 }
 
 /** 808 / bass line on the chord roots, rhythm from the kick/808 lane, with slides. */
@@ -244,6 +253,18 @@ export function generateBass(o: BassGenOptions): GenNote[] {
     let pitch = degreeToMidi(deg, hk, 36);
     while (pitch < 31) pitch += 12;
     while (pitch > 43) pitch -= 12;
+    if (o.mode === "log") {
+      // Position in the bar decides the note: downbeat = root, then octave / fifth bounces.
+      const pos = start % 16;
+      const roll = r();
+      let p = pitch;
+      // Octave (35 %), fifth (25 %), seventh of the key (15 %), root (25 %): always in the key.
+      if (pos !== 0) p = roll < 0.35 ? pitch + 12 : roll < 0.6 ? degreeToMidi(deg + 4, hk, pitch) : roll < 0.75 ? degreeToMidi(deg + 6, hk, pitch) : pitch;
+      const prev = notes[notes.length - 1];
+      const glide = !!prev && Math.abs(p - prev.pitch) >= 5 && r() < (o.slideAmount ?? 0.35);
+      notes.push({ pitch: p, start, length: Math.max(1, Math.min(end - start, 3)), velocity: pos === 0 ? 118 : 96 + Math.round(r() * 18), ...(glide ? { slide: true } : {}) });
+      continue;
+    }
     let slide = false;
     // Occasional slide up to the octave / fifth before the next chord (trap/drill signature).
     if (o.slides && h > 0 && r() < (o.slideAmount ?? (o.genre === "drill" ? 0.35 : 0.2))) {

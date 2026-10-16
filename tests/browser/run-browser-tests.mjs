@@ -122,6 +122,17 @@ await check("drum kits: every lane of every kit sounds, on the grid (±3 ms), le
   }
 });
 
+await check("every AI style (40+) generates a song whose chorus plays: no NaN, no clipping, no silent second", async () => {
+  const r = await run("styleRenders");
+  for (const [id, v] of Object.entries(r)) {
+    assert.ok(!v.nan, `${id}: NaN`);
+    assert.ok(v.peak > 0.05 && v.peak <= 1.0, `${id}: peak ${v.peak}`);
+    const quiet = Math.min(...v.perSec), loud = Math.max(...v.perSec);
+    assert.ok(quiet > loud - 30, `${id}: a second is ${(loud - quiet).toFixed(0)} dB quieter (${v.perSec.map((x) => x.toFixed(0)).join(" ")})`);
+  }
+  console.log(`     ${Object.keys(r).length} styles rendered`);
+});
+
 await check("synth: mono legato glides; stereo width 0 folds to mono", async () => {
   const r = await run("synthMonoGlideAndWidth");
   assert.ok(near(r.glide.first, 45, 0.4), `first ${r.glide.first}`);

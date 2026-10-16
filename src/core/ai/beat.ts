@@ -71,6 +71,13 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   // The project's existing 808 keeps its name; other basses get their own track.
   const bassName = bassIs808 ? (instruments.find((i) => i.preset === "808")?.name ?? "808 Bass") : "Bass";
   let bass = ensureSound(style.sounds.bass, bassName, "808");
+  // The 808 track becomes "Log Drum" in amapiano (and back to "808 Bass" in other styles).
+  const wantName = style.bassMode === "log" ? "Log Drum" : bass.name === "Log Drum" ? "808 Bass" : bass.name;
+  if (bass.preset === "808" && wantName !== bass.name) {
+    bass = { ...bass, name: wantName };
+    instruments[instruments.findIndex((i) => i.id === bass.id)] = bass;
+    channels = channels.map((c) => (c.id === bass.id ? { ...c, name: wantName } : c));
+  }
   if (req.heavy808 && bass.preset === "808") {
     bass = { ...bass, bass808: { ...bass.bass808, saturation: Math.max(bass.bass808.saturation, 0.7), distortion: Math.max(bass.bass808.distortion, 0.3), lowBoostDb: Math.max(bass.bass808.lowBoostDb, 3), punch: Math.max(bass.bass808.punch, 0.6) } };
     instruments[instruments.findIndex((i) => i.id === bass.id)] = bass;
@@ -117,9 +124,9 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
     }
     if (o.bass) {
       const rhythmSrc = drums["808"].some((s) => s.on) ? drums["808"] : drums.kick;
-      pat.notes[bassId] = generateBass({ key: req.key, progression, stepCount: steps, rhythm: rhythmSrc, genre: req.genre, seed: seed + o.variation, slides: style.slides > 0 && bass.preset === "808", slideAmount: style.slides }).map((n) => ({ ...n, id: newId("n") }));
+      pat.notes[bassId] = generateBass({ key: req.key, progression, stepCount: steps, rhythm: rhythmSrc, genre: req.genre, seed: seed + o.variation, slides: style.slides > 0 && bass.preset === "808", slideAmount: style.slides, mode: style.bassMode }).map((n) => ({ ...n, id: newId("n") }));
     }
-    if (o.chords) pat.notes[chords.id] = generateChords({ key: req.key, progression, stepCount: steps, genre: req.genre, seed, style: style.chordStyle }).map((n) => ({ ...n, id: newId("n") }));
+    if (o.chords) pat.notes[chords.id] = generateChords({ key: req.key, progression, stepCount: steps, genre: req.genre, seed, style: style.chordStyle, size: style.chordSize, hits: style.chordHits }).map((n) => ({ ...n, id: newId("n") }));
     if (o.melody)
       pat.notes[lead.id] = generateMelody({
         key: req.key, genre: req.genre, mood: req.mood, complexity: req.complexity * (o.variation === 1 ? 1.15 : 0.9), stepCount: steps, progression, seed: seed + o.variation * 3,
@@ -157,7 +164,7 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   const soundName = (id: string) => SOUND_LIBRARY.find((x) => x.id === id)?.name ?? id;
   summary.push(`${style.label.toUpperCase()} · ${req.bpm} BPM · ${["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][req.key.root]} ${req.key.scale} · humeur ${req.mood}`);
   summary.push(`Sons : mélodie « ${soundName(leadId)} », accords « ${soundName(style.sounds.chords)} », basse « ${soundName(style.sounds.bass)} »${req.heavy808 ? " (saturée)" : ""}.`);
-  summary.push(`Progression (degrés) : ${progression.map((d) => ["I", "II", "III", "IV", "V", "VI", "VII"][d]).join(" – ")} · écriture ${style.melody.mode} · accords ${style.chordStyle}${style.slides >= 0.4 ? " · 808 qui glisse beaucoup" : ""}.`);
+  summary.push(`Progression (degrés) : ${progression.map((d) => ["I", "II", "III", "IV", "V", "VI", "VII"][d]).join(" – ")} · écriture ${style.melody.mode} · accords ${style.chordStyle}${style.bassMode === "log" ? " · log drum qui rebondit et glisse" : style.slides >= 0.4 ? " · 808 qui glisse beaucoup" : ""}${style.chordSize === 5 ? " · accords de 9e" : style.chordSize === 4 ? " · accords de 7e" : ""}.`);
   summary.push(`Structure : ${sections.map((s) => `${s.name} (${s.length})`).join(" → ")} = ${bar} mesures.`);
   return {
     patch: {
@@ -180,7 +187,7 @@ function altSound(id: string, variant: number): string {
   const snd = SOUND_LIBRARY.find((x) => x.id === id);
   if (!snd) return id;
   // Signature sounds stay with their own styles (no cowbell in a mumble rap version).
-  const SIGNATURE = new Set(["cowbell", "rage-lead", "supersaw", "log-drum"]);
+  const SIGNATURE = new Set(["cowbell", "rage-lead", "supersaw", "log-drum", "log-drum-deep"]);
   const pool = SOUND_LIBRARY.filter((x) => x.category === snd.category && x.id !== id && x.preset !== "808" && !SIGNATURE.has(x.id));
   return pool.length ? pool[(variant * 3 + id.length) % pool.length].id : id;
 }
