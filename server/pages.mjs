@@ -29,11 +29,12 @@ function layout({ title, body, head = "", publicUrl = "" }) {
 <html lang="fr"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${esc(title)}</title>
+<link rel="icon" href="/img/logo.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;900&display=swap" rel="stylesheet">
 <style>${STYLE}</style>
 ${head}
 </head><body><main>
-<a class="brand" href="${esc(publicUrl)}/">Animots</a>
+<a class="brand" href="${esc(publicUrl)}/"><img src="/img/logo.svg" alt="" width="34" height="34" style="vertical-align:middle;border-radius:9px;margin-right:8px">Animots</a>
 ${body}
 <p class="muted"><a href="/legal/impressum">Mentions légales / Impressum</a> · <a href="/legal/privacy">Confidentialité</a> · <a href="/legal/terms">Conditions</a></p>
 </main></body></html>`;
