@@ -7,6 +7,7 @@ import { reduce } from "/app/core/reducer.js";
 import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
 import { SOUND_LIBRARY, soundParams } from "/app/core/soundLibrary.js";
 import { SAMPLED_INSTRUMENTS, playablePitch, sampledInstrument } from "/app/core/sampleLibrary.js";
+import { DRUM_KITS } from "/app/core/drumSamples.js";
 import { Yin, freqToMidi } from "/app/core/dsp/yin.js";
 import { measure } from "/app/core/dsp/loudness.js";
 
@@ -144,6 +145,28 @@ window.tests = {
         heldLate: rmsAt(15.3, 15.8),
         ...stats(buf),
       };
+    }
+    return out;
+  },
+  /** Every drum kit, lane by lane, rendered like an export: hits at 0 s and 1 s (120 BPM). */
+  async drumKits() {
+    const out = {};
+    const rms = (d, t, sr) => { let e = 0; const a = Math.floor(t * sr), n = Math.floor(0.15 * sr); for (let i = a; i < a + n; i++) e += d[i] * d[i]; return 10 * Math.log10(e / n + 1e-12); };
+    for (const kit of DRUM_KITS) {
+      out[kit.id] = {};
+      for (const lane of ["kick", "snare", "clap", "closedHat", "openHat", "perc"]) {
+        let p = reduce(empty(), { type: "setBpm", bpm: 120 });
+        p = reduce(p, { type: "applyDrumKit", kitId: kit.id });
+        p = withSteps(p, lane, [0, 8]);
+        const buf = await renderProject(p, media, { mode: "pattern", tail: 0.3 });
+        const d = buf.getChannelData(0);
+        let peak = 0;
+        for (const x of d) peak = Math.max(peak, Math.abs(x));
+        // Second hit: energy jump at 1 s (a ringing open hat never falls silent in between).
+        const win = (t0, t1) => { let e = 0; for (let i = Math.floor(t0 * buf.sampleRate); i < Math.floor(t1 * buf.sampleRate); i++) e += d[i] * d[i]; return e; };
+        const rise = 10 * Math.log10((win(1.0, 1.02) + 1e-12) / (win(0.98, 1.0) + 1e-12));
+        out[kit.id][lane] = { sound: kit.sounds[lane], onsets: onsets(d, buf.sampleRate, peak * 0.2, 0.3), rise, db: rms(d, 0, buf.sampleRate), ...stats(buf) };
+      }
     }
     return out;
   },

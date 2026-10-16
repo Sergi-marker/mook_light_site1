@@ -26,5 +26,14 @@ Toutes les licences permettent un usage commercial (vente de beats). Les échant
 | Vibraphone | CC0 1.0 (domaine public) | Vibraphone — VCSL (CC0) |
 | Glockenspiel (cloches) | CC0 1.0 (domaine public) | Glockenspiel — VCSL (CC0) |
 
+## Batterie et percussions (`drums/`)
+
+44 sons (kicks, caisses claires, claps, claquements de doigts, charleys, shakers, tambourin, cabasa, congas, bongos, cajón, claves, wood block, cloches, agogô, toms, tablas, crash) — tous CC0 1.0 :
+
+- Sample Pi (sons de Sonic Pi, d'origine Freesound) — https://github.com/alex-esc/sample-pi
+- Versilian Community Sample Library — https://github.com/sgossner/VCSL
+
+Chaque son est recadré sur son attaque, raccourci avec un fondu, normalisé, et son niveau de lecture est aligné sur le son synthétisé de sa piste.
+
 - CC BY 3.0 : https://creativecommons.org/licenses/by/3.0/ (crédit obligatoire — affiché dans PARAMÈTRES › Crédits)
 - CC0 1.0 : https://creativecommons.org/publicdomain/zero/1.0/

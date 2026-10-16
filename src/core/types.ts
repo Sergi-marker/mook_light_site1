@@ -23,8 +23,10 @@ export interface Track {
   id: string;
   name: string;
   instrument: InstrumentKind;
-  /** null = built-in synthesised sound; otherwise id of an imported sample. */
+  /** null = built-in sound; otherwise id of an imported sample (takes priority). */
   sampleId: string | null;
+  /** Built-in RECORDED hit (core/drumSamples) used when no sample is imported; absent = synthesised. */
+  builtinSample?: string;
   /** Non-destructive edit of the sample (trim, reverse, fades, gain, loop). */
   sampleEdit?: SampleEdit;
   /** Semitones, −24 … 24. */

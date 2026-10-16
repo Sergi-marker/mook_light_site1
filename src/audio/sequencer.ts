@@ -3,6 +3,8 @@
 // so what you hear is exactly what gets exported.
 
 import { synthesizeDrum } from "../core/drumSynth.ts";
+import { drumSample } from "../core/drumSamples.ts";
+import { loadedSample, loadSample } from "./sampler.ts";
 import { applySampleEdit, sampleEditKey } from "../core/dsp/sampleEdit.ts";
 import { MASTER, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
 import { semitonesToRate, stepDuration, swingOffset, velocityToGain } from "../core/timing.ts";
@@ -74,11 +76,20 @@ export class Sequencer {
   /** Pre-render / load everything the project's instruments will play (see InstrumentVoice.prepare). */
   async prepare(p: Project): Promise<void> {
     this.syncInstruments(p);
+    await this.prepareDrums(p);
     for (const ins of p.instruments) {
       const pitches: number[] = [];
       for (const pat of p.patterns) for (const n of pat.notes[ins.id] ?? []) pitches.push(n.pitch);
       await this.voices.get(ins.id)?.prepare(pitches);
     }
+  }
+
+  /** Decode the recorded drum hits the project's lanes use. */
+  async prepareDrums(p: Project): Promise<void> {
+    await Promise.all(p.tracks.map((t) => {
+      const rec = !t.sampleId ? drumSample(t.builtinSample) : null;
+      return rec ? loadSample(this.ctx, rec.file) : null;
+    }));
   }
 
   /** Load what one instrument needs for these pitches (preview of a just-chosen sound). */
@@ -94,10 +105,26 @@ export class Sequencer {
   private edited = new Map<string, AudioBuffer>();
   private loopVoices = new Map<string, AudioBufferSourceNode>();
 
+  /** Imported sample > recorded built-in hit (when decoded) > synthesised sound. */
+  private rawBuffer(t: Track): AudioBuffer | undefined {
+    if (t.sampleId) {
+      const s = this.samples.get(t.sampleId);
+      if (s) return s;
+    }
+    const rec = !t.sampleId ? drumSample(t.builtinSample) : null;
+    return (rec && loadedSample(rec.file)) || this.builtins.get(t.instrument);
+  }
+
+  /** Extra gain of a recorded built-in hit (level-matched to the synthesised sound). */
+  private hitGain(t: Track): number {
+    const rec = !t.sampleId ? drumSample(t.builtinSample) : null;
+    return rec && loadedSample(rec.file) ? 10 ** (rec.gainDb / 20) : 1;
+  }
+
   bufferForTrack(t: Track): AudioBuffer | undefined {
-    const raw = (t.sampleId ? this.samples.get(t.sampleId) : undefined) ?? this.builtins.get(t.instrument);
+    const raw = this.rawBuffer(t);
     if (!raw || !t.sampleEdit) return raw;
-    const key = `${t.sampleId ?? t.instrument}|${sampleEditKey(t.sampleEdit)}`;
+    const key = `${t.sampleId ?? (raw === this.builtins.get(t.instrument) ? t.instrument : t.builtinSample)}|${sampleEditKey(t.sampleEdit)}`;
     let b = this.edited.get(key);
     if (!b) {
       const chans = applySampleEdit(Array.from({ length: raw.numberOfChannels }, (_, i) => raw.getChannelData(i)), raw.sampleRate, t.sampleEdit);
@@ -120,7 +147,7 @@ export class Sequencer {
       src.buffer = buf;
       src.playbackRate.value = semitonesToRate(t.pitch);
       const g = this.ctx.createGain();
-      g.gain.value = velocityToGain(velocity) * (r === 0 ? 1 : 0.85);
+      g.gain.value = velocityToGain(velocity) * (r === 0 ? 1 : 0.85) * this.hitGain(t);
       src.connect(g).connect(dest);
       if (t.chokeGroup !== null) {
         const key = String(t.chokeGroup);

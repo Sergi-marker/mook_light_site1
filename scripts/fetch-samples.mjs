@@ -11,12 +11,14 @@
 // winds, organ), normalises the loudness and encodes to Ogg Opus.
 //
 // Usage: node scripts/fetch-samples.mjs [--only id1,id2] [--cache dir]
+//        node scripts/fetch-samples.mjs --drums     (drum & percussion one-shots only)
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { freqToMidi, pitchTrack } from "../src/core/dsp/yin.ts";
+import { synthesizeDrum } from "../src/core/drumSynth.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const OUT = join(root, "assets", "samples");
@@ -242,7 +244,127 @@ function tuningError(ch, key, tune) {
   return Math.abs(err) >= 12 && Math.abs(err) <= 120 ? err : 0;
 }
 
+// --- Drum & percussion one-shots (all CC0) ------------------------------------------------
+const SPI = `${DANIGB}/sample-pi/drums/one-shots`;
+const SPI_CREDIT = "Sample Pi / Sonic Pi — Freesound (CC0)";
+const VC = (path, re) => ({ websfz: `${VCSL}/${path}.websfz.json`, re });
+const VCSL_CREDIT = "Versilian Community Sample Library (CC0)";
+/** kind: the drum lane it is meant for (kick, snare, clap, closedHat, openHat, perc). */
+const DRUMS = [
+  // Kicks
+  { id: "kick-acoustic", name: "Kick acoustique", kind: "kick", src: `${SPI}/kick/drum_bass_hard.ogg`, maxSec: 1.2 },
+  { id: "kick-soft", name: "Kick doux (R&B, afro)", kind: "kick", src: `${SPI}/kick/drum_bass_soft.ogg`, maxSec: 1.2 },
+  { id: "kick-heavy", name: "Kick lourd (boom bap)", kind: "kick", src: `${SPI}/kick/drum_heavy_kick.ogg`, maxSec: 1.2 },
+  { id: "kick-boom", name: "Kick boom", kind: "kick", src: `${SPI}/kick/bd_boom.ogg`, maxSec: 1.5 },
+  { id: "kick-fat", name: "Kick fat", kind: "kick", src: `${SPI}/kick/bd_fat.ogg`, maxSec: 1.2 },
+  { id: "kick-808-sample", name: "Kick 808 (sample)", kind: "kick", src: `${SPI}/kick/bd_808.ogg`, maxSec: 1.5 },
+  { id: "kick-house", name: "Kick house (afro house, amapiano)", kind: "kick", src: `${SPI}/kick/bd_haus.ogg`, maxSec: 1 },
+  { id: "kick-concert", name: "Grosse caisse de concert", kind: "kick", src: VC("Struck%20Membranophones/bass-drum-1", /BDrumNew_hit_v5/), maxSec: 1.5 },
+  // Snares
+  { id: "snare-acoustic", name: "Caisse claire acoustique", kind: "snare", src: `${SPI}/snare/drum_snare_hard.ogg`, maxSec: 1 },
+  { id: "snare-soft", name: "Caisse claire douce", kind: "snare", src: `${SPI}/snare/drum_snare_soft.ogg`, maxSec: 1 },
+  { id: "snare-modern", name: "Caisse claire moderne (live)", kind: "snare", src: VC("Struck%20Membranophones/snare-drum-modern-1", /Snare2_HitSN_v7/), maxSec: 1 },
+  { id: "snare-dub", name: "Snare dub", kind: "snare", src: `${SPI}/snare/sn_dub.ogg`, maxSec: 1 },
+  { id: "snare-crisp", name: "Snare sec", kind: "snare", src: `${SPI}/snare/sn_dolf.ogg`, maxSec: 0.8 },
+  { id: "snare-tight", name: "Snare serré", kind: "snare", src: `${SPI}/snare/sn_generic.ogg`, maxSec: 0.8 },
+  // Claps & snaps
+  { id: "clap-group", name: "Clap (groupe, réel)", kind: "clap", src: VC("Struck%20Idiophones/claps", /\/Clap/), maxSec: 0.8 },
+  { id: "clap-solo", name: "Clap solo (réel)", kind: "clap", src: VC("Struck%20Idiophones/claps", /SoloClap_vl3/), maxSec: 0.6 },
+  { id: "snap", name: "Claquement de doigts", kind: "clap", src: `${SPI}/percussion/perc_snap.ogg`, maxSec: 0.6 },
+  { id: "snap-2", name: "Claquement de doigts 2", kind: "clap", src: `${SPI}/percussion/perc_snap2.ogg`, maxSec: 0.6 },
+  // Hats, shakers
+  { id: "hat-closed", name: "Charley fermé (acoustique)", kind: "closedHat", src: `${SPI}/cymbal/drum_cymbal_closed.ogg`, maxSec: 0.5 },
+  { id: "hat-pedal", name: "Charley pédale", kind: "closedHat", src: `${SPI}/cymbal/drum_cymbal_pedal.ogg`, maxSec: 0.5 },
+  { id: "hat-tight", name: "Charley fermé serré", kind: "closedHat", src: VC("Struck%20Idiophones/hihat-cymbal", /HiHat_HitC_v3/), maxSec: 0.4 },
+  { id: "shaker", name: "Shaker", kind: "closedHat", src: VC("Struck%20Idiophones/shaker-small", /Mid_Shaker_Slap/), maxSec: 0.4 },
+  { id: "shaker-down", name: "Shaker (aller, amapiano)", kind: "closedHat", src: VC("Struck%20Idiophones/shaker-small", /Mid_ShakerDouble_Down/), maxSec: 0.4, onset: 0.2 },
+  { id: "shaker-large", name: "Gros shaker", kind: "closedHat", src: VC("Struck%20Idiophones/shaker-large", /LShaker_Hit/), maxSec: 0.5 },
+  { id: "cabasa", name: "Cabasa", kind: "closedHat", src: VC("Struck%20Idiophones/cabasa", /Cabasa1_Hit/), maxSec: 0.4 },
+  { id: "hat-open", name: "Charley ouvert (acoustique)", kind: "openHat", src: `${SPI}/cymbal/drum_cymbal_open.ogg`, maxSec: 1.5 },
+  { id: "hat-open-loose", name: "Charley ouvert (live)", kind: "openHat", src: VC("Struck%20Idiophones/hihat-cymbal", /HiHat_HitO/), maxSec: 1.5 },
+  { id: "tambourine", name: "Tambourin", kind: "openHat", src: VC("Struck%20Idiophones/tambourine-1", /Tamb1_Hit_v2/), maxSec: 0.8 },
+  { id: "crash", name: "Cymbale crash", kind: "openHat", src: `${SPI}/other/drum_splash_hard.ogg`, maxSec: 2.5 },
+  // Percussion
+  { id: "conga-open", name: "Conga ouverte", kind: "perc", src: VC("Struck%20Membranophones/conga", /Conga_HitN_v2/), maxSec: 0.8 },
+  { id: "conga-low", name: "Tumba (conga grave)", kind: "perc", src: VC("Struck%20Membranophones/conga", /Tumba_HitN_v1/), maxSec: 0.9 },
+  { id: "conga-high", name: "Quinto (conga aiguë)", kind: "perc", src: VC("Struck%20Membranophones/conga", /Quinto_HitN_v2/), maxSec: 0.7 },
+  { id: "bongo-high", name: "Bongo aigu", kind: "perc", src: VC("Struck%20Membranophones/bongos", /BongoH_Hit1_v2/), maxSec: 0.6 },
+  { id: "bongo-low", name: "Bongo grave", kind: "perc", src: VC("Struck%20Membranophones/bongos", /BongoL_Hit1_v2/), maxSec: 0.6 },
+  { id: "cajon", name: "Cajón", kind: "perc", src: VC("Struck%20Idiophones/cajon", /Cajon_hit1_f/), maxSec: 0.7 },
+  { id: "claves", name: "Claves", kind: "perc", src: VC("Struck%20Idiophones/claves", /Claves1_Hit_v2/), maxSec: 0.4 },
+  { id: "woodblock", name: "Wood block", kind: "perc", src: VC("Struck%20Idiophones/woodblock", /wood_click_f/), maxSec: 0.4 },
+  { id: "cowbell-real", name: "Cloche (cowbell réelle)", kind: "perc", src: VC("Struck%20Idiophones/cowbells", /Cowbell1_Normal_v3/), maxSec: 0.8 },
+  { id: "agogo", name: "Agogô", kind: "perc", src: VC("Struck%20Idiophones/agogo-bells", /Agogo_High_v2/), maxSec: 0.8 },
+  { id: "tom-low", name: "Tom grave", kind: "perc", src: `${SPI}/tom/drum_tom_lo_hard.ogg`, maxSec: 1.2 },
+  { id: "tom-mid", name: "Tom medium", kind: "perc", src: `${SPI}/tom/drum_tom_mid_hard.ogg`, maxSec: 1 },
+  { id: "tom-high", name: "Tom aigu", kind: "perc", src: `${SPI}/tom/drum_tom_hi_hard.ogg`, maxSec: 0.9 },
+  { id: "tabla-na", name: "Tabla (na)", kind: "perc", src: `${SPI}/tabla/tabla_na.ogg`, maxSec: 0.8 },
+  { id: "tabla-ghe", name: "Tabla grave (ghe)", kind: "perc", src: `${SPI}/tabla/tabla_ghe1.ogg`, maxSec: 1 },
+];
+
+async function drumUrl(src) {
+  if (typeof src === "string") return src;
+  const j = JSON.parse((await fetchCached(src.websfz)).toString());
+  const base = encodeURI(`${j.meta?.baseUrl ?? ""}${j.global?.default_path ?? ""}`);
+  const r = j.groups.flatMap((g) => g.regions).find((x) => src.re.test(x.sample));
+  if (!r) throw new Error(`no region ${src.re} in ${src.websfz}`);
+  return `${base}${r.sample.split("/").map(encodeURIComponent).join("/")}.ogg`;
+}
+
+/** One-shot: silence before the hit removed, length capped with a fade, peak at −3 dBFS. */
+function prepareHit(ch, maxSec, onset = 0.15) {
+  let peak = 0;
+  for (const x of ch) peak = Math.max(peak, Math.abs(x));
+  let start = 0;
+  while (start < ch.length && Math.abs(ch[start]) < peak * onset) start++;
+  // Aligned on the main transient (like a producer trims a one-shot), 1.5 ms of pre-attack kept.
+  start = Math.max(0, start - Math.round(SR * 0.0015));
+  const len = Math.min(ch.length - start, Math.round(SR * maxSec));
+  const out = ch.slice(start, start + len);
+  // End: fade the last 30 % (or the tail of the cut).
+  const fade = Math.min(len, Math.max(Math.round(SR * 0.02), Math.round(len * 0.3)));
+  for (let i = 0; i < fade; i++) out[len - fade + i] *= Math.cos((i / fade) * Math.PI / 2);
+  const g = 10 ** (-3 / 20) / Math.max(peak, 1e-6);
+  for (let i = 0; i < out.length; i++) out[i] *= g;
+  return out;
+}
+
+function hitRms(d) {
+  const n = Math.min(d.length, Math.round(SR * 0.15));
+  let e = 0;
+  for (let i = 0; i < n; i++) e += d[i] * d[i];
+  return 10 * Math.log10(e / n + 1e-12);
+}
+
+async function buildDrums() {
+  const dir = join(OUT, "drums");
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const result = [];
+  let bytes = 0;
+  process.stdout.write("drums: ");
+  for (const d of DRUMS) {
+    const url = await drumUrl(d.src);
+    const [ch] = decode(await fetchCached(url), 1);
+    const hit = prepareHit(ch, d.maxSec, d.onset);
+    encode([hit], join(dir, `${d.id}.ogg`), 64);
+    // Playback gain so the hit sits at the loudness of the built-in sound of its lane (first 150 ms).
+    const gainDb = Math.round(Math.max(-6, Math.min(9, hitRms(synthesizeDrum(d.kind, SR)) - hitRms(hit))) * 10) / 10;
+    bytes += readFileSync(join(dir, `${d.id}.ogg`)).length;
+    result.push({ id: d.id, name: d.name, kind: d.kind, file: `drums/${d.id}.ogg`, gainDb, license: LIC.cc0, credit: typeof d.src === "string" ? SPI_CREDIT : VCSL_CREDIT });
+    process.stdout.write(".");
+  }
+  console.log(` ${result.length} sons, ${(bytes / 1024).toFixed(0)} Ko`);
+  const file = join(root, "src", "core", "drumSamples.data.ts");
+  writeFileSync(file, `// GENERATED by scripts/fetch-samples.mjs — do not edit by hand.\nimport type { DrumSample } from "./drumSamples.ts";\n\nexport const DRUM_SAMPLE_DATA: DrumSample[] = ${JSON.stringify(result, null, 1)};\n`);
+  console.log(`→ ${file}`);
+}
+
 async function main() {
+  if (args.includes("--drums")) {
+    mkdirSync(CACHE, { recursive: true });
+    return buildDrums();
+  }
   mkdirSync(CACHE, { recursive: true });
   mkdirSync(OUT, { recursive: true });
   const libFile = join(root, "src", "core", "sampleLibrary.data.ts");

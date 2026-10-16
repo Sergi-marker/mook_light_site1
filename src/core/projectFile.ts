@@ -6,6 +6,7 @@ import {
 } from "./project.ts";
 import { readZip, writeZip, type ZipEntry } from "./io/zip.ts";
 import { DEFAULT_SAMPLED, isSampledInstrument } from "./sampleLibrary.ts";
+import { isDrumSample } from "./drumSamples.ts";
 import type {
   AudioAsset, Channel, Effect, EffectType, InstrumentKind, InstrumentTrack, Note, Pattern, Project,
   SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack, Waveform,
@@ -221,6 +222,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
       pitch: Math.round(clamp(num(raw.pitch, 0), -PITCH_RANGE, PITCH_RANGE)),
       chokeGroup: typeof raw.chokeGroup === "number" ? raw.chokeGroup : null,
     };
+    if (isDrumSample(raw.builtinSample)) t.builtinSample = raw.builtinSample;
     if (isObj(raw.sampleEdit)) {
       const e = raw.sampleEdit;
       const start = clamp(num(e.start, 0), 0, 0.99);

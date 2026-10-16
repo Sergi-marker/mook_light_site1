@@ -48,6 +48,8 @@ export interface StyleDef {
   progressions: number[][];
   /** Drum kit tuning in semitones. */
   kit?: Partial<Record<InstrumentKind, number>>;
+  /** Drum sounds (core/drumSamples DRUM_KITS id); default from STYLE_DRUM_KITS. */
+  drumKit?: string;
   layout: Layout;
   /** Words that select this style in a free-text prompt (FR / EN, "type beat" names). */
   keywords: RegExp;
@@ -358,4 +360,21 @@ export function parseGrid(g: GridString | undefined): number[] {
 /** Onset positions (0–15) of a melody rhythm grid. */
 export function gridOnsets(g: GridString): number[] {
   return [...g.padEnd(16, ".").slice(0, 16)].flatMap((c, i) => (c !== "." ? [i] : []));
+}
+
+/**
+ * Drum kit of each style. Trap / drill drums are electronic by nature (808 machines); afro,
+ * amapiano, boom bap, R&B and Caribbean styles get recorded percussion.
+ */
+export const STYLE_DRUM_KITS: Record<string, string> = {
+  pluggnb: "trap-hybrid", emo: "trap-hybrid", "trap-fr": "trap-hybrid", "love-drill": "trap-hybrid", "drill-fr": "trap-hybrid",
+  jersey: "trap-hybrid", "trap-soul": "trap-hybrid", "latin-trap": "trap-hybrid", "pop-rap": "trap-hybrid", "afro-trap": "afro",
+  afrobeats: "afro", afroswing: "afro", amapiano: "amapiano",
+  boombap: "boombap", lofi: "boombap", "jazz-rap": "live",
+  rnb: "rnb",
+  dancehall: "dancehall", reggaeton: "dancehall",
+};
+
+export function styleDrumKit(style: StyleDef): string {
+  return style.drumKit ?? STYLE_DRUM_KITS[style.id] ?? "synth";
 }

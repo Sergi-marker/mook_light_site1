@@ -346,8 +346,11 @@ export class AudioEngine {
   async previewDrum(trackId: string): Promise<void> {
     if (!this.ctx) await this.init();
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
-    const t = this.getProject().tracks.find((x) => x.id === trackId);
-    if (t) this.seq!.previewDrum(t);
+    const p = this.getProject();
+    const t = p.tracks.find((x) => x.id === trackId);
+    if (!t) return;
+    await this.seq!.prepareDrums({ ...p, tracks: [t] });
+    this.seq!.previewDrum(t);
   }
 
   async previewNote(instrumentId: string, pitch: number, velocity = 100, duration = 0.4): Promise<void> {

@@ -3,13 +3,14 @@
 
 import { createInstrument, createPattern, insertChannel, instrumentChannel, PATTERN_COLORS, newId } from "../project.ts";
 import type { ProjectPatch } from "../reducer.ts";
-import type { InstrumentKind, InstrumentTrack, Pattern, PatternClip, Project, Section, SynthPreset } from "../types.ts";
+import type { InstrumentKind, InstrumentTrack, Pattern, PatternClip, Project, Section, SynthPreset, Track } from "../types.ts";
 import { generateDrums } from "./drums.ts";
 import { chooseProgression, generateBass, generateChords, generateMelody } from "./melody.ts";
 import type { BeatRequest, Genre, Mood } from "./prompt.ts";
 import { rng } from "./rng.ts";
-import { styleById } from "./styles.ts";
+import { styleById, styleDrumKit } from "./styles.ts";
 import { SOUND_LIBRARY, soundParams } from "../soundLibrary.ts";
+import { drumKit } from "../drumSamples.ts";
 
 export interface GeneratedSong {
   patch: ProjectPatch;
@@ -85,7 +86,18 @@ export function generateSong(p: Project, req: BeatRequest, seed = Date.now() % 1
   const steps = 64; // 4-bar patterns
   const kindId = (k: InstrumentKind) => p.tracks.find((t) => t.instrument === k)?.id;
   // Drum kit tuning of the style (e.g. higher cowbell-like perc for phonk).
-  const tracks = p.tracks.map((t) => ({ ...t, pitch: style.kit?.[t.instrument] ?? t.pitch }));
+  // and its drum sounds: recorded percussion for afro / amapiano / boom bap / R&B, electronic for trap.
+  const kit = drumKit(styleDrumKit(style));
+  const tracks = p.tracks.map((t) => {
+    const next: Track = { ...t, pitch: style.kit?.[t.instrument] ?? t.pitch };
+    if (kit && t.instrument !== "808") {
+      const snd = kit.sounds[t.instrument];
+      if (snd) next.builtinSample = snd;
+      else delete next.builtinSample;
+    }
+    return next;
+  });
+  if (kit) summary.push(`Batterie : kit « ${kit.name} »`);
 
   const make = (name: string, idx: number, o: { drums: number; melody: boolean; chords: boolean; bass: boolean; variation: number; energy: number }): Pattern => {
     const pat = createPattern({ tracks: p.tracks, instruments }, name, steps, idx);

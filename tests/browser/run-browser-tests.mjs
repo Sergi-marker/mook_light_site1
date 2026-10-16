@@ -110,6 +110,18 @@ await check("recorded instruments: every one sounds in tune over its range, velo
   }
 });
 
+await check("drum kits: every lane of every kit sounds, on the grid (±3 ms), level close to the electronic kit", async () => {
+  const r = await run("drumKits");
+  for (const [kit, lanes] of Object.entries(r)) for (const [lane, v] of Object.entries(lanes)) {
+    const what = `${kit}/${lane} (${v.sound ?? "synth"})`;
+    assert.ok(!v.nan && v.peak > 0.02, `${what} silent`);
+    assert.ok(near(v.onsets[0], 0, 0.003), `${what} first hit at ${v.onsets[0]}`);
+    assert.ok(v.rise > 3, `${what}: second hit not heard at 1 s (+${v.rise.toFixed(1)} dB)`);
+    const ref = r.synth[lane].db;
+    assert.ok(Math.abs(v.db - ref) < 9, `${what}: ${v.db.toFixed(1)} dB vs electronic ${ref.toFixed(1)} dB`);
+  }
+});
+
 await check("synth: mono legato glides; stereo width 0 folds to mono", async () => {
   const r = await run("synthMonoGlideAndWidth");
   assert.ok(near(r.glide.first, 45, 0.4), `first ${r.glide.first}`);

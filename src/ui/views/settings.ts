@@ -3,6 +3,7 @@ import type { App, View } from "../app.ts";
 import { desktop } from "../app.ts";
 import { h } from "../dom.ts";
 import { SAMPLED_INSTRUMENTS } from "../../core/sampleLibrary.ts";
+import { DRUM_SAMPLES } from "../../core/drumSamples.ts";
 import type { AppSettings } from "../persistence.ts";
 
 const LATENCY_OPTIONS: { value: AppSettings["latency"]; label: string }[] = [
@@ -98,7 +99,8 @@ export function createSettingsView(app: App): View {
       h("ul", { class: "shortcuts" }, ...[["Espace", "Play / Stop"], ["R", "Record / Stop record"], ["Entrée", "Retour au début"], ["Ctrl+S", "Sauvegarder"], ["Ctrl+Shift+S", "Sauvegarder sous"], ["Ctrl+O", "Ouvrir"], ["Ctrl+Z", "Annuler"], ["Ctrl+Shift+Z / Ctrl+Y", "Rétablir"], ["M / S", "Mute / Solo de la piste sélectionnée"], ["Alt+1…9", "Changer de page"], ["Piano roll", "Suppr, Ctrl+C/V/D/A, ↑↓←→, L = slide"]].map(([k, v]) => h("li", {}, h("kbd", {}, k), " ", v)))),
     h("div", { class: "card" }, h("h3", {}, "Crédits — instruments enregistrés"),
       h("p", { class: "muted small" }, "Les instruments réels (moteur « Instrument réel ») sont des enregistrements libres de droits pour un usage commercial : vous pouvez vendre et diffuser les beats faits avec. Merci aux auteurs :"),
-      h("ul", { class: "credits" }, ...SAMPLED_INSTRUMENTS.filter((i) => i.id !== "strings").map((i) => h("li", {}, h("strong", {}, i.name), ` — ${i.credit} · ${i.license}`)))));
+      h("ul", { class: "credits" }, ...SAMPLED_INSTRUMENTS.filter((i) => i.id !== "strings").map((i) => h("li", {}, h("strong", {}, i.name), ` — ${i.credit} · ${i.license}`))),
+      h("p", { class: "muted small" }, `Batterie et percussions enregistrées (${DRUM_SAMPLES.length} sons, kits du menu BEAT) : Sample Pi / Sonic Pi (sons Freesound) et Versilian Community Sample Library — CC0 1.0 (domaine public).`)));
   let tick = 0;
   function renderStats(): void {
     const lat = engine.getLatency();

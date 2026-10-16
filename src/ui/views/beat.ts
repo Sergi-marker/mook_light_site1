@@ -7,6 +7,7 @@ import type { Project, Step, StepCount, Track } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { patternBar } from "./patternBar.ts";
+import { DRUM_KITS, DRUM_SAMPLES, drumSample } from "../../core/drumSamples.ts";
 import { DEFAULT_SAMPLE_EDIT } from "../../core/project.ts";
 import { drawWaveform, fmtDb, reactive, slider } from "../widgets.ts";
 
@@ -81,8 +82,18 @@ export function createBeatView(app: App): View {
     } }, "Inverser"),
   );
 
+  const kitSel = h("select", { "aria-label": "Kit de batterie", title: "Kit : remplace le son de chaque piste (sauf 808) par des sons enregistrés ou synthétisés", onchange: async () => {
+    const kit = DRUM_KITS.find((k) => k.id === kitSel.value);
+    kitSel.value = "";
+    if (!kit) return;
+    app.dispatch({ type: "applyDrumKit", kitId: kit.id });
+    toast(`Kit « ${kit.name} » : ${kit.description}`, "ok");
+    const kick = store.getState().tracks.find((t) => t.instrument === "kick");
+    if (kick) void engine.previewDrum(kick.id);
+  } }, h("option", { value: "" }, "🥁 Kit…"), ...DRUM_KITS.map((k) => h("option", { value: k.id, title: k.description }, k.name)));
   const toolbar = h("div", { class: "toolbar" },
     h("h1", {}, "BEAT"),
+    kitSel,
     stepsSelect,
     h("button", { class: "btn", title: "Double la longueur du pattern en recopiant son contenu (16→32→64)", onclick: () => app.dispatch({ type: "duplicatePattern" }) }, "Dupliquer ×2"),
     h("button", { class: "btn", title: "Humaniser : micro-décalages et variations de vélocité", onclick: () => app.dispatch({ type: "humanize", amount: Number(humanAmt.value), seed: Date.now() % 100000 }) }, "Humaniser"), humanAmt,
@@ -121,9 +132,18 @@ export function createBeatView(app: App): View {
       ctx.fillRect(0, 0, e.start * cv.width, cv.height);
       ctx.fillRect(e.end * cv.width, 0, cv.width - e.end * cv.width, cv.height);
     }
-    const name = t.sampleId ? p.samples.find((x) => x.id === t.sampleId)?.name ?? "sample" : "son intégré";
+    const rec = drumSample(t.builtinSample);
+    const name = t.sampleId ? p.samples.find((x) => x.id === t.sampleId)?.name ?? "sample" : rec ? `${rec.name} (enregistré)` : "son synthétisé";
+    const LANE_LABEL: Record<string, string> = { kick: "Kicks", snare: "Caisses claires", clap: "Claps & snaps", closedHat: "Charleys fermés & shakers", openHat: "Charleys ouverts & cymbales", perc: "Percussions" };
+    const kinds = [t.instrument, ...Object.keys(LANE_LABEL).filter((k) => k !== t.instrument)].filter((k) => k in LANE_LABEL);
+    const soundSel = h("select", { "aria-label": "Son de la piste", disabled: !!t.sampleId, title: t.sampleId ? "Un sample importé est utilisé (Réinitialiser le son pour revenir aux sons intégrés)" : "Son intégré : synthétisé ou enregistré", onchange: () => {
+      app.dispatch({ type: "updateTrack", trackId: t.id, patch: { builtinSample: soundSel.value || null } });
+      void engine.previewDrum(t.id);
+    } }, h("option", { value: "", selected: !rec }, "Synthétisé (électronique)"),
+      ...kinds.map((k) => h("optgroup", { label: LANE_LABEL[k] }, ...DRUM_SAMPLES.filter((d) => d.kind === k).map((d) => h("option", { value: d.id, selected: d.id === rec?.id }, d.name)))));
     editor.append(
       h("div", { class: "row-inline" }, h("h3", {}, `SAMPLER — ${t.name}`), h("span", { class: "hint" }, `${name}${buf ? ` · ${buf.duration.toFixed(2)} s` : " · démarrez l'audio (Play) pour voir la forme d'onde"}`),
+        t.instrument === "808" ? null : soundSel,
         h("button", { class: "btn btn-sm", onclick: () => void engine.previewDrum(t.id) }, "▶ Écouter"),
         h("button", { class: "btn btn-sm", onclick: () => void app.importSample(t.id) }, "Importer WAV/MP3/AIFF/OGG…"),
         h("button", { class: "btn btn-sm", onclick: () => app.dispatch({ type: "editSample", trackId: t.id, edit: null }) }, "Réinitialiser")),
@@ -223,7 +243,7 @@ export function createBeatView(app: App): View {
     pbar.update(p);
     const sel = p.tracks.find((x) => x.id === app.selectedTrackId);
     selName.textContent = sel ? `« ${sel.name} »` : "(cliquez sur un nom de piste)";
-    const es = sel ? `${sel.id}|${sel.sampleId}|${sel.pitch}|${JSON.stringify(sel.sampleEdit ?? null)}|${engine.isReady}` : "";
+    const es = sel ? `${sel.id}|${sel.sampleId}|${sel.builtinSample ?? ""}|${sel.pitch}|${JSON.stringify(sel.sampleEdit ?? null)}|${engine.isReady}` : "";
     if (es !== editorSig) {
       editorSig = es;
       rerenderEditor();

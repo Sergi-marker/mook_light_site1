@@ -1,6 +1,7 @@
 import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
 import { isSampledInstrument } from "./sampleLibrary.ts";
+import { drumKit, isDrumSample } from "./drumSamples.ts";
 import {
   clamp, clampBpm, createInstrument, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS, secondsToSteps, stepsPerBarOf, stepsToSeconds,
@@ -11,7 +12,7 @@ import type {
   TimeSignature, Track, VocalRole, VocalTrack,
 } from "./types.ts";
 
-export type TrackPatch = Partial<Pick<Track, "name" | "pitch">>;
+export type TrackPatch = Partial<Pick<Track, "name" | "pitch">> & { builtinSample?: string | null };
 export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "solo" | "name" | "output">> & { sends?: Partial<Channel["sends"]> };
 export type NoteUpdate = { id: string } & Partial<Omit<Note, "id">>;
 export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params>; sample?: string };
@@ -47,6 +48,8 @@ export type Action =
   | { type: "quantize"; strength?: number; grid?: number }
   // Drum tracks & samples
   | { type: "updateTrack"; trackId: string; patch: TrackPatch }
+  /** Apply a drum kit: every drum lane (except 808) gets the kit's sound for its kind. */
+  | { type: "applyDrumKit"; kitId: string }
   | { type: "addSample"; sample: SampleMeta }
   | { type: "assignSample"; trackId: string; sampleId: string | null }
   | { type: "editSample"; trackId: string; edit: Partial<SampleEdit> | null }
@@ -383,9 +386,24 @@ export function reduce(p: Project, a: Action): Project {
         const next = { ...t };
         if (a.patch.name !== undefined) next.name = a.patch.name.trim().slice(0, 60) || t.name;
         if (a.patch.pitch !== undefined) next.pitch = Math.round(clamp(a.patch.pitch, -PITCH_RANGE, PITCH_RANGE));
-        return next.name === t.name && next.pitch === t.pitch ? t : next;
+        if (a.patch.builtinSample === null) delete next.builtinSample;
+        else if (isDrumSample(a.patch.builtinSample)) next.builtinSample = a.patch.builtinSample;
+        return next.name === t.name && next.pitch === t.pitch && next.builtinSample === t.builtinSample ? t : next;
       });
       return tracks === p.tracks ? p : { ...p, tracks };
+    }
+    case "applyDrumKit": {
+      const kit = drumKit(a.kitId);
+      if (!kit) return p;
+      const tracks = p.tracks.map((t) => {
+        if (t.instrument === "808") return t;
+        const snd = kit.sounds[t.instrument];
+        const next: Track = { ...t };
+        if (snd) next.builtinSample = snd;
+        else delete next.builtinSample;
+        return next;
+      });
+      return { ...p, tracks };
     }
     case "addSample":
       if (p.samples.some((s) => s.id === a.sample.id)) return p;

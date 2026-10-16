@@ -98,7 +98,7 @@ test("the 3 versions really differ (lead sound and/or progression); no key in th
   const sig = (i: number) => {
     const song = generateSong(p, req, 11, i);
     const lead = song.patch.instruments!.find((x) => x.name === "Melody")!;
-    return JSON.stringify([lead.synth, song.summary[2]]);
+    return JSON.stringify([lead.synth, lead.sample, song.summary]);
   };
   const all = new Set([sig(0), sig(1), sig(2)]);
   assert.equal(all.size, 3);
