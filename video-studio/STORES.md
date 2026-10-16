@@ -29,7 +29,7 @@ Les polices sont copiées dans l'application (aucune adresse IP envoyée à Goog
 **Si Cloudflare a créé un projet « Workers »** (et non « Pages ») : le fichier `wrangler.jsonc` du dépôt est déjà prêt.
 Dans le projet → **Settings → Build** : branche = celle qui contient Animots, commande de construction =
 `node scripts/build-free.mjs`, commande de déploiement = `npx wrangler deploy`. L'adresse sera du type
-`https://mook-light-site1.VOTRE-COMPTE.workers.dev`.
+`https://tsafack.VOTRE-COMPTE.workers.dev`.
 
 La page de confidentialité est à `https://VOTRE-SITE/privacy.html` : c'est l'adresse à donner aux stores.
 

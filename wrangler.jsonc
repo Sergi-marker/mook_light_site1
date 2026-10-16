@@ -1,7 +1,7 @@
 // Cloudflare (Workers, fichiers statiques) : publie la version gratuite d'Animots.
 // Commande de construction : node scripts/build-free.mjs — commande de déploiement : npx wrangler deploy
 {
-  "name": "mook-light-site1",
+  "name": "tsafack",
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./dist-free",
