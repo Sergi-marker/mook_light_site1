@@ -37,6 +37,8 @@ export interface DialogReply {
   layers?: { trackId: string; kinds: VoiceLayerKind[] };
   /** Add transition FX (+ drums cut before choruses). */
   transitions?: { drops: boolean };
+  /** SAMPLE FLIP: re-flip the chops, back to the original order, or ask for a file (button). */
+  flip?: "flip" | "original" | "import";
 }
 
 const has = (t: string, re: RegExp) => re.test(t);
@@ -170,6 +172,18 @@ export function converse(p: Project, text: string, state: DialogState = {}): { r
       next.last = { text: `${state.last.text.split(/\b(?:en|par|avec)\b/)[0]} en ${tail}`, kind: "sound" };
       return { reply: reply(`${sentence(r.done)} Ça te va mieux ?`, { actions: r.actions, soundChanges: r.soundChanges, suggestions: followUp("sound") }), state: next };
     }
+  }
+
+  // Sample flip
+  if (has(t, /\b(flip|flips|flippe|flipper|flippes|reflip|chops?|decoupe|decouper|decoupes|sample flip)\b/) && !has(t, /\b(c est quoi|qu est ce)\b/)) {
+    const chops = p.tracks.filter((x) => x.chop).length;
+    if (!chops || has(t, /\b(nouveau sample|autre sample|importe|importer|charge|charger|un sample|une boucle)\b/)) {
+      return { reply: reply("Choisis une boucle (WAV, MP3…) : je détecte son tempo et sa tonalité, je la cale sur ton projet sans changer sa hauteur, je la découpe sur ses attaques et je te fais un premier flip dans BEAT. Utilise un sample libre de droits ou dont tu as l'autorisation.", { flip: "import", suggestions: ["nouveau flip", "ordre d'origine"] }), state: next };
+    }
+    if (has(t, /\b(origine|original|originale|comme avant|d avant|comme dans la boucle)\b/)) {
+      return { reply: reply(`Je remets les ${chops} chops dans l'ordre de la boucle d'origine : tu réentends le sample tel quel, au tempo du projet.`, { flip: "original", suggestions: ["nouveau flip", "annule"] }), state: next };
+    }
+    return { reply: reply(`Nouveau flip : je réordonne les ${chops} chops sur un autre rythme, le premier chop toujours sur le temps fort. Redemande « nouveau flip » autant que tu veux, ou « annule » pour revenir.`, { flip: "flip", suggestions: ["nouveau flip", "ordre d'origine", "annule"] }), state: next };
   }
 
   // Transitions

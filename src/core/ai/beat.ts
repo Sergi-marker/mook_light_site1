@@ -116,6 +116,7 @@ export function generateSong(p: Project, reqIn: BeatRequest, seed = Date.now() %
   // and its drum sounds: recorded percussion for afro / amapiano / boom bap / R&B, electronic for trap.
   const kit = drumKit(learned?.kit ?? styleDrumKit(style));
   const tracks = p.tracks.map((t) => {
+    if (t.chop) return t; // sample-flip chops keep their sound and tuning
     const next: Track = { ...t, pitch: style.kit?.[t.instrument] ?? t.pitch };
     if (kit && t.instrument !== "808") {
       const snd = kit.sounds[t.instrument];

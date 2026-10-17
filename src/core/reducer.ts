@@ -3,7 +3,7 @@ import type { Key } from "./music.ts";
 import { isSampledInstrument } from "./sampleLibrary.ts";
 import { drumKit, isDrumSample } from "./drumSamples.ts";
 import {
-  clamp, clampBpm, createInstrument, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
+  clamp, clampBpm, createInstrument, drumChannel, insertChannel, DEFAULT_SAMPLE_EDIT, createPattern, createVocalTrack, currentPattern, effect, emptySteps,
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS, secondsToSteps, stepsPerBarOf, stepsToSeconds,
 } from "./project.ts";
 import type {
@@ -48,6 +48,9 @@ export type Action =
   | { type: "quantize"; strength?: number; grid?: number }
   // Drum tracks & samples
   | { type: "updateTrack"; trackId: string; patch: TrackPatch }
+  /** Extra drum lane (SAMPLE FLIP chops), empty in every pattern. */
+  | { type: "addDrumTrack"; track: Track }
+  | { type: "removeDrumTrack"; trackId: string }
   /** Apply a drum kit: every drum lane (except 808) gets the kit's sound for its kind. */
   | { type: "applyDrumKit"; kitId: string }
   | { type: "addSample"; sample: SampleMeta }
@@ -381,6 +384,29 @@ export function reduce(p: Project, a: Action): Project {
     }
 
     // --- drum tracks & samples
+    case "addDrumTrack":
+      if (p.tracks.some((t) => t.id === a.track.id)) return p;
+      return {
+        ...p,
+        tracks: [...p.tracks, a.track],
+        channels: insertChannel(p.channels, drumChannel(a.track)),
+        patterns: p.patterns.map((pat) => ({ ...pat, drums: { ...pat.drums, [a.track.id]: emptySteps(pat.stepCount) } })),
+      };
+    case "removeDrumTrack": {
+      // The default lanes (one per drum kind) stay: the step generators rely on them.
+      if (!p.tracks.some((t) => t.id === a.trackId && t.chop)) return p;
+      return {
+        ...p,
+        tracks: p.tracks.filter((t) => t.id !== a.trackId),
+        channels: p.channels.filter((c) => c.id !== a.trackId),
+        automation: p.automation.filter((l) => l.channelId !== a.trackId),
+        patterns: p.patterns.map((pat) => {
+          const drums = { ...pat.drums };
+          delete drums[a.trackId];
+          return { ...pat, drums };
+        }),
+      };
+    }
     case "updateTrack": {
       const tracks = mapArr(p.tracks, a.trackId, (t) => {
         const next = { ...t };
@@ -396,7 +422,7 @@ export function reduce(p: Project, a: Action): Project {
       const kit = drumKit(a.kitId);
       if (!kit) return p;
       const tracks = p.tracks.map((t) => {
-        if (t.instrument === "808") return t;
+        if (t.instrument === "808" || t.chop) return t;
         const snd = kit.sounds[t.instrument];
         const next: Track = { ...t };
         if (snd) next.builtinSample = snd;

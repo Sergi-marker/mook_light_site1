@@ -33,6 +33,8 @@ export interface Track {
   pitch: number;
   /** Tracks sharing a non-null choke group cut each other off. */
   chokeGroup: number | null;
+  /** Slice of a flipped sample (SAMPLE FLIP): kits and beat generators leave it alone. */
+  chop?: boolean;
 }
 
 export interface SampleEdit {

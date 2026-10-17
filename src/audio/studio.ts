@@ -7,6 +7,7 @@ import { measure, type MixMeasurements } from "../core/dsp/loudness.ts";
 import { analyzeVoice, recommendChain, type VoiceAnalysis, type VoiceRecommendation } from "../core/dsp/voiceAnalysis.ts";
 import { doubleVoice, harmonyVoice, type HarmonyKind } from "../core/dsp/harmony.ts";
 import type { Key } from "../core/music.ts";
+import { prepareFlip, type FlipResult } from "../core/dsp/sampleFlip.ts";
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -61,6 +62,14 @@ export async function voiceLayer(data: Float32Array, sr: number, key: Key, kind:
   const r = call({ op: "layer", data: copy, sr, key, kind, seed }, [copy.buffer]);
   if (r) return (await r).output as Float32Array;
   return kind === "double" ? doubleVoice(data, sr, { seed }) : harmonyVoice(data, sr, key, kind);
+}
+
+/** SAMPLE FLIP analysis + stretch (see core/dsp/sampleFlip.ts), off the main thread. */
+export async function flipSample(data: Float32Array, sr: number, bpm: number, key: Key, maxChops = 8): Promise<FlipResult> {
+  const copy = data.slice();
+  const r = call({ op: "flip", data: copy, sr, bpm, key, maxChops }, [copy.buffer]);
+  if (r) return (await r).result as FlipResult;
+  return prepareFlip(data, sr, { bpm, key, maxChops });
 }
 
 export async function analyzeTake(data: Float32Array, sr: number): Promise<{ analysis: VoiceAnalysis; recommendation: VoiceRecommendation }> {

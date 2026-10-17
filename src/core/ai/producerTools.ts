@@ -34,6 +34,7 @@ export interface ToolOutcome {
   layers?: { trackId: string; kinds: VoiceLayerKind[] };
   /** Add transition FX (risers, impacts…) and optionally the drums cut before choruses. */
   transitions?: { drops: boolean };
+  flip?: "flip" | "original";
 }
 
 export type VoiceLayerKind = "double" | "third-up" | "fifth-up" | "sixth-down" | "octave-up" | "octave-down";
@@ -99,6 +100,11 @@ export const PRODUCER_TOOLS: ToolDef[] = [
     input_schema: obj({ drops: { type: "boolean" } }),
   },
   {
+    name: "flip_sample",
+    description: "Sample flip déjà importé (pistes « Chop ») : mode « flip » = nouveau rythme et nouvel ordre des chops, « original » = rejoue la boucle telle quelle. L'import d'un nouveau sample se fait par l'utilisateur avec le bouton ✂️ Sample flip… de BEAT.",
+    input_schema: obj({ mode: { type: "string", enum: ["flip", "original"] } }),
+  },
+  {
     name: "undo",
     description: "Annule les dernières modifications (steps : nombre d'étapes, 1 par défaut).",
     input_schema: obj({ steps: { type: "number" } }),
@@ -114,7 +120,7 @@ export function describeProject(p: Project): string {
   lines.push("Pistes de batterie :");
   for (const t of p.tracks) {
     const ch = getChannel(p, t.id);
-    lines.push(`- ${t.name} (${t.instrument}) son ${t.sampleId ? "importé" : t.builtinSample ?? "synthétisé"} · volume ${ch ? db(ch.volume) : "?"}${ch?.mute ? " · MUTE" : ""}`);
+    lines.push(`- ${t.name} (${t.instrument}) son ${t.chop ? "chop du sample flip" : t.sampleId ? "importé" : t.builtinSample ?? "synthétisé"} · volume ${ch ? db(ch.volume) : "?"}${ch?.mute ? " · MUTE" : ""}`);
   }
   lines.push("Instruments :");
   for (const i of p.instruments) {
@@ -243,6 +249,9 @@ export function runProducerTool(p: Project, name: string, input: unknown): ToolO
     case "add_transitions":
       if (!p.arrangement.sections.length) return fail("L'arrangement n'a pas de sections : il faut d'abord générer ou construire la structure du morceau.");
       return { actions: [], result: "", transitions: { drops: a.drops !== false } };
+    case "flip_sample":
+      if (!p.tracks.some((t) => t.chop)) return fail("Aucun sample découpé dans ce projet : l'utilisateur doit d'abord cliquer sur « ✂️ Sample flip… » dans BEAT et choisir une boucle.");
+      return { actions: [], result: "", flip: a.mode === "original" ? "original" : "flip" };
     case "undo": {
       const steps = Math.round(num(a.steps, 1, 10) ?? 1);
       return { actions: [], result: `${steps} modification(s) annulée(s).`, undo: steps };

@@ -7,6 +7,7 @@ import { analyzeVoice, recommendChain } from "../core/dsp/voiceAnalysis.ts";
 import { measure } from "../core/dsp/loudness.ts";
 import { doubleVoice, harmonyVoice, type HarmonyKind } from "../core/dsp/harmony.ts";
 import type { Key } from "../core/music.ts";
+import { prepareFlip } from "../core/dsp/sampleFlip.ts";
 
 export type StudioRequest =
   | { id: number; op: "pitch"; data: Float32Array; sr: number; params: AutoPitchParams }
@@ -14,6 +15,7 @@ export type StudioRequest =
   | { id: number; op: "process"; data: Float32Array; sr: number; clean: CleanLevel; pitch: AutoPitchParams | null; profile?: Float32Array | null }
   | { id: number; op: "analyze"; data: Float32Array; sr: number }
   | { id: number; op: "measure"; channels: Float32Array[]; sr: number }
+  | { id: number; op: "flip"; data: Float32Array; sr: number; bpm: number; key: Key; maxChops: number }
   | { id: number; op: "layer"; data: Float32Array; sr: number; key: Key; kind: HarmonyKind | "double"; seed: number };
 
 const scope = self as unknown as { onmessage: (e: MessageEvent<StudioRequest>) => void; postMessage: (m: unknown, t?: Transferable[]) => void };
@@ -47,6 +49,11 @@ scope.onmessage = (e) => {
       case "layer": {
         const output = r.kind === "double" ? doubleVoice(r.data, r.sr, { seed: r.seed }) : harmonyVoice(r.data, r.sr, r.key, r.kind);
         scope.postMessage({ id: r.id, output }, [output.buffer]);
+        break;
+      }
+      case "flip": {
+        const res = prepareFlip(r.data, r.sr, { bpm: r.bpm, key: r.key, maxChops: r.maxChops });
+        scope.postMessage({ id: r.id, result: res }, [res.output.buffer]);
         break;
       }
       case "measure":

@@ -7,7 +7,9 @@ import { MidiController, GM_DRUMS } from "../audio/midi.ts";
 import { clickBuffer } from "../audio/instruments.ts";
 import { Recorder, RecorderError } from "../audio/recorder.ts";
 import { renderProject, type RenderMedia } from "../audio/render.ts";
-import { processTake, voiceLayer } from "../audio/studio.ts";
+import { flipSample, processTake, voiceLayer } from "../audio/studio.ts";
+import { chopRegions, flipPattern, mixToMono } from "../core/dsp/sampleFlip.ts";
+import type { Key } from "../core/music.ts";
 import { HARMONY_STEPS, type HarmonyKind } from "../core/dsp/harmony.ts";
 import { downlifter, impact, reverseCymbal, riser } from "../core/dsp/fx.ts";
 import { dropAutomation, FX_LABELS, isDropLane, planTransitions, type FxPlacement } from "../core/ai/transitions.ts";
@@ -15,14 +17,14 @@ import { drumSample } from "../core/drumSamples.ts";
 import { loadSample } from "../audio/sampler.ts";
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../core/dsp/autopitch.ts";
 import { encodeWav, decodeWav } from "../core/io/wav.ts";
-import { currentPattern, getChannel, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
+import { currentPattern, DEFAULT_SAMPLE_EDIT, emptySteps, getChannel, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
 import { parseProject, ProjectFileError, projectToJson, referencedAssetIds, safeFileName, serializeProject } from "../core/projectFile.ts";
 import type { Action } from "../core/reducer.ts";
 import type { GeneratedSong } from "../core/ai/beat.ts";
 import { emptyMemory, learn, type MemoryEvent, type SoundRole, type TasteMemory } from "../core/ai/memory.ts";
 import { ProjectStore } from "../core/store.ts";
 import { projectFromTemplate } from "../core/templates.ts";
-import type { AudioAsset, AudioClip, Project, Take } from "../core/types.ts";
+import type { AudioAsset, AudioClip, Project, Take, Track } from "../core/types.ts";
 import { confirmDialog, h, readFileBytes, toast } from "./dom.ts";
 import {
   clearAutosave, forgetFileHandle, loadSettings, markSessionClosed, markSessionOpen, pickFile, pruneMedia,
@@ -439,6 +441,83 @@ export class App {
     void writeMedia("sample", id, bytes);
     this.store.dispatch({ type: "batch", actions: [{ type: "addSample", sample: { id, name: f.name, mime: f.type || "audio/*" } }, { type: "assignSample", trackId, sampleId: id }] });
     toast(`Sample chargé : ${f.name}`, "ok");
+  }
+
+  // --- sample flip --------------------------------------------------------------------
+
+  /** Seed of the last flip pattern (each « nouveau flip » takes the next one). */
+  private flipSeed = 1;
+
+  /** Lanes of the current sample flip, in chop order. */
+  chopTracks(p = this.store.getState()): Track[] {
+    return p.tracks.filter((t) => t.chop);
+  }
+
+  /**
+   * SAMPLE FLIP: import a loop, bring it to the project's tempo and key, chop it on its attacks —
+   * one BEAT lane per chop, all in one choke group (each chop cuts the previous one, like an MPC) —
+   * and write a flip pattern in the current pattern. A new flip replaces the previous chops.
+   */
+  async sampleFlip(file?: File | null): Promise<{ name: string; sourceBpm: number; bars: number | null; sourceKey: Key | null; shift: number; chops: number; trimmed: boolean } | null> {
+    const f = file ?? (await pickFile(AUDIO_ACCEPT));
+    if (!f || !(await this.ensureAudio())) return null;
+    let buf: AudioBuffer;
+    try {
+      buf = await decodeAudio(this.engine.context!, await readFileBytes(f));
+    } catch {
+      toast(`Format non supporté ou fichier corrompu : ${f.name}`, "error", 6000);
+      return null;
+    }
+    const sr = buf.sampleRate;
+    let data = mixToMono(Array.from({ length: buf.numberOfChannels }, (_, i) => buf.getChannelData(i)));
+    // 30 s is plenty for a loop and keeps the analysis quick.
+    const trimmed = data.length > 30 * sr;
+    if (trimmed) data = data.subarray(0, 30 * sr);
+    const p = this.store.getState();
+    const res = await flipSample(data, sr, p.bpm, p.key);
+    const wav = encodeWav({ sampleRate: sr, channels: [res.output] }, 16);
+    const sampleId = newId("smp");
+    await this.engine.loadSample(sampleId, wav);
+    this.sampleBytes.set(sampleId, wav);
+    void writeMedia("sample", sampleId, wav);
+    const name = f.name.replace(/\.[^.]+$/, "").slice(0, 40);
+    const old = this.chopTracks(p);
+    const actions: Action[] = old.map((t) => ({ type: "removeDrumTrack", trackId: t.id }));
+    // The previous flipped sample goes too when nothing else plays it.
+    for (const sid of new Set(old.map((t) => t.sampleId))) {
+      if (sid && !p.tracks.some((t) => t.sampleId === sid && !t.chop)) actions.push({ type: "removeSample", sampleId: sid });
+    }
+    actions.push({ type: "addSample", sample: { id: sampleId, name: `${name} (flip ${p.bpm} BPM)`, mime: "audio/wav" } });
+    const tracks: Track[] = chopRegions(res.points, res.output.length).map((r, i) => ({
+      id: newId("trk"), name: `Chop ${i + 1}`, instrument: "perc", sampleId, pitch: 0, chokeGroup: 7, chop: true,
+      sampleEdit: { ...DEFAULT_SAMPLE_EDIT, start: r.start, end: r.end, fadeOut: 0.01 },
+    }));
+    for (const track of tracks) actions.push({ type: "addDrumTrack", track });
+    const stepDur = 60 / p.bpm / 4;
+    this.flipSeed = 1;
+    actions.push(...this.flipSteps(tracks, res.points.map((pt) => Math.round(pt / sr / stepDur)), "flip", this.flipSeed, p));
+    this.applyActions(actions, "");
+    return { name, sourceBpm: res.sourceBpm, bars: res.bars, sourceKey: res.sourceKey, shift: res.shift, chops: tracks.length, trimmed };
+  }
+
+  /** New flip of the current chops (« flip »: another rhythm and order; « original »: the loop as it was). */
+  reflip(mode: "flip" | "original"): boolean {
+    const p = this.store.getState();
+    const chops = this.chopTracks(p);
+    const buf = chops[0]?.sampleId ? this.engine.seq?.samples.get(chops[0].sampleId) : undefined;
+    if (!chops.length || !buf) return false;
+    if (mode === "flip") this.flipSeed++;
+    const stepDur = 60 / p.bpm / 4;
+    const starts = chops.map((t) => Math.round(((t.sampleEdit?.start ?? 0) * buf.duration) / stepDur));
+    this.applyActions(this.flipSteps(chops, starts, mode, this.flipSeed, p), "");
+    return true;
+  }
+
+  private flipSteps(chops: Track[], chopSteps: number[], mode: "flip" | "original", seed: number, p: Project): Action[] {
+    const pat = currentPattern(p);
+    const steps = chops.map(() => emptySteps(pat.stepCount));
+    for (const e of flipPattern(chopSteps, pat.stepCount, mode, seed)) steps[e.chop][e.step] = { on: true, velocity: e.velocity };
+    return chops.map((t, i) => ({ type: "setDrumSteps", trackId: t.id, steps: steps[i], patternId: pat.id }));
   }
 
   // --- recording ----------------------------------------------------------------------

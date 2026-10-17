@@ -14,6 +14,7 @@ import { DRUM_KITS } from "../../core/drumSamples.ts";
 import type { Action } from "../../core/reducer.ts";
 import { SOUND_LIBRARY } from "../../core/soundLibrary.ts";
 import { desktop, type App, type ChatBlock, type ChatMessage } from "../app.ts";
+import { keyLabel } from "../../core/music.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 
 type Entry = {
@@ -21,6 +22,8 @@ type Entry = {
   text: string;
   suggestions?: string[];
   offers?: { label: string; actions: Action[] }[];
+  /** Show the « choose a loop » button (SAMPLE FLIP needs a file picked by the user). */
+  pickSample?: boolean;
   online?: boolean;
 };
 
@@ -72,6 +75,21 @@ export function createProducerChat(app: App, rerender: () => void) {
     return r ? `${r.placed.length} effet(s) placés (${[...new Set(r.placed.map((f) => f.kind))].join(", ")})${r.drops ? `, batterie coupée avant ${r.drops} refrain(s)` : ""}.` : "Audio indisponible.";
   }
 
+  function flip(mode: "flip" | "original"): string {
+    const ok = app.reflip(mode);
+    rerender();
+    return ok ? (mode === "flip" ? "Nouveau flip écrit dans le pattern courant." : "Chops remis dans l'ordre d'origine.") : "Aucun sample découpé.";
+  }
+
+  async function pickSample(): Promise<void> {
+    const r = await app.task("Sample flip : analyse, mise au tempo et découpe…", () => app.sampleFlip());
+    if (!r) return;
+    const p = store.getState();
+    const key = r.sourceKey ? `en ${keyLabel(r.sourceKey)}${r.shift ? `, transposée de ${r.shift > 0 ? "+" : ""}${r.shift} demi-ton(s) vers ${keyLabel(p.key)}` : ", déjà compatible"}` : "à la tonalité incertaine (je ne l'ai pas transposée)";
+    entries.push({ role: "assistant", text: `« ${r.name} » : boucle à ${r.bars ? `${r.sourceBpm} BPM (${r.bars} mesure(s))` : `environ ${r.sourceBpm} BPM`} ${key}. Je l'ai calée à ${p.bpm} BPM et découpée en ${r.chops} chops, avec un premier flip dans BEAT. Lance la lecture !`, suggestions: ["nouveau flip", "ordre d'origine", "ajoute des transitions"] });
+    rerender();
+  }
+
   function undo(n: number): void {
     for (let i = 0; i < n; i++) store.undo();
     app.engine.sync();
@@ -87,7 +105,8 @@ export function createProducerChat(app: App, rerender: () => void) {
     apply(reply.actions, reply.soundChanges);
     if (reply.layers) void layers(reply.layers.trackId, reply.layers.kinds);
     if (reply.transitions) void transitions(reply.transitions.drops);
-    entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: reply.suggestions, offers: reply.offers });
+    if (reply.flip && reply.flip !== "import") flip(reply.flip);
+    entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: reply.suggestions, offers: reply.offers, pickSample: reply.flip === "import" });
   }
 
   // --- online (Claude + tools) ---------------------------------------------------------------
@@ -128,6 +147,7 @@ export function createProducerChat(app: App, rerender: () => void) {
         if (out.generate) result = generate(out.generate.styleId, out.generate.prompt);
         else if (out.layers) result = await layers(out.layers.trackId, out.layers.kinds);
         else if (out.transitions) result = await transitions(out.transitions.drops);
+        else if (out.flip) result = flip(out.flip);
         else if (out.undo) undo(out.undo);
         else apply(out.actions, out.soundChanges);
         results.push({ type: "tool_result", tool_use_id: String(b.id), content: result || "Fait.", ...(out.isError ? { is_error: true } : {}) });
@@ -164,6 +184,7 @@ export function createProducerChat(app: App, rerender: () => void) {
       ...entries.map((e, i) => h("div", { class: `chat-msg ${e.role}` },
         h("div", { class: "bubble" }, e.text),
         ...(e.offers?.length ? [h("div", { class: "chips" }, ...e.offers.map((o) => h("button", { class: "btn btn-sm btn-primary", onclick: () => { apply(o.actions); entries.push({ role: "note", text: `✓ ${o.label}` }); rerender(); } }, o.label)))] : []),
+        ...(e.pickSample ? [h("div", { class: "chips" }, h("button", { class: "btn btn-sm btn-primary", onclick: () => void pickSample() }, "✂️ Choisir une boucle…"))] : []),
         ...(e.suggestions?.length && i === entries.length - 1 ? [h("div", { class: "chips" }, ...e.suggestions.map((s) => h("button", { class: "chip", onclick: () => void send(s) }, s)))] : []))),
       ...(busy ? [h("div", { class: "chat-msg assistant" }, h("div", { class: "bubble typing" }, "…"))] : []));
     const input = h("textarea", { class: "chat-input", rows: 2, placeholder: "Écris comme tu parles : « mets plus de basse et fais-moi un refrain qui tape »", "aria-label": "Message au producteur" }) as HTMLTextAreaElement;

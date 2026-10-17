@@ -223,6 +223,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
       chokeGroup: typeof raw.chokeGroup === "number" ? raw.chokeGroup : null,
     };
     if (isDrumSample(raw.builtinSample)) t.builtinSample = raw.builtinSample;
+    if (raw.chop === true && sampleId) t.chop = true;
     if (isObj(raw.sampleEdit)) {
       const e = raw.sampleEdit;
       const start = clamp(num(e.start, 0), 0, 0.99);

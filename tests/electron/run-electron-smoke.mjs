@@ -312,6 +312,49 @@ await step("transitions: FX track on a generated song (riser grows into the chor
   assert.ok(r.drumsBefore > 0.01 && r.drumsCut < r.drumsBefore * 0.1, "drums cut on the last beat");
 });
 
+await step("sample flip: a 92 BPM loop in A minor → 140 BPM F minor project, chops on lanes, flip pattern audible", async () => {
+  const r = await evalApp(async () => {
+    const { encodeWav } = await import("/app/core/io/wav.js");
+    const { estimateKey, estimateTempo } = await import("/app/core/dsp/sampleFlip.js");
+    const { renderProject } = await import("/app/audio/render.js");
+    const { currentPattern } = await import("/app/core/project.js");
+    const app = window.__app;
+    // Two-bar loop at 92 BPM: kick / snare / hats + an A minor chord.
+    const SR = 44100, step = (60 / 92 / 4) * SR, x = new Float32Array(Math.round(32 * step));
+    let s = 3; const noise = () => ((s = (s * 1103515245 + 12345) >>> 0) / 2 ** 32) * 2 - 1;
+    const hit = (at, kind) => { const a = Math.round(at * step); for (let i = 0; i < SR * 0.25 && a + i < x.length; i++) { const t = i / SR;
+      x[a + i] += kind === "k" ? Math.sin(2 * Math.PI * (50 + 80 * Math.exp(-t / 0.03)) * t) * Math.exp(-t / 0.12) * 0.9 : kind === "s" ? noise() * Math.exp(-t / 0.06) * 0.6 : noise() * Math.exp(-t / 0.015) * 0.25; } };
+    for (let b = 0; b < 2; b++) { hit(b * 16, "k"); hit(b * 16 + 10, "k"); hit(b * 16 + 4, "s"); hit(b * 16 + 12, "s"); for (let h = 0; h < 16; h += 2) hit(b * 16 + h, "h"); }
+    for (let i = 0; i < x.length; i++) for (const m of [57, 60, 64]) x[i] += 0.08 * Math.sin(2 * Math.PI * 440 * 2 ** ((m - 69) / 12) * i / SR);
+    const file = new File([encodeWav({ sampleRate: SR, channels: [x] }, 16)], "boucle-test.wav", { type: "audio/wav" });
+    app.dispatch({ type: "batch", actions: [{ type: "setBpm", bpm: 140 }, { type: "setKey", key: { root: 5, scale: "minor" } }] });
+    const res = await app.sampleFlip(file);
+    const p = app.store.getState();
+    const chops = app.chopTracks();
+    const buf = app.engine.seq.samples.get(chops[0].sampleId);
+    const d = buf.getChannelData(0);
+    const pat = currentPattern(p);
+    const flipSteps = chops.map((t) => pat.drums[t.id].map((st) => (st.on ? 1 : 0)).join("")).join("|");
+    app.reflip("flip");
+    const reflipped = chops.map((t) => app.store.getState().patterns.find((q) => q.id === pat.id).drums[t.id].map((st) => (st.on ? 1 : 0)).join("")).join("|");
+    app.reflip("original");
+    const p2 = app.store.getState();
+    const others = [...p2.tracks.filter((t) => !t.chop), ...p2.instruments, ...p2.vocals].map((t) => t.id);
+    const out = await renderProject(p2, app.media(), { mode: "pattern", loops: 1, tail: 0, muted: new Set(others) });
+    let peak = 0; for (const v of out.getChannelData(0)) peak = Math.max(peak, Math.abs(v));
+    return { res, chops: chops.length, seconds: buf.duration, tempo: estimateTempo(d, buf.sampleRate), key: estimateKey(d, buf.sampleRate)?.key,
+      changed: flipSteps !== reflipped, onSteps: flipSteps.split("").filter((c) => c === "1").length, peak };
+  });
+  console.log(`  # source ${r.res.sourceBpm} BPM / ${r.res.bars} mesures, décalage ${r.res.shift} demi-tons → ${r.seconds.toFixed(3)} s (${r.tempo.bpm} BPM), tonalité ${JSON.stringify(r.key)}, ${r.chops} chops, ${r.onSteps} coups, pic ${r.peak.toFixed(3)}`);
+  assert.ok(Math.abs(r.res.sourceBpm - 92) < 1 && r.res.bars === 2);
+  assert.equal(r.res.shift, -4, "A minor → F minor");
+  assert.ok(Math.abs(r.seconds - (2 * 240) / 140) < 0.01, "exactly two bars at 140 BPM");
+  assert.deepEqual(r.key, { root: 5, scale: "minor" }, "the flipped loop is in F minor");
+  assert.ok(r.chops >= 4 && r.chops <= 8);
+  assert.ok(r.onSteps >= 4 && r.changed, "flip written, « nouveau flip » changes it");
+  assert.ok(r.peak > 0.05, "chops audible");
+});
+
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));
 
 // Skip the "unsaved changes" prompt on close: quit the main process directly.

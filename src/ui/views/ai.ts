@@ -193,7 +193,7 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
       const pat = currentPattern(p);
       const st = styleById(drumState.style);
       const d = generateDrums({ genre: st.genre, style: st, energy: drumState.energy, complexity: drumState.complexity, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
-      return [...p.tracks.map((t): Action => ({ type: "setDrumSteps", trackId: t.id, steps: d[t.instrument] })), { type: "setSwing", swing: drumState.swing }];
+      return [...p.tracks.filter((t) => !t.chop).map((t): Action => ({ type: "setDrumSteps", trackId: t.id, steps: d[t.instrument] })), { type: "setSwing", swing: drumState.swing }];
     };
     let pending: Action[] | null = null;
     return h("div", {},

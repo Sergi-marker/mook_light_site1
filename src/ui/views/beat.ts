@@ -11,6 +11,7 @@ import { beatboxToHits } from "../../core/dsp/transcribe.ts";
 import { DRUM_KITS, DRUM_SAMPLES, drumSample } from "../../core/drumSamples.ts";
 import { DEFAULT_SAMPLE_EDIT } from "../../core/project.ts";
 import { drawWaveform, fmtDb, reactive, slider } from "../widgets.ts";
+import { keyLabel } from "../../core/music.ts";
 
 interface Row {
   el: HTMLElement;
@@ -40,7 +41,7 @@ export function createBeatView(app: App): View {
     if (Object.values(pat.drums).some((s) => s.some((x) => x.on)) && !(await confirmDialog("Remplacer les drums ?", "Le générateur va remplacer les drums de ce pattern (annulable avec Ctrl+Z).", "Générer", "Annuler"))) return;
     const st = styleById(genreSel.value);
     const drums = generateDrums({ genre: st.genre, style: st, energy: st.energy, complexity: st.complexity, stepCount: pat.stepCount, seed: Math.floor(Math.random() * 1e6) });
-    const actions: Action[] = p.tracks.map((t) => ({ type: "setDrumSteps", trackId: t.id, steps: drums[t.instrument] }));
+    const actions: Action[] = p.tracks.filter((t) => !t.chop).map((t) => ({ type: "setDrumSteps", trackId: t.id, steps: drums[t.instrument] }));
     if (p.swing === 0 && st.swing) actions.push({ type: "setSwing", swing: st.swing });
     app.dispatch({ type: "batch", actions });
   };
@@ -130,11 +131,34 @@ export function createBeatView(app: App): View {
     h("button", { class: "btn btn-ai", title: "AI DRUM GENERATOR : pattern éditable du style choisi", onclick: () => void generate() }, "✨ Générer drums"),
     h("button", { class: "btn", title: "Faites un beatbox au micro (« boum » = kick, « pff / k » = snare, « ts » = charley) : il devient un pattern de batterie calé sur le tempo", onclick: () => void beatboxDrums() }, "🎤 Beatbox"),
   );
+  /** SAMPLE FLIP bar: import a loop → chops on their own lanes + a flip pattern. */
+  const flipBar = h("div", { class: "toolbar flip-bar" });
+  async function flip(): Promise<void> {
+    const r = await app.task("Sample flip : analyse, mise au tempo et découpe…", () => app.sampleFlip());
+    if (!r) return;
+    const p = store.getState();
+    const tempo = r.bars ? `${r.sourceBpm} BPM, ${r.bars} mesure(s)` : `≈ ${r.sourceBpm} BPM`;
+    const key = r.sourceKey ? (r.shift ? `${keyLabel(r.sourceKey)} → transposé de ${r.shift > 0 ? "+" : ""}${r.shift} demi-ton(s) vers ${keyLabel(p.key)}` : `${keyLabel(r.sourceKey)}, déjà compatible avec ${keyLabel(p.key)}`) : "tonalité incertaine : non transposé";
+    toast(`« ${r.name} » : ${tempo} → calé à ${p.bpm} BPM · ${key} · ${r.chops} chops sur leurs pistes.${r.trimmed ? " (seules les 30 premières secondes sont utilisées)" : ""}`, "ok", 9000);
+  }
+  function renderFlipBar(): void {
+    const has = app.chopTracks().length > 0;
+    flipBar.replaceChildren(
+      h("button", { class: "btn btn-ai", title: "Importez une boucle : tempo et tonalité détectés, mise au tempo du projet (sans changer la hauteur), découpe sur les attaques, nouveau pattern. N'utilisez que des samples libres de droits ou dont vous avez l'autorisation.", onclick: () => void flip() }, "✂️ Sample flip…"),
+      ...(has ? [
+        h("button", { class: "btn", title: "Autre rythme et autre ordre des chops (Ctrl+Z pour revenir)", onclick: () => app.reflip("flip") }, "🔀 Nouveau flip"),
+        h("button", { class: "btn", title: "Rejoue la boucle telle qu'elle était, chop par chop", onclick: () => app.reflip("original") }, "Ordre d'origine"),
+        h("button", { class: "btn", title: "Supprime les pistes Chop", onclick: () => app.dispatch({ type: "batch", actions: app.chopTracks().map((t): Action => ({ type: "removeDrumTrack", trackId: t.id })) }) }, "Retirer les chops"),
+      ] : [h("span", { class: "hint" }, "Échantillons : utilisez des sons libres de droits ou dont vous avez l'autorisation.")]),
+    );
+  }
+  renderFlipBar();
+  let flipSig = "";
   const help = h("p", { class: "hint" }, "Clic = note · Molette / Shift+glisser = vélocité · Alt+clic = roll (×2, ×3, ×4) · Clic sur le nom = écouter et sélectionner (M/S)");
   const pbar = patternBar(app);
   const grid = h("div", { class: "grid", role: "grid", "aria-label": "Step sequencer" });
   const editor = h("div", { class: "card sample-editor" });
-  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, laneTools, help, h("div", { class: "grid-scroll" }, grid), editor);
+  const el = h("section", { class: "view beat-view" }, toolbar, pbar.el, laneTools, flipBar, help, h("div", { class: "grid-scroll" }, grid), editor);
 
   /** SAMPLER panel for the selected drum lane: trim, reverse, fades, gain, loop (non-destructive). */
   function renderEditor(): void {
@@ -272,6 +296,11 @@ export function createBeatView(app: App): View {
     if (es !== editorSig) {
       editorSig = es;
       rerenderEditor();
+    }
+    const fs = app.chopTracks(p).map((t) => t.id).join();
+    if (fs !== flipSig) {
+      flipSig = fs;
+      renderFlipBar();
     }
     stepsSelect.value = String(pat.stepCount);
     el.classList.toggle("mode-pro", app.settings.mode === "pro");
