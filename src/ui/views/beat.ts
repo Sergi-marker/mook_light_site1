@@ -7,6 +7,7 @@ import type { Project, Step, StepCount, Track } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { patternBar } from "./patternBar.ts";
+import { beatboxToHits } from "../../core/dsp/transcribe.ts";
 import { DRUM_KITS, DRUM_SAMPLES, drumSample } from "../../core/drumSamples.ts";
 import { DEFAULT_SAMPLE_EDIT } from "../../core/project.ts";
 import { drawWaveform, fmtDb, reactive, slider } from "../widgets.ts";
@@ -91,6 +92,29 @@ export function createBeatView(app: App): View {
     const kick = store.getState().tracks.find((t) => t.instrument === "kick");
     if (kick) void engine.previewDrum(kick.id);
   } }, h("option", { value: "" }, "🥁 Kit…"), ...DRUM_KITS.map((k) => h("option", { value: k.id, title: k.description }, k.name)));
+  /** BEATBOX → DRUMS on the kick / snare / closed-hat lanes of the current pattern. */
+  async function beatboxDrums(): Promise<void> {
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const bars = pat.stepCount / 16;
+    toast(`Écoutez le décompte (4 clics), puis beatboxez pendant ${bars} mesure(s) : « boum » = kick, « pff » ou « k » = snare, « ts » = charley.`, "ok", 5000);
+    const rec = await app.captureOverClick(bars, (m) => toast(m, "ok", 1500));
+    if (!rec) return;
+    const hits = beatboxToHits(rec.data, rec.sampleRate, { bpm: p.bpm, countIn: rec.countIn, steps: pat.stepCount });
+    if (!hits.length) return void toast("Je n'ai rien entendu : rapprochez-vous du micro et faites des sons plus secs.", "error", 7000);
+    const actions: Action[] = [];
+    for (const kind of ["kick", "snare", "closedHat"] as const) {
+      const t = p.tracks.find((x) => x.instrument === kind);
+      if (!t) continue;
+      const steps: Step[] = Array.from({ length: pat.stepCount }, () => ({ on: false, velocity: 100 }));
+      for (const hit of hits) if (hit.kind === kind) steps[hit.step] = { on: true, velocity: hit.velocity };
+      actions.push({ type: "setDrumSteps", trackId: t.id, steps, patternId: pat.id });
+    }
+    app.dispatch({ type: "batch", actions });
+    const count = (k: string) => hits.filter((x) => x.kind === k).length;
+    toast(`Beatbox transcrit : ${count("kick")} kick(s), ${count("snare")} snare(s), ${count("closedHat")} charley(s). Ctrl+Z pour annuler.`, "ok", 6000);
+  }
+
   const toolbar = h("div", { class: "toolbar" },
     h("h1", {}, "BEAT"),
     kitSel,
@@ -104,6 +128,7 @@ export function createBeatView(app: App): View {
     h("span", { class: "sep" }),
     genreSel,
     h("button", { class: "btn btn-ai", title: "AI DRUM GENERATOR : pattern éditable du style choisi", onclick: () => void generate() }, "✨ Générer drums"),
+    h("button", { class: "btn", title: "Faites un beatbox au micro (« boum » = kick, « pff / k » = snare, « ts » = charley) : il devient un pattern de batterie calé sur le tempo", onclick: () => void beatboxDrums() }, "🎤 Beatbox"),
   );
   const help = h("p", { class: "hint" }, "Clic = note · Molette / Shift+glisser = vélocité · Alt+clic = roll (×2, ×3, ×4) · Clic sur le nom = écouter et sélectionner (M/S)");
   const pbar = patternBar(app);

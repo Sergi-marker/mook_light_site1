@@ -368,3 +368,19 @@ label.check { display: inline-flex; align-items: center; gap: 6px; cursor: point
 .guide-steps li.done { opacity: .65; }
 .guide-steps li.current { font-size: 15px; }
 .guide-steps li p { margin: 4px 0 0; font-size: 13px; }
+
+/* Producer chat */
+.producer-chat { display: flex; flex-direction: column; gap: 10px; }
+.chat-head { justify-content: space-between; }
+.chat-log { max-height: 52vh; min-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); }
+.chat-msg { display: flex; flex-direction: column; max-width: 80%; }
+.chat-msg.user { align-self: flex-end; align-items: flex-end; }
+.chat-msg.assistant { align-self: flex-start; }
+.chat-msg.note { align-self: center; max-width: 100%; color: var(--muted); font-size: 12px; }
+.chat-msg .bubble { padding: 9px 13px; border-radius: 14px; line-height: 1.45; white-space: pre-wrap; }
+.chat-msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg.assistant .bubble { background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.chat-msg.note .bubble { padding: 2px 6px; }
+.bubble.typing { letter-spacing: 3px; animation: mic-pulse 1s ease-in-out infinite; }
+.chat-row { align-items: stretch; }
+.chat-input { flex: 1; resize: vertical; padding: 9px 12px; font: inherit; font-size: 15px; }

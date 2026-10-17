@@ -23,9 +23,8 @@ import { currentPattern, getChannel, masterChannel, SYNTH_PRESETS } from "../../
 import { reduce, type Action } from "../../core/reducer.ts";
 import type { Effect, Project, SynthPreset } from "../../core/types.ts";
 import { desktop, type App, type View } from "../app.ts";
-import { COMMAND_EXAMPLES, interpretCommand } from "../../core/ai/commands.ts";
-import { describeMemory, favouriteStyles, preferencesFor } from "../../core/ai/memory.ts";
-import { DRUM_KITS } from "../../core/drumSamples.ts";
+import { favouriteStyles, preferencesFor } from "../../core/ai/memory.ts";
+import { createProducerChat } from "./producerChat.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import type { Route } from "../shell.ts";
 
@@ -131,43 +130,8 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
     );
   }
 
-  // --- PRODUCER: plain-language commands + what the AI learnt ---------------------------
-  let producerLog: { text: string; done: string[]; notUnderstood: string[] }[] = [];
-  function producerTab(): HTMLElement {
-    const input = h("input", { type: "text", class: "cmd-input", placeholder: "Ex. : plus de basse et change le piano en guitare", "aria-label": "Commande pour le producteur IA" }) as HTMLInputElement;
-    const exec = (text: string) => {
-      const t = text.trim();
-      if (!t) return;
-      const r = interpretCommand(store.getState(), t);
-      if (r.actions.length) {
-        app.applyActions(r.actions, "");
-        for (const c of r.soundChanges) app.noteSoundChoice(c.trackId, c.soundId);
-        app.remember({ type: "command", text: t });
-        app.markGuide("adjust");
-      }
-      producerLog = [{ text: t, done: r.done, notUnderstood: r.notUnderstood }, ...producerLog].slice(0, 12);
-      render();
-      (panel.querySelector(".cmd-input") as HTMLInputElement | null)?.focus();
-    };
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") exec(input.value); });
-    const names = (id: string) => styleById(id).id === id ? styleById(id).label : SOUND_LIBRARY.find((x) => x.id === id)?.name ?? DRUM_KITS.find((k) => k.id === id)?.name ?? id;
-    return h("div", {},
-      h("p", {}, "Parlez au producteur comme à un beatmaker : il modifie le projet directement (chaque commande s'annule avec Ctrl+Z). Plusieurs demandes à la fois : séparez par « et » ou une virgule."),
-      h("div", { class: "row-inline cmd-row" }, input, h("button", { class: "btn btn-ai", onclick: () => exec(input.value) }, "Appliquer")),
-      h("div", { class: "chips" }, ...COMMAND_EXAMPLES.map((ex) => h("button", { class: "chip", onclick: () => exec(ex) }, ex))),
-      producerLog.length ? h("div", { class: "card cmd-log" }, ...producerLog.map((l) => h("div", { class: "cmd-entry" },
-        h("strong", {}, `« ${l.text} »`),
-        h("ul", {}, ...l.done.map((d) => h("li", { class: "ok" }, `✓ ${d}`)), ...l.notUnderstood.map((n) => h("li", { class: "warn" }, `? Pas compris : « ${n} » — essayez une des suggestions ci-dessus.`)))))) : null,
-      h("div", { class: "card" },
-        h("h3", {}, "🧠 Ce que l'IA a appris de vous"),
-        h("ul", {}, ...describeMemory(app.memory, names).map((x) => h("li", {}, x))),
-        h("p", { class: "hint" }, "Appris à partir de vos 👍 / 👎, des versions appliquées, des sons que vous remplacez, du tempo et de la batterie que vous choisissez ensuite. La « Version 1 » de chaque génération suit ces goûts ; les versions 2 et 3 continuent d'explorer. Stocké uniquement sur cet ordinateur."),
-        h("button", { class: "btn btn-sm", onclick: async () => {
-          if (!(await confirmDialog("Effacer la mémoire de l'IA ?", "L'IA oubliera vos goûts et repartira des réglages de chaque style.", "Effacer", "Annuler", true))) return;
-          app.forgetTaste();
-          render();
-        } }, "Effacer la mémoire")));
-  }
+  // --- PRODUCER: real conversation (online with Claude, or offline) -----------------------
+  const producerTab = createProducerChat(app, () => render());
 
   // --- MELODY ---------------------------------------------------------------------------
   let melState: { options: ReturnType<typeof melodyOptions> | null; target: string; style: string; mood: Mood; complexity: number } = { options: null, target: "", style: "trap", mood: "dark", complexity: 0.6 };

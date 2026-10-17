@@ -89,7 +89,7 @@ export type Action =
   /** Insert (bars > 0) or delete (bars < 0) time at bar `at`, shifting everything after it. */
   | { type: "insertBars"; at: number; bars: number }
   // Vocals
-  | { type: "addVocalTrack"; role: VocalRole; name?: string }
+  | { type: "addVocalTrack"; role: VocalRole; name?: string; /** Fixed id (several actions in one batch). */ id?: string }
   | { type: "removeVocalTrack"; trackId: string }
   | { type: "updateVocalTrack"; trackId: string; patch: VocalPatch }
   | { type: "addTake"; trackId: string; take: Take; asset: AudioAsset; clip?: Omit<AudioClip, "id"> | null }
@@ -674,6 +674,7 @@ export function reduce(p: Project, a: Action): Project {
     // --- vocals
     case "addVocalTrack": {
       const v = createVocalTrack(a.role, a.name);
+      if (a.id && !p.vocals.some((x) => x.id === a.id)) v.id = a.id;
       return { ...p, vocals: [...p.vocals, v], channels: insertChannel(p.channels, vocalChannel(v)) };
     }
     case "removeVocalTrack":

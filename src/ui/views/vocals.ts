@@ -8,6 +8,7 @@ import { buildChain, VOCAL_CHAIN_PRESETS, type ChainPreset } from "../../core/ef
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../../core/dsp/autopitch.ts";
 import { integratedLoudness } from "../../core/dsp/loudness.ts";
 import { analyzeMicCheck, type MicCheckResult } from "../../core/dsp/micCheck.ts";
+import type { HarmonyKind } from "../../core/dsp/harmony.ts";
 import type { VoiceAnalysis, VoiceRecommendation } from "../../core/dsp/voiceAnalysis.ts";
 import { keyLabel } from "../../core/music.ts";
 import { effect, getChannel, secondsToSteps, stepsPerBarOf, stepsToSeconds } from "../../core/project.ts";
@@ -452,6 +453,25 @@ export function createVocalsView(app: App): View {
     const roleSel = h("select", { "aria-label": "Rôle" }, ...(["lead", "double", "adlibs", "backing", "custom"] as VocalRole[]).map((r) => h("option", { value: r }, r)));
     tracksCard.append(h("div", { class: "row-inline" }, roleSel, h("button", { class: "btn btn-sm", onclick: () => app.dispatch({ type: "addVocalTrack", role: roleSel.value as VocalRole }) }, "+ Piste vocale")));
     body.append(tracksCard);
+
+    // Doubles & harmonies from the selected track
+    if (v && v.clips.length) {
+      const KINDS: [HarmonyKind | "double", string, boolean][] = [["double", "Double (épaissit la voix)", true], ["third-up", "Tierce au-dessus", true], ["fifth-up", "Quinte au-dessus", false], ["sixth-down", "Tierce en dessous", false], ["octave-up", "Octave au-dessus", false], ["octave-down", "Octave en dessous", false]];
+      const boxes = KINDS.map(([k, label, on]) => {
+        const cb = h("input", { type: "checkbox", checked: on }) as HTMLInputElement;
+        return { k, el: h("label", { class: "check" }, cb, ` ${label}`), cb };
+      });
+      body.append(h("div", { class: "card" },
+        h("h3", {}, `✨ Doubles & harmonies — à partir de « ${v.name} »`),
+        h("p", { class: "hint" }, `Crée de nouvelles pistes vocales à partir de vos prises${v.playProcessed ? " (version traitée)" : ""} : un double légèrement décalé et désaccordé pour épaissir, et des harmonies qui restent dans la tonalité (${keyLabel(p.key)}). Même chaîne d'effets, mixées plus bas et réparties gauche / droite. Annulable avec Ctrl+Z.`),
+        h("div", { class: "row-inline" }, ...boxes.map((b) => b.el)),
+        h("button", { class: "btn btn-ai", onclick: async () => {
+          const kinds = boxes.filter((b) => b.cb.checked).map((b) => b.k);
+          if (!kinds.length) return void toast("Cochez au moins un double ou une harmonie.", "error");
+          const made = await app.task("Doubles & harmonies…", () => app.makeVoiceLayers(v.id, kinds));
+          if (made) toast(`${made} piste(s) créée(s) : écoutez le refrain avec et sans (bouton M sur chaque piste).`, "ok", 7000);
+        } }, "✨ Créer")));
+    }
     if (v) {
       body.append(clipsCard(p, v));
       const lyrics = h("textarea", { class: "lyrics", rows: 6, placeholder: "Écrivez vos paroles ici (couplets, refrain, ad-libs)… Elles sont enregistrées avec le projet.", "aria-label": `Paroles de ${v.name}` }, v.lyrics ?? "");

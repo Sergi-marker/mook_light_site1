@@ -199,6 +199,8 @@ export interface AppSettings {
   /** Clean every new take automatically (non-destructive: RAW is kept). */
   autoCleanTakes: boolean;
   /** Last MIC CHECK: room noise spectrum and the cleaning level it recommended. */
+  /** Online producer may search the Internet (Anthropic web search, billed per search). */
+  aiWebSearch: boolean;
   micCheck: { at: string; sampleRate: number; profile: number[]; clean: "low" | "medium" | "high"; noiseFloorDb: number; snrDb: number } | null;
 }
 
@@ -242,7 +244,7 @@ export function saveMemory(m: TasteMemory): void {
     /* storage disabled */
   }
 }
-export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5", inputChannel: "auto", autoCleanTakes: true, micCheck: null };
+export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5", aiWebSearch: true, inputChannel: "auto", autoCleanTakes: true, micCheck: null };
 
 export function loadSettings(): AppSettings {
   try {

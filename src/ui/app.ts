@@ -4,12 +4,14 @@
 import { AudioEngine, decodeAudio, type EngineConfig } from "../audio/engine.ts";
 import { exportProject, type ExportOptions } from "../audio/export.ts";
 import { MidiController, GM_DRUMS } from "../audio/midi.ts";
+import { clickBuffer } from "../audio/instruments.ts";
 import { Recorder, RecorderError } from "../audio/recorder.ts";
 import { renderProject, type RenderMedia } from "../audio/render.ts";
-import { processTake } from "../audio/studio.ts";
+import { processTake, voiceLayer } from "../audio/studio.ts";
+import { HARMONY_STEPS, type HarmonyKind } from "../core/dsp/harmony.ts";
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../core/dsp/autopitch.ts";
 import { encodeWav, decodeWav } from "../core/io/wav.ts";
-import { currentPattern, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
+import { currentPattern, getChannel, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
 import { parseProject, ProjectFileError, projectToJson, referencedAssetIds, safeFileName, serializeProject } from "../core/projectFile.ts";
 import type { Action } from "../core/reducer.ts";
 import type { GeneratedSong } from "../core/ai/beat.ts";
@@ -39,8 +41,14 @@ export interface View {
 /** Bridge exposed by electron/preload.cjs (absent in the browser build). */
 export interface DesktopBridge {
   askClaude(req: { apiKey: string; model: string; system: string; messages: { role: "user" | "assistant"; content: string }[] }): Promise<{ text?: string; error?: string; refusal?: boolean }>;
+  /** One turn of the AI producer conversation (tools run in the renderer). */
+  chatClaude?(req: { apiKey: string; model: string; system: string; tools: unknown[]; messages: ChatMessage[]; webSearch: boolean }): Promise<{ content?: ChatBlock[]; stop_reason?: string; error?: string }>;
   metrics(): Promise<{ cpuPercent: number; memoryMB: number }>;
 }
+
+/** Messages / content blocks of the Anthropic Messages API, as plain JSON (passed through unchanged). */
+export type ChatBlock = { type: string; [k: string]: unknown };
+export type ChatMessage = { role: "user" | "assistant"; content: string | ChatBlock[] };
 
 export function desktop(): DesktopBridge | null {
   return (window as unknown as { beatmakerDesktop?: DesktopBridge }).beatmakerDesktop ?? null;
@@ -532,6 +540,78 @@ export class App {
     const buf = this.engine.getAsset(processed && take.processedAssetId ? take.processedAssetId : take.assetId);
     if (!buf) return null;
     return { data: buf.getChannelData(0), sampleRate: buf.sampleRate };
+  }
+
+  /**
+   * DOUBLES & HARMONIES: from the takes played on `trackId` (processed version when it exists),
+   * create one new vocal track per layer — same clip positions, same vocal chain, mixed lower
+   * and spread in stereo. One undo step for everything.
+   */
+  async makeVoiceLayers(trackId: string, kinds: (HarmonyKind | "double")[]): Promise<number> {
+    const p = this.store.getState();
+    const v = p.vocals.find((x) => x.id === trackId);
+    if (!v || !v.clips.length || !kinds.length) return 0;
+    const src = getChannel(p, v.id);
+    const usedTakes = v.takes.filter((t) => v.clips.some((c) => c.takeId === t.id));
+    const actions: Action[] = [];
+    let made = 0;
+    for (const [n, kind] of kinds.entries()) {
+      const label = kind === "double" ? "Double" : HARMONY_STEPS[kind].label;
+      const newTrack = newId("voc");
+      actions.push({ type: "addVocalTrack", role: kind === "double" ? "double" : "backing", name: `${v.name} — ${label}`.slice(0, 40), id: newTrack });
+      const takeMap = new Map<string, string>();
+      for (const t of usedTakes) {
+        const raw = this.takeData(t, v.playProcessed);
+        if (!raw) continue;
+        const out = await voiceLayer(raw.data, raw.sampleRate, p.key, kind, n + 1);
+        const assetId = newId("aud");
+        const wav = encodeWav({ sampleRate: raw.sampleRate, channels: [out] }, 24);
+        this.audioBytes.set(assetId, wav);
+        this.engine.setAsset(assetId, this.engine.createBuffer([out], raw.sampleRate));
+        void writeMedia("audio", assetId, wav);
+        const takeId = newId("take");
+        takeMap.set(t.id, takeId);
+        actions.push({ type: "addTake", trackId: newTrack, take: { id: takeId, name: `${t.name} (${label})`, assetId, startStep: t.startStep, recordedAt: new Date().toISOString() }, asset: { id: assetId, name: `${t.name} (${label})`, sampleRate: raw.sampleRate, frames: out.length, channels: 1 }, clip: null });
+      }
+      if (!takeMap.size) continue;
+      actions.push({ type: "setAudioClips", trackId: newTrack, clips: v.clips.filter((c) => takeMap.has(c.takeId)).map(({ id: _id, ...c }) => ({ ...c, takeId: takeMap.get(c.takeId)! })) });
+      // Same vocal chain as the lead; doubles −6 dB, harmonies −8 dB, alternately left / right.
+      if (src) actions.push({ type: "setInserts", channelId: newTrack, inserts: src.inserts.map((e) => ({ ...e, id: newId("fx") })) });
+      const side = n % 2 === 0 ? -1 : 1;
+      actions.push({ type: "updateChannel", channelId: newTrack, patch: { volume: Math.round((src?.volume ?? 0.8) * 10 ** ((kind === "double" ? -6 : -8) / 20) * 1000) / 1000, pan: side * (kind === "double" ? 0.35 : 0.5), sends: { reverb: Math.min(1, (src?.sends.reverb ?? 0.15) + 0.1) } } });
+      made++;
+    }
+    if (made) this.applyActions(actions, "");
+    return made;
+  }
+
+  /**
+   * Record the mic while a metronome plays: 1 bar of count-in, then `bars` bars (current tempo).
+   * Used by HUM → MELODY and BEATBOX → DRUMS. Latency is corrected later from the onsets.
+   */
+  async captureOverClick(bars: number, onPhase?: (msg: string) => void): Promise<{ data: Float32Array; sampleRate: number; countIn: number } | null> {
+    if (!this.recorder.isOpen && !(await this.openMic())) return null;
+    const ctx = this.engine.context!;
+    const p = this.store.getState();
+    const beat = 60 / p.bpm;
+    const beats = (bars + 1) * 4;
+    const sr = ctx.sampleRate;
+    const click = new Float32Array(Math.ceil((beats * beat + 0.2) * sr));
+    for (let b = 0; b < beats; b++) {
+      const src = clickBuffer(ctx, b % 4 === 0).getChannelData(0);
+      click.set(src.subarray(0, Math.min(src.length, click.length - Math.round(b * beat * sr))), Math.round(b * beat * sr));
+    }
+    this.engine.stop();
+    onPhase?.("1 mesure de décompte…");
+    const stop = this.engine.playBuffer(this.engine.createBuffer([click], sr));
+    const timer = setTimeout(() => onPhase?.("À toi !"), 4 * beat * 1000);
+    try {
+      const snap = await this.recorder.captureSnapshot(beats * beat + 0.25);
+      return { ...snap, countIn: 4 * beat };
+    } finally {
+      clearTimeout(timer);
+      stop();
+    }
   }
 
   /** STUDIO processing (AI VOICE CLEAN + STUDIO PITCH) of every take of a track, non-destructive. */

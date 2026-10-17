@@ -5,6 +5,8 @@ import { studioPitchCorrect, type AutoPitchParams } from "../core/dsp/autopitch.
 import { studioDenoise, type CleanLevel } from "../core/dsp/denoise.ts";
 import { measure, type MixMeasurements } from "../core/dsp/loudness.ts";
 import { analyzeVoice, recommendChain, type VoiceAnalysis, type VoiceRecommendation } from "../core/dsp/voiceAnalysis.ts";
+import { doubleVoice, harmonyVoice, type HarmonyKind } from "../core/dsp/harmony.ts";
+import type { Key } from "../core/music.ts";
 
 let worker: Worker | null = null;
 let seq = 0;
@@ -51,6 +53,14 @@ export async function processTake(data: Float32Array, sr: number, clean: CleanLe
   if (clean !== "off") d = studioDenoise(d, sr, clean, true, profile).output;
   if (pitch) d = studioPitchCorrect(d, sr, pitch).output;
   return d;
+}
+
+/** A double or a harmony voice of a take (see core/dsp/harmony.ts), off the main thread. */
+export async function voiceLayer(data: Float32Array, sr: number, key: Key, kind: HarmonyKind | "double", seed = 1): Promise<Float32Array> {
+  const copy = data.slice();
+  const r = call({ op: "layer", data: copy, sr, key, kind, seed }, [copy.buffer]);
+  if (r) return (await r).output as Float32Array;
+  return kind === "double" ? doubleVoice(data, sr, { seed }) : harmonyVoice(data, sr, key, kind);
 }
 
 export async function analyzeTake(data: Float32Array, sr: number): Promise<{ analysis: VoiceAnalysis; recommendation: VoiceRecommendation }> {

@@ -651,22 +651,32 @@ await step("AI producer: 👍 + apply learnt, plain-language commands applied, m
   assert.ok(logDrum, "amapiano has a Log Drum track");
   assert.equal(p.tracks.find((t) => t.instrument === "closedHat").builtinSample, "shaker-down", "amapiano kit");
   const vol0 = p.channels.find((c) => c.id === logDrum.id).volume;
-  // Plain-language commands, two at once.
+  // Offline conversation, in sentences, with context.
   await nav("AI");
   await page.click('.tab:has-text("PRODUCTEUR")');
-  await page.fill(".cmd-input", "plus de basse et change le piano en guitare espagnole");
-  await page.press(".cmd-input", "Enter");
-  await page.waitForSelector(".cmd-log li.ok");
+  const say = async (text) => {
+    const n = await page.locator(".chat-msg.assistant").count();
+    await page.fill(".chat-input", text);
+    await page.press(".chat-input", "Enter");
+    await page.waitForFunction((n) => document.querySelectorAll(".chat-msg.assistant .bubble:not(.typing)").length > n, n);
+    return page.locator(".chat-msg.assistant .bubble").last().textContent();
+  };
+  let answer = await say("plus de basse et change le piano en guitare espagnole");
+  assert.match(answer, /C'est fait/);
   p = await state();
   assert.ok(p.channels.find((c) => c.id === logDrum.id).volume > vol0 * 1.3, "bass +3 dB");
   assert.ok(p.instruments.some((i) => i.sample === "guitar-nylon"), "piano → nylon guitar");
-  assert.equal(await page.locator(".cmd-log li.warn").count(), 0);
-  await page.click('.chip:has-text("kit afro")');
+  answer = await say("encore");
+  assert.ok(p.channels.find((c) => c.id === logDrum.id).volume < (await state()).channels.find((c) => c.id === logDrum.id).volume, `« encore » : ${answer}`);
+  answer = await say("kit afro");
   await page.waitForFunction(() => window.__app.store.getState().tracks.find((t) => t.instrument === "closedHat").builtinSample === "shaker");
+  answer = await say("c'est quoi une 808 ?");
+  assert.match(answer, /basse/);
   // Memory: rating, applied version, replaced sound, commands — saved on this computer.
   const mem = await evalApp(() => JSON.parse(localStorage.getItem("bs.aiMemory")));
   assert.ok(mem.styles.amapiano.liked >= 1 && mem.styles.amapiano.applied >= 1, JSON.stringify(mem.styles));
   assert.ok(mem.commands.includes("kit afro"));
+  await page.click(".producer-chat details summary");
   assert.ok((await page.textContent(".ai-panel")).includes("choix enregistrés"));
   // Guided mode: beat and "adjust" steps ticked from the real project state.
   await nav("HOME");
@@ -680,6 +690,47 @@ await step("AI producer: 👍 + apply learnt, plain-language commands applied, m
   await page.click('.style-chip:has-text("Amapiano")');
   await page.click('button:has-text("✨ GENERATE BEAT")');
   assert.ok((await page.textContent(".ai-panel .options .card")).includes("vos goûts"), "version follows the learnt taste");
+});
+
+await step("online producer loop (simulated Claude): tool call runs on the project, history kept append-only, network error → offline answer", async () => {
+  // A fake desktop bridge stands in for Electron + the API: turn 1 asks for a tool, turn 2 talks.
+  await evalApp(() => {
+    window.__chatCalls = [];
+    window.beatmakerDesktop = {
+      chatClaude: async (req) => {
+        window.__chatCalls.push(JSON.parse(JSON.stringify(req)));
+        if (window.__chatFail) return { error: "pas de connexion Internet." };
+        const last = req.messages[req.messages.length - 1];
+        if (Array.isArray(last.content) && last.content[0].type === "tool_result")
+          return { stop_reason: "end_turn", content: [{ type: "text", text: "J'ai mis le tempo à 97 BPM, plus posé pour ton couplet." }] };
+        return { stop_reason: "tool_use", content: [{ type: "thinking", thinking: "", signature: "sig" }, { type: "text", text: "Je ralentis." }, { type: "tool_use", id: "tu_1", name: "set_tempo", input: { bpm: 97 } }] };
+      },
+    };
+    window.__app.settings.aiApiKey = "sk-test";
+  });
+  await nav("HOME");
+  await nav("AI");
+  await page.click('.tab:has-text("PRODUCTEUR")');
+  await page.click('.producer-chat button:has-text("Nouvelle conversation")');
+  await page.fill(".chat-input", "c'est trop rapide pour moi");
+  await page.press(".chat-input", "Enter");
+  await page.click('.modal button:has-text("Oui, en ligne")');
+  await page.waitForFunction(() => [...document.querySelectorAll(".chat-msg.assistant .bubble")].some((b) => b.textContent.includes("97 BPM")));
+  assert.equal((await state()).bpm, 97, "tool ran on the project");
+  const calls = await evalApp(() => window.__chatCalls);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].messages[0].content[0].text, /\[État du projet\][\s\S]*c'est trop rapide/);
+  // Turn 2 = turn 1 + full assistant content (thinking block unchanged) + tool_result: append-only.
+  assert.deepEqual(calls[1].messages.slice(0, 1), calls[0].messages);
+  assert.deepEqual(calls[1].messages[1].content[0], { type: "thinking", thinking: "", signature: "sig" });
+  assert.equal(calls[1].messages[2].content[0].tool_use_id, "tu_1");
+  assert.ok(calls[0].tools.some((t) => t.name === "change_sound") && calls[0].webSearch === true);
+  // Network down → the offline producer answers instead, nothing lost.
+  await evalApp(() => { window.__chatFail = true; });
+  await page.fill(".chat-input", "plus de basse");
+  await page.press(".chat-input", "Enter");
+  await page.waitForFunction(() => [...document.querySelectorAll(".chat-msg.assistant .bubble")].some((b) => b.textContent.includes("hors ligne")));
+  await evalApp(() => { delete window.beatmakerDesktop; window.__app.settings.aiApiKey = ""; });
 });
 
 await step("no page errors during the whole session", async () => {

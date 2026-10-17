@@ -95,6 +95,42 @@ ipcMain.handle("ai:ask", async (_e, req) => {
   }
 });
 
+// AI producer conversation: ONE model turn with tools. The renderer runs the tools on the
+// project, appends the full response content (thinking blocks included, unchanged) and calls
+// again until the model answers in text. Only text is sent — never audio.
+ipcMain.handle("ai:chat", async (_e, req) => {
+  let Anthropic;
+  try {
+    Anthropic = require("@anthropic-ai/sdk");
+    Anthropic = Anthropic.default ?? Anthropic;
+  } catch {
+    return { error: "the Anthropic SDK is not installed (run npm install)." };
+  }
+  try {
+    const client = new Anthropic({ apiKey: req.apiKey });
+    const response = await client.beta.messages.create({
+      model: req.model || "claude-opus-5-5",
+      max_tokens: 16000,
+      // Tools + stable system prompt form the cached prefix of every turn of the conversation.
+      system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
+      // Optional Internet research (trends, artists, techniques): Anthropic's server-side web search.
+      tools: req.webSearch ? [...req.tools, { type: "web_search_20260209", name: "web_search", max_uses: 3 }] : req.tools,
+      messages: req.messages,
+      output_config: { effort: "medium" },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+    });
+    return { content: response.content, stop_reason: response.stop_reason };
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) return { error: "clé API invalide." };
+    if (err instanceof Anthropic.RateLimitError) return { error: "trop de demandes, réessayez dans un instant." };
+    if (err instanceof Anthropic.APIConnectionError) return { error: "pas de connexion Internet." };
+    if (err instanceof Anthropic.BadRequestError) return { error: `requête refusée (${err.message}).` };
+    if (err instanceof Anthropic.APIError) return { error: `erreur de l'API ${err.status} : ${err.message}` };
+    return { error: String(err && err.message ? err.message : err) };
+  }
+});
+
 ipcMain.handle("app:metrics", () => {
   const metrics = app.getAppMetrics();
   const cpuPercent = metrics.reduce((s, m) => s + (m.cpu ? m.cpu.percentCPUUsage : 0), 0);

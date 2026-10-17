@@ -84,7 +84,7 @@ await step("window opens on app://, 9 modules, no errors", async () => {
 
 await step("preload API: desktop bridge + process metrics", async () => {
   const m = await evalApp(async () => ({ keys: Object.keys(window.beatmakerDesktop ?? {}), metrics: await window.beatmakerDesktop.metrics(), node: typeof window.require }));
-  assert.deepEqual(m.keys.sort(), ["askClaude", "metrics"]);
+  assert.deepEqual(m.keys.sort(), ["askClaude", "chatClaude", "metrics"]);
   assert.ok(m.metrics.memoryMB > 10, `memory ${m.metrics.memoryMB}`);
   assert.equal(m.node, "undefined", "no Node access in the page");
 });
@@ -181,6 +181,43 @@ await step("vocal processing: STUDIO pitch correction puts the voice in key, AI 
   assert.match(res.processedWith, /"clean":"medium"/);
 });
 
+await step("doubles & harmonies from the recorded take: new tracks, harmony a diatonic third above (measured)", async () => {
+  const v = await evalApp(() => window.__app.store.getState().vocals.find((x) => x.takes.length));
+  const made = await evalApp((id) => window.__app.makeVoiceLayers(id, ["double", "third-up"]), v.id);
+  assert.equal(made, 2);
+  const res = await evalApp(async (id) => {
+    const { pitchTrack, freqToMidi } = await import("/app/core/dsp/yin.js");
+    const p = window.__app.store.getState();
+    const lead = p.vocals.find((x) => x.id === id);
+    const out = {};
+    for (const name of ["Double", "Tierce"]) {
+      const t = p.vocals.find((x) => x.name.startsWith(lead.name) && x.name.includes(name));
+      const b = window.__app.engine.getAsset(t.takes[0].assetId);
+      const tr = pitchTrack(b.getChannelData(0), b.sampleRate).filter((r) => r.freq > 0 && r.confidence > 0.8).map((r) => freqToMidi(r.freq)).sort((a, c) => a - c);
+      out[name] = { midi: tr[tr.length >> 1], clips: t.clips.length, leadClips: lead.clips.length };
+    }
+    return out;
+  }, v.id);
+  console.log(`  # double MIDI ${res.Double.midi.toFixed(2)}, harmony (third above, F minor) MIDI ${res.Tierce.midi.toFixed(2)}`);
+  assert.equal(res.Double.clips, res.Double.leadClips);
+  // Processed lead sits on B♭ (70) in F minor → diatonic third above = D♭ (73).
+  assert.ok(Math.abs(res.Tierce.midi - 73) < 0.3, `harmony ${res.Tierce.midi}`);
+});
+
+await step("hum → melody through the real mic path (simulated voice): notes written in the key", async () => {
+  const n = await evalApp(async () => {
+    const { humToNotes } = await import("/app/core/dsp/transcribe.js");
+    const { inScale } = await import("/app/core/music.js");
+    const app = window.__app;
+    const p = app.store.getState();
+    const rec = await app.captureOverClick(1);
+    const notes = humToNotes(rec.data, rec.sampleRate, { bpm: p.bpm, key: p.key, countIn: rec.countIn, steps: 16 });
+    return { count: notes.length, inKey: notes.every((x) => inScale(x.pitch, p.key)), pitches: [...new Set(notes.map((x) => x.pitch))] };
+  });
+  console.log(`  # ${n.count} note(s) from the simulated voice, pitches ${n.pitches.join(", ")}`);
+  assert.ok(n.count >= 1 && n.inKey, JSON.stringify(n));
+});
+
 await step("mic test: silence + voice capture, verdict and advice, settings applied to the vocal chain", async () => {
   await page.click("text=🎚 Test du micro");
   await page.waitForSelector(".mic-test.running", { timeout: 5000 });
@@ -225,6 +262,17 @@ await step("online assistant IPC: Anthropic SDK loads in the main process", asyn
   console.log(`  # askClaude with a fake key → ${JSON.stringify(r)}`);
   assert.ok(r.error, "an error is reported for a fake key");
   assert.doesNotMatch(r.error, /not installed/);
+});
+
+await step("producer conversation IPC (tools + web search): request reaches the API, clear error with a fake key", async () => {
+  const r = await evalApp(async () => {
+    const { PRODUCER_TOOLS, producerSystemPrompt, describeProject } = await import("/app/core/ai/producerTools.js");
+    return window.beatmakerDesktop.chatClaude({ apiKey: "sk-ant-invalid", model: "claude-opus-5-5", system: producerSystemPrompt(), tools: PRODUCER_TOOLS, webSearch: true,
+      messages: [{ role: "user", content: [{ type: "text", text: `[État du projet]\n${describeProject(window.__app.store.getState())}\n\n[Message de l'utilisateur]\nsalut` }] }] });
+  });
+  console.log(`  # chatClaude with a fake key → ${JSON.stringify(r)}`);
+  assert.ok(r.error && !r.content, "error reported, no content");
+  assert.match(r.error, /clé API invalide|connexion/);
 });
 
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));

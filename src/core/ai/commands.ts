@@ -44,8 +44,13 @@ const DRUM_WORDS: [RegExp, InstrumentKind, string][] = [
 function findTargets(p: Project, t: string): Target[] {
   const out: Target[] = [];
   const add = (id: string | undefined, label: string) => { if (id && !out.some((x) => x.id === id)) out.push({ id, label }); };
-  const insByName = (re: RegExp) => p.instruments.find((i) => re.test(normalize(i.name)));
-  if (/\b(808|basse|bass|log drum|sub)\b/.test(t)) add((insByName(/808|bass|basse|log drum/) ?? p.instruments.find((i) => i.preset === "808" || i.preset === "bass"))?.id, "basse / 808");
+  // Several tracks can match (« 808 Bass » left empty and the « Bass » that plays): the one heard wins.
+  const heard = audibleInstruments(p);
+  const insByName = (re: RegExp) => {
+    const all = p.instruments.filter((i) => re.test(normalize(i.name)));
+    return all.find((i) => heard.has(i.id)) ?? all[0];
+  };
+  if (/\b(808|basse|bass|log drum|sub)\b/.test(t)) add((insByName(/808|bass|basse|log drum/) ?? p.instruments.find((i) => (i.preset === "808" || i.preset === "bass") && heard.has(i.id)) ?? p.instruments.find((i) => i.preset === "808" || i.preset === "bass"))?.id, "basse / 808");
   if (/\b(melodie|melody|lead|mélodie)\b/.test(t)) add(insByName(/melody|melodie|lead/)?.id, "mélodie");
   if (/\b(accords?|chords?|nappes?|pad)\b/.test(t)) add(insByName(/chord|accord|pad/)?.id, "accords");
   if (/\b(voix|vocals?|voice|chant|lead vocal)\b/.test(t)) for (const v of p.vocals) add(v.id, `voix « ${v.name} »`);
@@ -148,6 +153,14 @@ function transposeActions(p: Project, key: Key): Action[] {
   return actions;
 }
 
+/** Instruments heard in the song: notes in the patterns placed in the arrangement (or the current pattern). */
+function audibleInstruments(p: Project): Set<string> {
+  const used = p.arrangement.clips.length ? new Set(p.arrangement.clips.map((c) => c.patternId)) : new Set([p.currentPatternId]);
+  const out = new Set<string>();
+  for (const pt of p.patterns) if (used.has(pt.id)) for (const [id, notes] of Object.entries(pt.notes)) if (notes.length) out.add(id);
+  return out;
+}
+
 // --- main ----------------------------------------------------------------------------------
 
 const DB = (db: number) => 10 ** (db / 20);
@@ -210,7 +223,8 @@ export function interpretCommand(p: Project, text: string): CommandResult {
       const oldSnd = after ? soundIn(head) : null;
       const ref = oldSnd ? soundParams(SOUND_LIBRARY.find((x) => x.id === oldSnd)!) : null;
       const named = new Set([...findTargets(proj, head), ...findTargets(proj, t)].map((x) => x.id));
-      const plays = (id: string) => proj.patterns.some((pt) => (pt.notes[id]?.length ?? 0) > 0);
+      const heard = audibleInstruments(proj);
+      const plays = (id: string) => heard.has(id);
       const sounds = (i: InstrumentTrack) => !!ref && i.preset === ref.preset && (ref.preset !== "sampler" || i.sample === ref.sample);
       const scored = proj.instruments
         .map((i) => ({ i, score: (named.has(i.id) ? 1 : 0) + (sounds(i) ? 2 : 0) + (named.has(i.id) || sounds(i) ? (plays(i.id) ? 4 : 0) : 0) }))
@@ -222,7 +236,10 @@ export function interpretCommand(p: Project, text: string): CommandResult {
       if (ins && snd) {
         const sp = soundParams(snd);
         res.actions.push({ type: "updateInstrument", trackId: ins.id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample } });
-        res.done.push(`« ${ins.name} » joue maintenant : ${snd.name}.`);
+        const heardNow = audibleInstruments(proj);
+        const silent = !heardNow.has(ins.id);
+        const playing = proj.instruments.filter((i) => heardNow.has(i.id)).map((i) => `« ${i.name} »`);
+        res.done.push(`« ${ins.name} » joue maintenant : ${snd.name}${silent ? ` — attention, cette piste ne joue aucune note pour l'instant${playing.length ? ` (les pistes qui jouent : ${playing.join(", ")})` : ""}` : ""}.`);
         res.soundChanges.push({ trackId: ins.id, soundId: snd.id });
       }
     }

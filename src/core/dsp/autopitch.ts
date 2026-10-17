@@ -183,7 +183,16 @@ export function studioPitchCorrect(data: Float32Array, sr: number, p: AutoPitchP
     shifts.push(s);
   }
   const shiftAt = (i: number) => shifts[Math.max(0, Math.min(shifts.length - 1, Math.floor((i - 1024) / hop)))] ?? 0;
+  const out = psolaRender(data, sr, frameF0, shiftAt, p.formant);
+  return { output: out, shifts };
+}
 
+/**
+ * TD-PSOLA resynthesis: re-spaces pitch-synchronous grains so the voice moves by `shiftAt(sample)`
+ * semitones (formants kept, optionally moved by `formant` semitones). Duration is unchanged.
+ * Shared by AUTO PITCH STUDIO, the harmony generator and the double tracker.
+ */
+export function psolaRender(data: Float32Array, sr: number, frameF0: (i: number) => number, shiftAt: (i: number) => number, formant = 0): Float32Array {
   // Analysis marks: one per period in voiced regions, every 5 ms otherwise.
   const marks: number[] = [];
   const unvoicedStep = Math.round(sr * 0.005);
@@ -204,7 +213,7 @@ export function studioPitchCorrect(data: Float32Array, sr: number, p: AutoPitchP
 
   const out = new Float32Array(data.length);
   const norm = new Float32Array(data.length);
-  const formantRatio = Math.pow(2, p.formant / 12);
+  const formantRatio = Math.pow(2, formant / 12);
   let t = marks[0] ?? 0;
   let mi = 0;
   while (t < data.length && marks.length) {
@@ -229,7 +238,7 @@ export function studioPitchCorrect(data: Float32Array, sr: number, p: AutoPitchP
   }
   // Normalise the overlap-add gain (bounded so sparse grain regions are not over-amplified).
   for (let i = 0; i < out.length; i++) out[i] /= Math.max(norm[i], 0.5);
-  return { output: out, shifts };
+  return out;
 }
 
 export { midiToFreq };

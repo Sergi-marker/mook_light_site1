@@ -8,6 +8,7 @@ import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { fmtDb, fmtHz, fmtMs, fmtPct, reactive, select, slider, toggle } from "../widgets.ts";
 import { patternBar } from "./patternBar.ts";
+import { humToNotes } from "../../core/dsp/transcribe.ts";
 import { createPianoRoll } from "./pianoRoll.ts";
 
 export function createMelodyView(app: App): View {
@@ -61,7 +62,30 @@ export function createMelodyView(app: App): View {
     keyInfo,
     midiRecBtn,
     h("button", { class: "btn btn-ai", title: "Génère des notes pour l'instrument sélectionné (mélodie, accords ou ligne de 808), dans la tonalité du projet", onclick: () => void aiFill() }, "✨ Générer (IA)"),
+    h("button", { class: "btn", title: "Fredonnez ou chantez une mélodie au micro : elle devient des notes pour l'instrument sélectionné (dans la gamme, calées sur le tempo)", onclick: () => void humMelody() }, "🎤 Fredonner"),
   );
+
+  /** HUM → MELODY: metronome + 1 bar count-in, then the pattern length; notes in the key. */
+  async function humMelody(): Promise<void> {
+    const ins = sel();
+    if (!ins) return void toast("Choisissez d'abord un instrument à gauche.", "error");
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const bars = pat.stepCount / 16;
+    toast(`Écoutez le décompte (4 clics), puis fredonnez pendant ${bars} mesure(s).`, "ok", 4000);
+    const rec = await app.captureOverClick(bars, (m) => toast(m, "ok", 1500));
+    if (!rec) return;
+    let notes = humToNotes(rec.data, rec.sampleRate, { bpm: p.bpm, key: p.key, countIn: rec.countIn, steps: pat.stepCount });
+    if (!notes.length) return void toast("Je n'ai pas entendu de mélodie : rapprochez-vous du micro et fredonnez plus fort (« mmm » ou « la la »).", "error", 7000);
+    // Bass instruments one or two octaves lower than a voice; others where the voice was.
+    if (ins.preset === "808" || ins.preset === "bass") {
+      const med = notes.map((n) => n.pitch).sort((a, b) => a - b)[notes.length >> 1];
+      const shift = Math.round((40 - med) / 12) * 12;
+      notes = notes.map((n) => ({ ...n, pitch: n.pitch + shift }));
+    }
+    app.dispatch({ type: "setNotes", trackId: ins.id, notes });
+    toast(`${notes.length} note(s) écrites sur « ${ins.name} », dans la gamme ${keyLabel(p.key)}. Ctrl+Z pour annuler.`, "ok", 6000);
+  }
 
   const left = h("aside", { class: "ins-side" },
     h("h3", {}, "Instruments"),
