@@ -126,7 +126,7 @@ export function instrumentChannel(t: InstrumentTrack): Channel {
 
 // --- Vocals -----------------------------------------------------------------------------
 
-const ROLE_NAMES: Record<VocalRole, string> = { lead: "Lead", double: "Double", adlibs: "Adlibs", backing: "Backing", custom: "Vocal" };
+const ROLE_NAMES: Record<VocalRole, string> = { lead: "Lead", double: "Double", adlibs: "Adlibs", backing: "Backing", custom: "Vocal", fx: "FX / Transitions" };
 
 export function createVocalTrack(role: VocalRole, name?: string): VocalTrack {
   return {
@@ -159,6 +159,8 @@ export function vocalChain(role: VocalRole): Effect[] {
 export function vocalChannel(v: VocalTrack): Channel {
   const vol = v.role === "lead" ? 0.85 : v.role === "double" ? 0.55 : 0.6;
   const pan = v.role === "double" ? -0.25 : v.role === "backing" ? 0.3 : 0;
+  // Transition FX: no vocal chain, routed to the music bus.
+  if (v.role === "fx") return channel(v.id, v.name, "vocal", BUS_MUSIC, { volume: 0.8, pan: 0, sends: { reverb: 0.2, delay: 0 }, inserts: [] });
   return channel(v.id, v.name, "vocal", BUS_VOCALS, { volume: vol, pan, sends: { reverb: v.role === "adlibs" ? 0.3 : 0.15, delay: v.role === "adlibs" ? 0.2 : 0.05 }, inserts: vocalChain(v.role) });
 }
 

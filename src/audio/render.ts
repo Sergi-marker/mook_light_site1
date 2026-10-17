@@ -105,8 +105,9 @@ export function bufferChannels(b: AudioBuffer): Float32Array[] {
 
 /** Source channel groups for export variants. */
 export function exportGroups(p: Project) {
-  const vocals = new Set(p.vocals.map((v) => v.id));
-  const music = new Set([...p.tracks.map((t) => t.id), ...p.instruments.map((i) => i.id)]);
+  // Transition FX tracks are audio tracks but belong to the music (kept in the instrumental).
+  const vocals = new Set(p.vocals.filter((v) => v.role !== "fx").map((v) => v.id));
+  const music = new Set([...p.tracks.map((t) => t.id), ...p.instruments.map((i) => i.id), ...p.vocals.filter((v) => v.role === "fx").map((v) => v.id)]);
   return {
     instrumental: vocals,
     vocalsOnly: music,

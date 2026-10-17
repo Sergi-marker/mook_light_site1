@@ -35,6 +35,8 @@ export interface DialogReply {
   soundChanges: { trackId: string; soundId: string }[];
   /** Create doubles / harmonies from a vocal track. */
   layers?: { trackId: string; kinds: VoiceLayerKind[] };
+  /** Add transition FX (+ drums cut before choruses). */
+  transitions?: { drops: boolean };
 }
 
 const has = (t: string, re: RegExp) => re.test(t);
@@ -168,6 +170,13 @@ export function converse(p: Project, text: string, state: DialogState = {}): { r
       next.last = { text: `${state.last.text.split(/\b(?:en|par|avec)\b/)[0]} en ${tail}`, kind: "sound" };
       return { reply: reply(`${sentence(r.done)} Ça te va mieux ?`, { actions: r.actions, soundChanges: r.soundChanges, suggestions: followUp("sound") }), state: next };
     }
+  }
+
+  // Transitions
+  if (has(t, /\b(transitions?|riser|risers|montee|montees|impact|impacts|whoosh|effets? de transition|fx|sans coupure|avec coupure)\b/) && !has(t, /\b(c est quoi|qu est ce)\b/)) {
+    if (!p.arrangement.sections.length) return { reply: reply("Il me faut d'abord la structure du morceau (intro, couplets, refrains) pour savoir où placer les transitions. Tu veux que je te génère un beat complet ?", { suggestions: ["fais-moi un beat trap", "comment structurer mon morceau ?"] }), state: next };
+    const drops = !has(t, /\b(sans coupure|sans couper|pas de coupure)\b/);
+    return { reply: reply(`J'ajoute les transitions : une montée qui fait monter la tension avant chaque refrain, un impact pile sur le refrain, une descente juste après et une cymbale inversée avant les couplets${drops ? ", et je coupe la batterie et la 808 sur le dernier temps avant chaque refrain pour que l'entrée frappe plus fort" : ""}. Tout est sur la piste « FX / Transitions ».`, { transitions: { drops }, suggestions: ["sans coupure", "annule", "plus d'énergie"] }), state: next };
   }
 
   // Doubles / harmonies on the recorded voice

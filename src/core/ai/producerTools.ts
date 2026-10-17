@@ -32,6 +32,8 @@ export interface ToolOutcome {
   soundChanges?: { trackId: string; soundId: string }[];
   /** Create doubles / harmonies from a vocal track (audio processing, done by the app). */
   layers?: { trackId: string; kinds: VoiceLayerKind[] };
+  /** Add transition FX (risers, impacts…) and optionally the drums cut before choruses. */
+  transitions?: { drops: boolean };
 }
 
 export type VoiceLayerKind = "double" | "third-up" | "fifth-up" | "sixth-down" | "octave-up" | "octave-down";
@@ -90,6 +92,11 @@ export const PRODUCER_TOOLS: ToolDef[] = [
     name: "add_vocal_layers",
     description: "Crée des doubles et/ou des harmonies à partir d'une piste vocale enregistrée (nouvelles pistes, dans la tonalité). track : nom exact de la piste vocale (vide = la première qui a des prises). layers : parmi double, third-up (tierce au-dessus), fifth-up (quinte), sixth-down (tierce en dessous), octave-up, octave-down.",
     input_schema: obj({ track: { type: "string" }, layers: { type: "array", items: { type: "string", enum: ["double", "third-up", "fifth-up", "sixth-down", "octave-up", "octave-down"] } } }),
+  },
+  {
+    name: "add_transitions",
+    description: "Ajoute des effets de transition d'après les sections de l'arrangement : montée (riser) et impact sur chaque refrain, descente après, cymbale inversée avant les couplets / ponts. drops : true pour couper aussi la batterie et la 808 sur le dernier temps avant chaque refrain.",
+    input_schema: obj({ drops: { type: "boolean" } }),
   },
   {
     name: "undo",
@@ -233,6 +240,9 @@ export function runProducerTool(p: Project, name: string, input: unknown): ToolO
       if (!kinds.length) return fail("Aucune couche demandée (double, third-up, fifth-up, sixth-down, octave-up, octave-down).");
       return { actions: [], result: "", layers: { trackId: v.id, kinds: [...new Set(kinds)] } };
     }
+    case "add_transitions":
+      if (!p.arrangement.sections.length) return fail("L'arrangement n'a pas de sections : il faut d'abord générer ou construire la structure du morceau.");
+      return { actions: [], result: "", transitions: { drops: a.drops !== false } };
     case "undo": {
       const steps = Math.round(num(a.steps, 1, 10) ?? 1);
       return { actions: [], result: `${steps} modification(s) annulée(s).`, undo: steps };

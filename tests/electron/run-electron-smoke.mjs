@@ -275,6 +275,43 @@ await step("producer conversation IPC (tools + web search): request reaches the 
   assert.match(r.error, /clé API invalide|connexion/);
 });
 
+await step("transitions: FX track on a generated song (riser grows into the chorus, impact on it, drums cut the beat before)", async () => {
+  const r = await evalApp(async () => {
+    const { generateSong } = await import("/app/core/ai/beat.js");
+    const { parseBeatPrompt } = await import("/app/core/ai/prompt.js");
+    const { renderProject } = await import("/app/audio/render.js");
+    const app = window.__app;
+    const p0 = app.store.getState();
+    app.store.dispatch({ type: "patchProject", patch: generateSong(p0, parseBeatPrompt("trap", "trap", p0.key.root), 3).patch });
+    await app.addTransitions(true);
+    const again = await app.addTransitions(true); // a second run replaces, never stacks
+    const p = app.store.getState();
+    const fx = p.vocals.filter((v) => v.role === "fx");
+    const c = p.arrangement.sections.find((s) => /chorus|hook/i.test(s.name) && s.start > 0);
+    const all = [...p.tracks, ...p.instruments, ...p.vocals].map((t) => t.id);
+    const rms = (d, a, b) => { let e = 0; for (let i = a; i < b; i++) e += d[i] * d[i]; return Math.sqrt(e / Math.max(1, b - a)); };
+    const range = [c.start - 2, c.start + 1];
+    const fxBuf = await renderProject(p, app.media(), { mode: "song", range, tail: 0, muted: new Set(all.filter((id) => id !== fx[0].id)) });
+    const drums = await renderProject(p, app.media(), { mode: "song", range, tail: 0, muted: new Set(all.filter((id) => !p.tracks.some((t) => t.id === id))) });
+    const sr = fxBuf.sampleRate, bar = (240 / p.bpm) * sr, beat = bar / 4, at = 2 * bar; // chorus downbeat in the render
+    const f = fxBuf.getChannelData(0), d = drums.getChannelData(0);
+    return {
+      fxTracks: fx.length, clips: fx[0].clips.length, placed: again.placed.length, drops: again.drops,
+      dropLanes: p.automation.filter((l) => l.id.startsWith("drop_")).length,
+      riserEarly: rms(f, Math.round(at - 1.5 * bar), Math.round(at - 1.25 * bar)), riserLate: rms(f, Math.round(at - 0.25 * beat), Math.round(at - 0.05 * beat)),
+      impact: rms(f, Math.round(at), Math.round(at + 0.1 * sr)),
+      drumsBefore: rms(d, Math.round(at - 2 * beat), Math.round(at - 1.05 * beat)), drumsCut: rms(d, Math.round(at - 0.8 * beat), Math.round(at - 0.1 * beat)),
+    };
+  });
+  console.log(`  # ${r.placed} effets, riser ${r.riserEarly.toFixed(4)} → ${r.riserLate.toFixed(4)}, impact ${r.impact.toFixed(3)}, batterie ${r.drumsBefore.toFixed(3)} → coupure ${r.drumsCut.toFixed(4)}`);
+  assert.equal(r.fxTracks, 1);
+  assert.equal(r.clips, r.placed);
+  assert.ok(r.drops >= 2 && r.dropLanes >= 1 && r.dropLanes <= 3, `drop lanes ${r.dropLanes}`);
+  assert.ok(r.riserLate > r.riserEarly * 3, "riser grows into the chorus");
+  assert.ok(r.impact > 0.05, "impact audible");
+  assert.ok(r.drumsBefore > 0.01 && r.drumsCut < r.drumsBefore * 0.1, "drums cut on the last beat");
+});
+
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));
 
 // Skip the "unsaved changes" prompt on close: quit the main process directly.

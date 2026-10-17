@@ -9,6 +9,10 @@ import { Recorder, RecorderError } from "../audio/recorder.ts";
 import { renderProject, type RenderMedia } from "../audio/render.ts";
 import { processTake, voiceLayer } from "../audio/studio.ts";
 import { HARMONY_STEPS, type HarmonyKind } from "../core/dsp/harmony.ts";
+import { downlifter, impact, reverseCymbal, riser } from "../core/dsp/fx.ts";
+import { dropAutomation, FX_LABELS, isDropLane, planTransitions, type FxPlacement } from "../core/ai/transitions.ts";
+import { drumSample } from "../core/drumSamples.ts";
+import { loadSample } from "../audio/sampler.ts";
 import { AUTO_PITCH_PRESETS, type AutoPitchPreset } from "../core/dsp/autopitch.ts";
 import { encodeWav, decodeWav } from "../core/io/wav.ts";
 import { currentPattern, getChannel, newId, secondsToSteps, stepsPerBarOf } from "../core/project.ts";
@@ -18,7 +22,7 @@ import type { GeneratedSong } from "../core/ai/beat.ts";
 import { emptyMemory, learn, type MemoryEvent, type SoundRole, type TasteMemory } from "../core/ai/memory.ts";
 import { ProjectStore } from "../core/store.ts";
 import { projectFromTemplate } from "../core/templates.ts";
-import type { AudioAsset, Project, Take } from "../core/types.ts";
+import type { AudioAsset, AudioClip, Project, Take } from "../core/types.ts";
 import { confirmDialog, h, readFileBytes, toast } from "./dom.ts";
 import {
   clearAutosave, forgetFileHandle, loadSettings, markSessionClosed, markSessionOpen, pickFile, pruneMedia,
@@ -583,6 +587,48 @@ export class App {
     }
     if (made) this.applyActions(actions, "");
     return made;
+  }
+
+  /**
+   * TRANSITIONS: risers before choruses, impacts on their downbeat, downlifters after them,
+   * reverse cymbals into verses / bridges (+ optional drums cut on the last beat before each
+   * chorus). Placed as clips on an "FX / Transitions" audio track. One undo step.
+   */
+  async addTransitions(withDrops = true): Promise<{ placed: FxPlacement[]; drops: number } | null> {
+    if (!(await this.ensureAudio())) return null;
+    const p = this.store.getState();
+    const plan = planTransitions(p);
+    if (!plan.length) return { placed: [], drops: 0 };
+    const sr = this.engine.context!.sampleRate;
+    const crashInfo = drumSample("crash");
+    const crash = crashInfo ? (await loadSample(this.engine.context!, crashInfo.file))?.getChannelData(0) : undefined;
+    const existing = p.vocals.find((v) => v.role === "fx");
+    const trackId = existing?.id ?? newId("voc");
+    const actions: Action[] = existing ? [] : [{ type: "addVocalTrack", role: "fx", name: "FX / Transitions", id: trackId }];
+    // One rendered sound per kind and length.
+    const takes = new Map<string, string>();
+    const clips: Omit<AudioClip, "id">[] = [];
+    for (const f of plan) {
+      const key = `${f.kind}:${f.duration.toFixed(3)}`;
+      if (!takes.has(key)) {
+        const data = f.kind === "riser" ? riser(sr, f.duration) : f.kind === "downlifter" ? downlifter(sr, f.duration) : f.kind === "impact" ? impact(sr, f.duration) : reverseCymbal(sr, f.duration, crash);
+        const assetId = newId("aud"), takeId = newId("take");
+        const wav = encodeWav({ sampleRate: sr, channels: [data] }, 24);
+        this.audioBytes.set(assetId, wav);
+        this.engine.setAsset(assetId, this.engine.createBuffer([data], sr));
+        void writeMedia("audio", assetId, wav);
+        actions.push({ type: "addTake", trackId, take: { id: takeId, name: FX_LABELS[f.kind], assetId, startStep: 0, recordedAt: new Date().toISOString() }, asset: { id: assetId, name: FX_LABELS[f.kind], sampleRate: sr, frames: data.length, channels: 1 }, clip: null });
+        takes.set(key, takeId);
+      }
+      clips.push({ takeId: takes.get(key)!, start: f.start, offset: 0, duration: f.duration, gainDb: f.kind === "impact" ? -2 : -4 });
+    }
+    actions.push({ type: "setAudioClips", trackId, clips });
+    // Cuts from a previous run are replaced (or removed when no longer wanted).
+    for (const l of p.automation.filter(isDropLane)) actions.push({ type: "removeAutomation", laneId: l.id });
+    const lanes = withDrops ? dropAutomation(p) : [];
+    for (const lane of lanes) actions.push({ type: "setAutomation", lane });
+    this.applyActions(actions, "");
+    return { placed: plan, drops: lanes.length ? p.arrangement.sections.filter((x) => /chorus|refrain|hook|drop/i.test(x.name) && x.start > 0).length : 0 };
   }
 
   /**

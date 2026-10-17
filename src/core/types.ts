@@ -212,7 +212,8 @@ export interface AudioClip {
   muted?: boolean;
 }
 
-export type VocalRole = "lead" | "double" | "adlibs" | "backing" | "custom";
+/** "fx": an audio track of transition effects — counts as music (kept in instrumental exports). */
+export type VocalRole = "lead" | "double" | "adlibs" | "backing" | "custom" | "fx";
 
 export interface StudioSettings {
   /** STUDIO pitch correction (offline PSOLA) applied to playback when enabled. */

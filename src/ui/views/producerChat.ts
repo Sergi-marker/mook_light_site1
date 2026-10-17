@@ -65,6 +65,13 @@ export function createProducerChat(app: App, rerender: () => void) {
     return made ? `${made} piste(s) vocale(s) créée(s) : ${kinds.join(", ")}.` : "Aucune piste créée (pas de prise audio disponible).";
   }
 
+  async function transitions(drops: boolean): Promise<string> {
+    const r = await app.task("Transitions…", () => app.addTransitions(drops));
+    app.markGuide("adjust");
+    rerender();
+    return r ? `${r.placed.length} effet(s) placés (${[...new Set(r.placed.map((f) => f.kind))].join(", ")})${r.drops ? `, batterie coupée avant ${r.drops} refrain(s)` : ""}.` : "Audio indisponible.";
+  }
+
   function undo(n: number): void {
     for (let i = 0; i < n; i++) store.undo();
     app.engine.sync();
@@ -79,6 +86,7 @@ export function createProducerChat(app: App, rerender: () => void) {
     if (reply.generate) generate(reply.generate.style.id, reply.generate.prompt);
     apply(reply.actions, reply.soundChanges);
     if (reply.layers) void layers(reply.layers.trackId, reply.layers.kinds);
+    if (reply.transitions) void transitions(reply.transitions.drops);
     entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: reply.suggestions, offers: reply.offers });
   }
 
@@ -119,6 +127,7 @@ export function createProducerChat(app: App, rerender: () => void) {
         let result = out.result;
         if (out.generate) result = generate(out.generate.styleId, out.generate.prompt);
         else if (out.layers) result = await layers(out.layers.trackId, out.layers.kinds);
+        else if (out.transitions) result = await transitions(out.transitions.drops);
         else if (out.undo) undo(out.undo);
         else apply(out.actions, out.soundChanges);
         results.push({ type: "tool_result", tool_use_id: String(b.id), content: result || "Fait.", ...(out.isError ? { is_error: true } : {}) });

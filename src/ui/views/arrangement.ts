@@ -45,6 +45,12 @@ export function createArrangementView(app: App): View {
   const cursorBar = () => engine.cursor / spb();
   const toolbar = h("div", { class: "toolbar" },
     h("h1", {}, "ARRANGEMENT"),
+    h("button", { class: "btn btn-ai btn-sm", title: "Montées avant les refrains, impacts, descentes, cymbales inversées et coupure de la batterie juste avant chaque refrain — d'après vos sections", onclick: async () => {
+      const r = await app.task("Transitions…", () => app.addTransitions(true));
+      if (!r) return;
+      if (!r.placed.length) return void toast("Il faut d'abord des sections (Intro, Couplet, Refrain…) : ajoutez-les ou générez un beat dans l'onglet AI.", "error", 7000);
+      toast(`${r.placed.length} effet(s) de transition placés sur la piste « FX / Transitions »${r.drops ? `, et la batterie coupée sur le dernier temps avant ${r.drops} refrain(s)` : ""}. Ctrl+Z pour annuler.`, "ok", 8000);
+    } }, "✨ Transitions"),
     sectionSel,
     h("button", { class: "btn btn-sm", title: "Ajoute la section à la fin du morceau", onclick: () => addSection() }, "+ Section"),
     loopBtn,

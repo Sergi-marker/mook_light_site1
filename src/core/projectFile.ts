@@ -280,7 +280,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
 
   const vocals: VocalTrack[] = arr(p.vocals).flatMap((raw): VocalTrack[] => {
     if (!isObj(raw)) return [];
-    const role = (["lead", "double", "adlibs", "backing", "custom"] as const).find((r) => r === raw.role) ?? "custom";
+    const role = (["lead", "double", "adlibs", "backing", "custom", "fx"] as const).find((r) => r === raw.role) ?? "custom";
     const v = createVocalTrack(role, str(raw.name, ""));
     const takes = arr(raw.takes).flatMap((t) => {
       if (!isObj(t) || typeof t.assetId !== "string") return [];
