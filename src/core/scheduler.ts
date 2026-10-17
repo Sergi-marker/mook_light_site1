@@ -24,6 +24,8 @@ export interface SchedulerOptions {
    * Equal to `lookahead` = fixed window.
    */
   maxLookahead?: number;
+  /** Minimum window (s) right now, e.g. wider while samples are still decoding (main-thread stalls ahead). */
+  minWindow?: () => number;
   /** Timer period (ms) that wakes the scheduler. */
   intervalMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -37,7 +39,7 @@ export interface SchedulerOptions {
  * runs dry.
  */
 export class StepScheduler {
-  private readonly opts: Required<Omit<SchedulerOptions, "setTimer" | "clearTimer">> & {
+  private readonly opts: Required<Omit<SchedulerOptions, "setTimer" | "clearTimer" | "minWindow">> & Pick<SchedulerOptions, "minWindow"> & {
     setTimer: (fn: () => void, ms: number) => unknown;
     clearTimer: (handle: unknown) => void;
   };
@@ -95,7 +97,7 @@ export class StepScheduler {
     }
     this.lastTickAt = now;
     if (this.window <= 0) this.window = this.opts.lookahead;
-    const horizon = now + this.window;
+    const horizon = now + Math.max(this.window, this.opts.minWindow?.() ?? 0);
     // Max steps per tick guards against an infinite loop on absurd clock values.
     for (let guard = 0; guard < 4096 && this.nextGridTime < horizon; guard++) {
       const { bpm, swing, stepCount, loopStart = 0 } = this.opts.getTiming();

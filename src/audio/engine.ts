@@ -9,6 +9,7 @@ import { currentPattern } from "../core/project.ts";
 import type { Project } from "../core/types.ts";
 import { MixerGraph } from "./mixer.ts";
 import { Sequencer, songEndStep, type PlayMode } from "./sequencer.ts";
+import { samplesLoading } from "./sampler.ts";
 
 export type LatencyHint = AudioContextLatencyCategory | number;
 
@@ -161,6 +162,8 @@ export class AudioEngine {
       // 350 ms ahead (edits during playback are heard ≤ 0.35 s later), up to 800 ms on a busy PC.
       lookahead: 0.35,
       maxLookahead: 0.8,
+      // While recorded samples decode (a sound just chosen during playback), play 1 s ahead.
+      minWindow: () => (samplesLoading() > 0 ? 1 : 0),
     });
     if (ctx.state === "suspended") void ctx.resume().catch(() => {});
     this.resumeAfterInit = false;

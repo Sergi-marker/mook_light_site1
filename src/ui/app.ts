@@ -222,7 +222,13 @@ export class App {
   async togglePlay(): Promise<void> {
     if (this.recorder.isRecording) return this.stopRecording();
     if (!this.engine.isPlaying && !(await this.ensureAudio())) return;
-    await this.engine.toggle();
+    // First play of new sounds: the recorded instruments load before the music starts (no gaps).
+    const slow = this.engine.isPlaying ? 0 : window.setTimeout(() => toast("Chargement des sons…", "ok", 1500), 400);
+    try {
+      await this.engine.toggle();
+    } finally {
+      clearTimeout(slow);
+    }
   }
 
   /** PAUSE: keeps the position; while recording, the take recorded so far is kept. */

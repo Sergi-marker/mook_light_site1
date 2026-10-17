@@ -136,3 +136,30 @@ test("adaptive look-ahead: after a main-thread stall the window grows, so the ne
   assert.equal(new Set(events).size, events.length);
   assert.ok(s.window <= 0.8);
 });
+
+test("while samples load, the scheduler plays further ahead: a 600 ms stall then loses no step", () => {
+  let now = 0, loading = true;
+  const events: number[] = [];
+  const s = new StepScheduler({
+    now: () => now, getTiming: () => ({ bpm: 120, swing: 0, stepCount: 64 }), onStep: (step) => events.push(step),
+    lookahead: 0.35, maxLookahead: 0.8, minWindow: () => (loading ? 1 : 0), setTimer: () => 1, clearTimer: () => {},
+  });
+  s.start(0, 0);
+  for (; now < 0.5; now += 0.025) s.tick();
+  now += 0.6; // main thread blocked by decoding
+  s.tick();
+  assert.equal(s.lateSteps, 0);
+  loading = false;
+  const before = events.length;
+  for (let i = 0; i < 40; i++) { now += 0.025; s.tick(); }
+  assert.ok(events.length > before);
+  assert.deepEqual(events, events.map((_, i) => i), "every step, in order");
+  // Without the wider window the same stall skips steps.
+  let n2 = 0;
+  const s2 = new StepScheduler({ now: () => n2, getTiming: () => ({ bpm: 120, swing: 0, stepCount: 64 }), onStep: () => {}, lookahead: 0.35, maxLookahead: 0.35, setTimer: () => 1, clearTimer: () => {} });
+  s2.start(0, 0);
+  for (; n2 < 0.5; n2 += 0.025) s2.tick();
+  n2 += 0.6;
+  s2.tick();
+  assert.ok(s2.lateSteps > 0);
+});

@@ -225,17 +225,18 @@ export class InstrumentVoice {
    * pitch). Done before playback, in small slices that yield to the UI, so no note is ever
    * computed in the middle of playback (that used to stall the scheduler → audible gaps).
    */
-  async prepare(pitches: Iterable<number>): Promise<void> {
+  async prepare(pitches: Iterable<number>, whole = false): Promise<void> {
     if (this.layer) {
       const list = [...pitches];
-      await this.layer.prepare(list);
+      await this.layer.prepare(list, whole);
       pitches = list;
     }
     const preset = this.track.preset;
     if (preset === "sampler") {
       const octave = Math.round(Math.max(-2, Math.min(2, this.track.synth.octave ?? 0)));
       const inst = sampledInstrument(this.track.sample);
-      await loadInstrument(this.ctx, inst, [...pitches].map((x) => playablePitch(inst, x + octave * 12)));
+      // Before playback (`whole`): every zone, so nothing is still decoding once the music runs.
+      await loadInstrument(this.ctx, inst, whole ? undefined : [...pitches].map((x) => playablePitch(inst, x + octave * 12)));
       return;
     }
     if (preset !== "piano" && preset !== "pluck") return;

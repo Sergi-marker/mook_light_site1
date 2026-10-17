@@ -103,6 +103,34 @@ await step("audio: AudioContext running, worklets loaded, drums audible", async 
   assert.ok(peak > 0.05, `drums audible (peak ${peak})`);
 });
 
+await step("first playback of never-loaded recorded instruments: they load before the music, no freeze while it plays", async () => {
+  const r = await evalApp(async () => {
+    const app = window.__app;
+    const long = [];
+    const obs = new PerformanceObserver((l) => { for (const e of l.getEntries()) long.push({ t: e.startTime, d: e.duration }); });
+    obs.observe({ entryTypes: ["longtask"] });
+    const ids = [];
+    for (const sample of ["glockenspiel", "french-horn", "balafon"]) {
+      app.dispatch({ type: "addInstrument", preset: "sampler" });
+      const ins = app.store.getState().instruments.at(-1);
+      app.dispatch({ type: "updateInstrument", trackId: ins.id, patch: { sample } });
+      app.dispatch({ type: "addNotes", trackId: ins.id, notes: [0, 4, 8, 12].map((st, i) => ({ pitch: 60 + i * 3, start: st, length: 4, velocity: 100 })) });
+      ids.push(ins.id);
+    }
+    const late0 = app.engine.lateSteps;
+    await app.togglePlay();
+    const started = performance.now();
+    await new Promise((r) => setTimeout(r, 3000));
+    await app.togglePlay();
+    obs.disconnect();
+    for (const id of ids) app.dispatch({ type: "removeInstrument", trackId: id });
+    return { late: app.engine.lateSteps - late0, during: long.filter((x) => x.t + x.d > started).map((x) => Math.round(x.d)) };
+  });
+  console.log(`  # pas en retard ${r.late}, blocages > 50 ms pendant la lecture : ${JSON.stringify(r.during)}`);
+  assert.equal(r.late, 0);
+  assert.ok(r.during.every((d) => d < 200), `main thread blocked during playback: ${r.during}`);
+});
+
 await step("real instruments: recorded samples load through app:// and play in tune (grand piano, nylon guitar)", async () => {
   const r = await evalApp(async () => {
     const { renderProject } = await import("/app/audio/render.js");

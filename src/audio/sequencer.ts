@@ -77,11 +77,11 @@ export class Sequencer {
   async prepare(p: Project): Promise<void> {
     this.syncInstruments(p);
     await this.prepareDrums(p);
-    for (const ins of p.instruments) {
+    await Promise.all(p.instruments.map((ins) => {
       const pitches: number[] = [];
       for (const pat of p.patterns) for (const n of pat.notes[ins.id] ?? []) pitches.push(n.pitch);
-      await this.voices.get(ins.id)?.prepare(pitches);
-    }
+      return this.voices.get(ins.id)?.prepare(pitches, true);
+    }));
   }
 
   /** Decode the recorded drum hits the project's lanes use. */

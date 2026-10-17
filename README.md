@@ -114,10 +114,10 @@ Dans l'arrangement : S = couper au curseur · Ctrl+C / Ctrl+V = copier / coller 
 | Commande | Contenu | Résultat |
 |---|---|---|
 | `npm run typecheck` | TypeScript strict sur tout `src/` | ✅ |
-| `npm test` | 170 tests unitaires (Node) | ✅ 170/170 |
+| `npm test` | 171 tests unitaires (Node) | ✅ 171/171 |
 | `npm run test:browser` | 15 tests du moteur audio dans Chromium | ✅ 15/15 |
 | `npm run test:e2e` | 29 étapes pilotant l'interface comme un utilisateur | ✅ 29/29 |
-| `npm run test:electron` | 17 vérifications de l'application desktop réelle (Electron) | ✅ 17/17 (Linux) |
+| `npm run test:electron` | 18 vérifications de l'application desktop réelle (Electron) | ✅ 18/18 (Linux) |
 
 Le test Electron ouvre la vraie fenêtre et vérifie : démarrage sans erreur, API du preload, AudioContext actif avec les worklets chargés, son audible, instruments enregistrés chargés via app:// et joués juste, micro (autorisation, monitoring, prise enregistrée au curseur, nettoyage automatique), correction de pitch STUDIO mesurée, test du micro, export MP3 192 kbps via l'interface (fichier décodé sans erreur), l'appel à l'assistant et au producteur en ligne (le SDK Anthropic répond « clé API invalide » avec une fausse clé), les doubles et harmonies (tierce mesurée sur le bon degré), le fredonnement transcrit par le vrai chemin micro, les transitions (riser qui monte vers le refrain, batterie coupée sur le dernier temps, mesurés), le sample flip (boucle à 92 BPM en la mineur → 140 BPM en fa mineur, vérifié par analyse), l'aide à l'écriture (dictionnaire chargé, grille, rimes insérées) et les sons hybrides (couche entendue dans le rendu, bouton de MELODY). Sous Linux sans écran : `xvfb-run -a npm run test:electron`.
 
