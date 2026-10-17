@@ -1,4 +1,5 @@
 import { emptyMemory, parseMemory, type TasteMemory } from "../core/ai/memory.ts";
+import type { HybridSound } from "../core/ai/hybrid.ts";
 import { PROJECT_EXTENSION } from "../core/constants.ts";
 
 // Autosave lives in IndexedDB (localStorage is limited to ~5 MB, too small once samples
@@ -244,6 +245,27 @@ export function saveMemory(m: TasteMemory): void {
     /* storage disabled */
   }
 }
+// --- AI hybrid instruments (personal library) ----------------------------------------------
+
+const HYBRIDS_KEY = "bs.hybrids";
+
+export function loadHybrids(): HybridSound[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HYBRIDS_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((x): x is HybridSound => !!x && typeof x.name === "string" && typeof x.role === "string" && !!x.base && !!x.layer) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveHybrids(list: HybridSound[]): void {
+  try {
+    localStorage.setItem(HYBRIDS_KEY, JSON.stringify(list));
+  } catch {
+    /* storage disabled */
+  }
+}
+
 export const DEFAULT_SETTINGS: AppSettings = { latency: "interactive", sampleRate: "auto", mode: "simple", inputDevice: "", outputDevice: "", midiEnabled: true, midiOutput: "", aiApiKey: "", aiModel: "claude-opus-5-5", aiWebSearch: true, inputChannel: "auto", autoCleanTakes: true, micCheck: null };
 
 export function loadSettings(): AppSettings {

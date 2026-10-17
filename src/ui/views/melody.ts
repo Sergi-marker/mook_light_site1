@@ -10,6 +10,7 @@ import { fmtDb, fmtHz, fmtMs, fmtPct, reactive, select, slider, toggle } from ".
 import { patternBar } from "./patternBar.ts";
 import { humToNotes } from "../../core/dsp/transcribe.ts";
 import { createPianoRoll } from "./pianoRoll.ts";
+import { HYBRID_ROLES, roleOf, type HybridRole } from "../../core/ai/hybrid.ts";
 
 export function createMelodyView(app: App): View {
   const { store } = app;
@@ -135,7 +136,7 @@ export function createMelodyView(app: App): View {
       const snd = SOUND_LIBRARY.find((x) => x.id === libSel.value);
       if (!snd) return;
       const sp = soundParams(snd);
-      app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample } });
+      app.dispatch({ type: "updateInstrument", trackId: id, patch: { preset: sp.preset, synth: sp.synth, bass808: sp.bass808, sample: sp.sample, layer: null } });
       app.noteSoundChoice(id, snd.id);
       void app.engine.previewNote(id, sp.preset === "808" || sp.preset === "bass" ? 36 + p.key.root : 60 + p.key.root, 100, 0.6);
       toast(`Son « ${snd.name} » chargé — tous les réglages restent modifiables.`, "ok");
@@ -152,6 +153,7 @@ export function createMelodyView(app: App): View {
       slider({ label: "Volume", min: 0, max: 1.5, step: 0.01, value: ch.volume, format: fmtPct, reset: 0.7, learn: `channel:${id}:volume`, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { volume: v } }, `vol:${id}`) }),
       slider({ label: "Pan", min: -1, max: 1, step: 0.01, value: ch.pan, format: (v) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`), reset: 0, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { pan: v } }, `pan:${id}`) }),
       slider({ label: "Reverb", min: 0, max: 1, step: 0.01, value: ch.sends.reverb, format: fmtPct, onInput: (v) => app.dispatch({ type: "updateChannel", channelId: id, patch: { sends: { reverb: v } } }, `rv:${id}`) }),
+      hybridCard(ins),
     );
     if (ins.preset === "808") {
       const b = ins.bass808;
@@ -196,6 +198,37 @@ export function createMelodyView(app: App): View {
     }
   }
 
+  /** AI HYBRID: invent a layered sound for this track, adjust / remove its layer, personal library. */
+  function hybridCard(ins: InstrumentTrack): HTMLElement {
+    const id = ins.id;
+    const preview = () => void app.engine.previewNote(id, (roleOf(ins) === "bass" ? 36 : 60) + store.getState().key.root, 100, 0.9);
+    const roleSel = h("select", { "aria-label": "Rôle du son hybride" }, h("option", { value: "" }, `auto (${HYBRID_ROLES[roleOf(ins)]})`),
+      ...(Object.keys(HYBRID_ROLES) as HybridRole[]).map((r) => h("option", { value: r }, HYBRID_ROLES[r]))) as HTMLSelectElement;
+    const invent = () => {
+      const made = app.createHybrid(id, (roleSel.value || undefined) as HybridRole | undefined);
+      if (!made) return;
+      preview();
+      toast(`🧪 « ${made.name} » — ${made.description} Ctrl+Z pour revenir au son d'avant.`, "ok", 8000);
+    };
+    const current = ins.layer ? h("div", { class: "hybrid-current" },
+      h("p", {}, h("strong", {}, ins.hybrid ? `« ${ins.hybrid} »` : "Son superposé"), ` — couche : ${SYNTH_PRESETS[ins.layer.preset].label}${ins.layer.sample ? ` (${sampledInstrument(ins.layer.sample).name})` : ""}`),
+      slider({ label: "Niveau de la couche", min: -24, max: 6, step: 1, value: ins.layer.gainDb, format: (v) => `${v > 0 ? "+" : ""}${v} dB`, onInput: (v) => app.dispatch({ type: "updateInstrument", trackId: id, patch: { layer: { ...ins.layer!, gainDb: v }, hybrid: ins.hybrid ?? null } }, `layer:${id}`) }),
+      h("button", { class: "btn btn-sm", onclick: () => app.dispatch({ type: "updateInstrument", trackId: id, patch: { layer: null } }) }, "Retirer la couche")) : null;
+    const lib = app.hybrids;
+    return h("div", { class: "card hybrid-card" },
+      h("h4", {}, "🧪 Son hybride IA"),
+      h("p", { class: "hint" }, "L'IA superpose un vrai instrument enregistré et un synthé (piano + nappe, guitare + pluck, basse + sub…), règle le mélange et lui donne un nom. Chaque son est gardé dans ta bibliothèque ; ★ = l'IA l'utilise dans tes prochains beats."),
+      h("div", { class: "row-inline" }, roleSel, h("button", { class: "btn btn-ai", onclick: invent }, ins.layer ? "🧪 Un autre" : "🧪 Inventer un son")),
+      ...(current ? [current] : []),
+      ...(lib.length ? [h("details", { class: "hybrid-lib", open: lib.some((x) => x.favorite) || undefined },
+        h("summary", {}, `Ma bibliothèque (${lib.length})`),
+        h("ul", {}, ...lib.map((x) => h("li", { title: x.description },
+          h("button", { class: `btn btn-sm${x.favorite ? " rated" : ""}`, title: "Favori : l'IA l'utilisera dans tes prochains beats", "aria-pressed": String(!!x.favorite), onclick: () => app.toggleHybridFavorite(x.id) }, x.favorite ? "★" : "☆"),
+          h("button", { class: "btn btn-sm", onclick: () => { app.applyHybrid(id, x.id); preview(); } }, x.name),
+          h("span", { class: "hint" }, ` ${HYBRID_ROLES[x.role]}`),
+          h("button", { class: "btn btn-sm", title: "Supprimer de la bibliothèque", "aria-label": `Supprimer ${x.name}`, onclick: () => app.deleteHybrid(x.id) }, "✕")))))] : []));
+  }
+
   /** Recorded instrument picker (preset "sampler"), with its source / licence. */
   function sampleField(ins: InstrumentTrack): HTMLElement {
     const cur = sampledInstrument(ins.sample);
@@ -220,7 +253,7 @@ export function createMelodyView(app: App): View {
       keyInfo.textContent = `KEY : ${keyLabel(p.key)} — les rangées violettes sont dans la gamme`;
       renderList(p);
       const ins = sel();
-      const s = ins ? `${ins.id}|${ins.preset}|${ins.sample ?? ""}|${JSON.stringify(ins.synth)}|${JSON.stringify(ins.bass808)}|${JSON.stringify(getChannel(p, ins.id))}` : "";
+      const s = ins ? `${ins.id}|${ins.preset}|${ins.sample ?? ""}|${JSON.stringify(ins.synth)}|${JSON.stringify(ins.bass808)}|${JSON.stringify(getChannel(p, ins.id))}|${JSON.stringify(ins.layer ?? null)}|${ins.hybrid ?? ""}|${app.hybrids.map((x) => `${x.id}${x.favorite ? "*" : ""}`).join()}` : "";
       if (s !== paramSig) {
         paramSig = s;
         rerender();

@@ -165,9 +165,15 @@ export class InstrumentVoice {
   private last808End = -1;
   private last808Freq = 0;
 
+  /** Hybrid instruments: the layer is a second voice on the same destination, at its own level. */
+  private layer: InstrumentVoice | null = null;
+  private layerGain: GainNode | null = null;
+  private readonly destination: AudioNode;
+
   constructor(ctx: BaseAudioContext, destination: AudioNode, track: InstrumentTrack) {
     this.ctx = ctx;
     this.track = track;
+    this.destination = destination;
     this.output = ctx.createGain();
     this.output.connect(destination);
     this.input = ctx.createGain();
@@ -177,6 +183,26 @@ export class InstrumentVoice {
     this.applyDrive();
     if (track.preset === "808") this.build808();
     this.preloadSamples();
+    this.syncLayer();
+  }
+
+  private syncLayer(): void {
+    const l = this.track.layer;
+    if (!l) {
+      this.layer?.dispose();
+      this.layerGain?.disconnect();
+      this.layer = this.layerGain = null;
+      return;
+    }
+    const lt: InstrumentTrack = { ...this.track, preset: l.preset, synth: l.synth, sample: l.sample, layer: undefined };
+    if (!this.layer || !this.layerGain) {
+      this.layerGain = this.ctx.createGain();
+      this.layerGain.connect(this.destination);
+      this.layer = new InstrumentVoice(this.ctx, this.layerGain, lt);
+    } else {
+      this.layer.update(lt);
+    }
+    this.layerGain.gain.value = 10 ** (l.gainDb / 20);
   }
 
   /** Recorded instrument: start loading all its samples in the background (live play, preview). */
@@ -191,7 +217,7 @@ export class InstrumentVoice {
   }
 
   get activeVoices(): number {
-    return this.active.size;
+    return this.active.size + (this.layer?.activeVoices ?? 0);
   }
 
   /**
@@ -200,6 +226,11 @@ export class InstrumentVoice {
    * computed in the middle of playback (that used to stall the scheduler → audible gaps).
    */
   async prepare(pitches: Iterable<number>): Promise<void> {
+    if (this.layer) {
+      const list = [...pitches];
+      await this.layer.prepare(list);
+      pitches = list;
+    }
     const preset = this.track.preset;
     if (preset === "sampler") {
       const octave = Math.round(Math.max(-2, Math.min(2, this.track.synth.octave ?? 0)));
@@ -231,6 +262,7 @@ export class InstrumentVoice {
     } else if (this.chain808) {
       this.apply808(track.bass808);
     }
+    this.syncLayer();
   }
 
   private build808(): void {
@@ -306,6 +338,7 @@ export class InstrumentVoice {
   static readonly LOOKAHEAD_808 = 0.006;
 
   play(ev: NoteEvent): void {
+    this.layer?.play(ev);
     if (this.track.preset === "808") return this.play808(ev);
     const c = this.ctx;
     const s = this.track.synth;
@@ -533,6 +566,7 @@ export class InstrumentVoice {
 
   /** Silence everything immediately (transport stop). */
   stopAll(): void {
+    this.layer?.stopAll();
     const t = this.ctx.currentTime;
     this.lastMono = null;
     for (const s of this.active) {
@@ -549,6 +583,8 @@ export class InstrumentVoice {
 
   dispose(): void {
     this.stopAll();
+    this.layer?.dispose();
+    this.layerGain?.disconnect();
     this.teardown808();
     this.input.disconnect();
     this.shaper.disconnect();

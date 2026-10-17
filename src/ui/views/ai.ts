@@ -75,7 +75,8 @@ export function createAiView(app: App, navigate: (r: Route) => void): View {
         const seed = Math.floor(Math.random() * 1e6) + i * 7919;
         // Version 1 follows what the producer learnt about your taste; the others explore.
         const prefs = preferencesFor(app.memory, req.style, styleById(req.style).sounds);
-        return { seed, req, song: generateSong(store.getState(), req, seed, i, prefs) };
+        const song = generateSong(store.getState(), req, seed, i, prefs);
+        return { seed, req, song: i === 0 ? app.personalize(song) : song };
       });
       app.cancelPreview();
       render();

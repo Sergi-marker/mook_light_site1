@@ -10,6 +10,7 @@ import { renderProject, type RenderMedia } from "../audio/render.ts";
 import { flipSample, processTake, voiceLayer } from "../audio/studio.ts";
 import { chopRegions, flipPattern, mixToMono } from "../core/dsp/sampleFlip.ts";
 import { parseLexicon, type Lexicon } from "../core/lyrics/writing.ts";
+import { designHybrid, hybridPatch, personalizeSong, roleOf, type HybridRole, type HybridSound } from "../core/ai/hybrid.ts";
 import type { Key } from "../core/music.ts";
 import { HARMONY_STEPS, type HarmonyKind } from "../core/dsp/harmony.ts";
 import { downlifter, impact, reverseCymbal, riser } from "../core/dsp/fx.ts";
@@ -29,7 +30,7 @@ import type { AudioAsset, AudioClip, Project, Take, Track } from "../core/types.
 import { confirmDialog, h, readFileBytes, toast } from "./dom.ts";
 import {
   clearAutosave, forgetFileHandle, loadSettings, markSessionClosed, markSessionOpen, pickFile, pruneMedia,
-  loadGuide, loadMemory, readAutosave, readMedia, saveGuide, saveMemory, saveProjectFile, saveSettings, writeAutosave, writeMedia, type AppSettings,
+  loadGuide, loadHybrids, loadMemory, readAutosave, saveHybrids, readMedia, saveGuide, saveMemory, saveProjectFile, saveSettings, writeAutosave, writeMedia, type AppSettings,
 } from "./persistence.ts";
 import { createShell } from "./shell.ts";
 
@@ -442,6 +443,47 @@ export class App {
     void writeMedia("sample", id, bytes);
     this.store.dispatch({ type: "batch", actions: [{ type: "addSample", sample: { id, name: f.name, mime: f.type || "audio/*" } }, { type: "assignSample", trackId, sampleId: id }] });
     toast(`Sample chargé : ${f.name}`, "ok");
+  }
+
+  // --- AI hybrid instruments ----------------------------------------------------------
+
+  /** Personal library of hybrid sounds (this computer), newest first. */
+  hybrids: HybridSound[] = loadHybrids();
+
+  /** Invent a hybrid sound for an instrument track (its role is guessed when not given), apply it, keep it. */
+  createHybrid(trackId: string, role?: HybridRole): HybridSound | null {
+    const ins = this.store.getState().instruments.find((i) => i.id === trackId);
+    if (!ins) return null;
+    const h = designHybrid(Math.floor(Math.random() * 2 ** 31), role ?? roleOf(ins), this.hybrids.map((x) => x.name));
+    // Keep the 40 newest + every favourite.
+    this.hybrids = [h, ...this.hybrids].filter((x, i) => x.favorite || i < 40);
+    saveHybrids(this.hybrids);
+    this.applyHybrid(trackId, h.id);
+    return h;
+  }
+
+  applyHybrid(trackId: string, hybridId: string): boolean {
+    const h = this.hybrids.find((x) => x.id === hybridId);
+    if (!h || !this.store.getState().instruments.some((i) => i.id === trackId)) return false;
+    this.dispatch({ type: "updateInstrument", trackId, patch: hybridPatch(h) });
+    return true;
+  }
+
+  toggleHybridFavorite(hybridId: string): void {
+    this.hybrids = this.hybrids.map((x) => (x.id === hybridId ? { ...x, favorite: !x.favorite } : x));
+    saveHybrids(this.hybrids);
+    this.emit();
+  }
+
+  deleteHybrid(hybridId: string): void {
+    this.hybrids = this.hybrids.filter((x) => x.id !== hybridId);
+    saveHybrids(this.hybrids);
+    this.emit();
+  }
+
+  /** Version 1 of a generated beat uses the favourite hybrid sounds (see personalizeSong). */
+  personalize(song: GeneratedSong): GeneratedSong {
+    return personalizeSong(song, this.hybrids.filter((x) => x.favorite));
   }
 
   // --- writing help -------------------------------------------------------------------

@@ -379,6 +379,50 @@ await step("writing help: word list loads through app://, flow grid while typing
   assert.ok(saved.trimEnd().endsWith(chips[0]), "rhyme inserted and saved with the project");
 });
 
+await step("hybrid instruments: the synth layer is heard (piano + pad, bass + sub), MELODY button fills the library", async () => {
+  const r = await evalApp(async () => {
+    const { designHybrid, hybridPatch } = await import("/app/core/ai/hybrid.js");
+    const { renderProject } = await import("/app/audio/render.js");
+    const { createEmptyProject } = await import("/app/core/project.js");
+    const { reduce } = await import("/app/core/reducer.js");
+    const out = {};
+    for (const [role, pitch] of [["keys", 57], ["bass", 40]]) {
+      let p = createEmptyProject("h");
+      p = reduce(p, { type: "addInstrument", preset: "sampler" });
+      const ins = p.instruments[p.instruments.length - 1];
+      p = reduce(p, { type: "updateInstrument", trackId: ins.id, patch: hybridPatch(designHybrid(11, role)) });
+      p = reduce(p, { type: "addNotes", trackId: ins.id, notes: [{ pitch, start: 0, length: 12, velocity: 100 }] });
+      const media = { samples: new Map(), assets: new Map() };
+      const measure = async (proj) => {
+        const b = await renderProject(proj, media, { mode: "pattern", tail: 0.2 });
+        const d = b.getChannelData(0), sr = b.sampleRate;
+        // Late part of the note (pad swell / sustain) and low end (< 70 Hz) via a one-pole low-pass.
+        let late = 0, low = 0, lp = 0;
+        const a0 = Math.round(sr * 0.8), a1 = Math.round(sr * 1.4);
+        for (let i = 0; i < d.length; i++) { lp += 0.01 * (d[i] - lp); if (i >= a0 && i < a1) { late += d[i] * d[i]; low += lp * lp; } }
+        return { late: Math.sqrt(late / (a1 - a0)), low: Math.sqrt(low / (a1 - a0)) };
+      };
+      const withLayer = await measure(p);
+      const without = await measure(reduce(p, { type: "updateInstrument", trackId: ins.id, patch: { layer: null } }));
+      out[role] = { withLayer, without, name: p.instruments.find((i) => i.id === ins.id).hybrid };
+    }
+    return out;
+  });
+  console.log(`  # piano + nappe « ${r.keys.name} » : fin de note ${r.keys.without.late.toFixed(4)} → ${r.keys.withLayer.late.toFixed(4)} · basse + sub « ${r.bass.name} » : graves ${r.bass.without.low.toFixed(4)} → ${r.bass.withLayer.low.toFixed(4)}`);
+  assert.ok(r.keys.withLayer.late > r.keys.without.late * 1.15, "the pad layer sustains the piano");
+  assert.ok(r.bass.withLayer.low > r.bass.without.low * 1.3, "the sub layer adds low end");
+  // UI: MELODY → select a melodic instrument → invent.
+  await page.click('.nav-item:has-text("MELODY")');
+  const before = await evalApp(() => window.__app.hybrids.length);
+  const target = await evalApp(() => window.__app.store.getState().instruments.find((i) => i.preset !== "808")?.id);
+  await evalApp((id) => { window.__app.selectedInstrumentId = id; window.__app.emit(); }, target);
+  await page.click('.hybrid-card button:has-text("Inventer un son"), .hybrid-card button:has-text("Un autre")');
+  await page.waitForSelector(".hybrid-current");
+  const after = await evalApp((id) => ({ n: window.__app.hybrids.length, hybrid: window.__app.store.getState().instruments.find((i) => i.id === id)?.hybrid }), target);
+  assert.equal(after.n, before + 1);
+  assert.equal(after.hybrid, await evalApp(() => window.__app.hybrids[0].name));
+});
+
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));
 
 // Skip the "unsaved changes" prompt on close: quit the main process directly.

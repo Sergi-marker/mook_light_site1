@@ -7,7 +7,7 @@ import {
   instrumentChannel, newId, resizeSteps, vocalChannel, PATTERN_COLORS, secondsToSteps, stepsPerBarOf, stepsToSeconds,
 } from "./project.ts";
 import type {
-  AudioAsset, AudioClip, AutomationLane, Bass808Params, Channel, Effect, EffectType, InstrumentTrack, MidiMapping,
+  AudioAsset, AudioClip, AutomationLane, Bass808Params, Channel, Effect, EffectType, InstrumentLayer, InstrumentTrack, MidiMapping,
   Note, Pattern, PatternClip, Project, SampleEdit, SampleMeta, Section, Step, StepCount, SynthParams, SynthPreset, Take,
   TimeSignature, Track, VocalRole, VocalTrack,
 } from "./types.ts";
@@ -15,7 +15,19 @@ import type {
 export type TrackPatch = Partial<Pick<Track, "name" | "pitch">> & { builtinSample?: string | null };
 export type ChannelPatch = Partial<Pick<Channel, "volume" | "pan" | "mute" | "solo" | "name" | "output">> & { sends?: Partial<Channel["sends"]> };
 export type NoteUpdate = { id: string } & Partial<Omit<Note, "id">>;
-export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params>; sample?: string };
+export type InstrumentPatch = { name?: string; preset?: SynthPreset; synth?: Partial<SynthParams>; bass808?: Partial<Bass808Params>; sample?: string; layer?: InstrumentLayer | null; hybrid?: string | null };
+
+/** A valid layer (unknown engines / instruments fall back to safe values). */
+export function cleanLayer(l: InstrumentLayer): InstrumentLayer | null {
+  const presets: InstrumentLayer["preset"][] = ["piano", "epiano", "synth", "pad", "strings", "pluck", "bells", "bass", "sampler"];
+  if (!presets.includes(l.preset)) return null;
+  const fresh = createInstrument(l.preset);
+  const out: InstrumentLayer = { preset: l.preset, synth: { ...fresh.synth, ...l.synth }, gainDb: Math.max(-24, Math.min(6, Number.isFinite(l.gainDb) ? l.gainDb : -8)) };
+  out.synth.octave = Math.round(Math.max(-2, Math.min(2, out.synth.octave ?? 0)));
+  out.synth.voices = Math.round(Math.max(1, Math.min(7, out.synth.voices ?? 1)));
+  if (l.preset === "sampler") out.sample = l.sample && isSampledInstrument(l.sample) ? l.sample : fresh.sample;
+  return out;
+}
 export type VocalPatch = Partial<Pick<VocalTrack, "name" | "armed" | "playProcessed" | "role" | "lyrics">> & { studio?: Partial<VocalTrack["studio"]> };
 export type ProjectPatch = Partial<Pick<Project, "bpm" | "swing" | "key" | "patterns" | "currentPatternId" | "arrangement" | "instruments" | "channels" | "name" | "tracks">>;
 
@@ -557,6 +569,17 @@ export function reduce(p: Project, a: Action): Project {
         }
         if (a.patch.sample && isSampledInstrument(a.patch.sample)) n.sample = a.patch.sample;
         if (n.preset !== "sampler") delete n.sample;
+        if (a.patch.layer === null) delete n.layer;
+        else if (a.patch.layer) {
+          const l = cleanLayer(a.patch.layer);
+          if (l) n.layer = l;
+          else delete n.layer;
+        }
+        // A sound changed by hand is no longer the AI hybrid (its layer stays until removed).
+        if (a.patch.hybrid !== undefined) {
+          if (a.patch.hybrid) n.hybrid = a.patch.hybrid.slice(0, 40);
+          else delete n.hybrid;
+        } else if ((a.patch.preset && a.patch.preset !== t.preset) || (a.patch.sample && a.patch.sample !== t.sample) || a.patch.layer === null) delete n.hybrid;
         return n;
       });
       return instruments === p.instruments ? p : { ...p, instruments };

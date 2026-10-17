@@ -11,6 +11,7 @@ import { askAssistant } from "./assistant.ts";
 import { interpretCommand, normalize } from "./commands.ts";
 import { detectStyle, type StyleDef } from "./styles.ts";
 import type { VoiceLayerKind } from "./producerTools.ts";
+import { hybridTarget, type HybridRole } from "./hybrid.ts";
 
 export interface DialogState {
   /** Last command that changed something (for « encore », « pareil pour… »). */
@@ -43,6 +44,8 @@ export interface DialogReply {
   rhymes?: { target: string };
   /** …or the flow of a text (the given one, else the lyrics of the project). */
   flow?: { text: string };
+  /** AI HYBRID: invent a layered sound for this instrument. */
+  hybrid?: { trackId: string; role?: HybridRole };
 }
 
 /** Quoted part of a message (« … », "…"), if any. */
@@ -181,6 +184,14 @@ export function converse(p: Project, text: string, state: DialogState = {}): { r
       next.last = { text: `${state.last.text.split(/\b(?:en|par|avec)\b/)[0]} en ${tail}`, kind: "sound" };
       return { reply: reply(`${sentence(r.done)} Ça te va mieux ?`, { actions: r.actions, soundChanges: r.soundChanges, suggestions: followUp("sound") }), state: next };
     }
+  }
+
+  // AI hybrid instrument
+  if (has(t, /\b(hybride|hybrides|son unique|son original|sons? perso|son personnalise|nouveau son|invente|inventes|inventer|melange de sons|superpose)\b/) && !has(t, /\b(c est quoi|qu est ce)\b/)) {
+    const target = hybridTarget(p, t);
+    if (!target) return { reply: reply("Il me faut un instrument mélodique (piano, guitare, nappe, basse…) : ajoute-en un dans MELODY ou génère un beat, puis redemande-moi.", { suggestions: ["fais-moi un beat trap"] }), state: next };
+    const name = p.instruments.find((i) => i.id === target.trackId)!.name;
+    return { reply: reply(`Je t'invente un son pour « ${name} » : un vrai instrument enregistré superposé à un synthé, mélangé à mon goût, avec un nom. Il est gardé dans ta bibliothèque (MELODY) : mets-lui une ★ et je le réutiliserai dans tes prochains beats.`, { hybrid: target, suggestions: ["un autre son hybride", "annule", "plus de reverb sur le piano"] }), state: next };
   }
 
   // Writing: rhymes

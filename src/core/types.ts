@@ -132,6 +132,20 @@ export interface InstrumentTrack {
   /** Only for preset "sampler": id of the recorded instrument (core/sampleLibrary). */
   sample?: string;
   color: string;
+  /** Second sound playing the same notes (AI HYBRID instruments). */
+  layer?: InstrumentLayer;
+  /** Name of the AI hybrid sound on this track (cleared when the sound is changed by hand). */
+  hybrid?: string;
+}
+
+/** Layer of a hybrid instrument: any engine except the 808, at its own level. */
+export interface InstrumentLayer {
+  preset: Exclude<SynthPreset, "808">;
+  /** Only for preset "sampler". */
+  sample?: string;
+  synth: SynthParams;
+  /** Level against the main sound, dB (−24…+6). */
+  gainDb: number;
 }
 
 export interface Pattern {

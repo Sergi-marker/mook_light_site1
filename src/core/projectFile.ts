@@ -7,9 +7,10 @@ import {
 import { readZip, writeZip, type ZipEntry } from "./io/zip.ts";
 import { DEFAULT_SAMPLED, isSampledInstrument } from "./sampleLibrary.ts";
 import { isDrumSample } from "./drumSamples.ts";
+import { cleanLayer } from "./reducer.ts";
 import type {
-  AudioAsset, Channel, Effect, EffectType, InstrumentKind, InstrumentTrack, Note, Pattern, Project,
-  SampleMeta, Step, StepCount, SynthPreset, Track, VocalTrack, Waveform,
+  AudioAsset, Channel, Effect, EffectType, InstrumentKind, InstrumentLayer, InstrumentTrack, Note, Pattern, Project,
+  SampleMeta, Step, StepCount, SynthParams, SynthPreset, Track, VocalTrack, Waveform,
 } from "./types.ts";
 
 const ROUTABLE = [MASTER, BUS_DRUMS, BUS_MUSIC, BUS_VOCALS];
@@ -252,6 +253,17 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
     if (isObj(raw.bass808)) for (const k of Object.keys(bass808) as (keyof typeof bass808)[]) bass808[k] = num(raw.bass808[k], bass808[k]);
     const ins: InstrumentTrack = { id: str(raw.id, "") || fresh.id, name: str(raw.name, fresh.name).slice(0, 40), preset, synth, bass808, color: str(raw.color, fresh.color) };
     if (preset === "sampler") ins.sample = isSampledInstrument(raw.sample) ? raw.sample : DEFAULT_SAMPLED;
+    if (isObj(raw.layer) && typeof raw.layer.preset === "string") {
+      const rl = raw.layer;
+      const lsynth = { ...createInstrument(rl.preset as SynthPreset).synth } as Record<string, unknown>;
+      if (isObj(rl.synth)) for (const k of Object.keys(lsynth)) if (typeof rl.synth[k] === typeof lsynth[k]) lsynth[k] = rl.synth[k];
+      const layer = cleanLayer({ preset: rl.preset as InstrumentLayer["preset"], sample: typeof rl.sample === "string" ? rl.sample : undefined, synth: lsynth as unknown as SynthParams, gainDb: num(rl.gainDb, -8) });
+      if (layer) {
+        if (!layer.synth.wave || !WAVES.includes(layer.synth.wave)) layer.synth.wave = "sine";
+        ins.layer = layer;
+        if (typeof raw.hybrid === "string" && raw.hybrid.trim()) ins.hybrid = raw.hybrid.trim().slice(0, 40);
+      }
+    }
     return [ins];
   });
 

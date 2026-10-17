@@ -9,6 +9,7 @@ import { BUS_DRUMS, BUS_MUSIC, BUS_VOCALS, currentPattern, getChannel, MASTER } 
 import type { Action } from "../reducer.ts";
 import { SOUND_LIBRARY, soundParams } from "../soundLibrary.ts";
 import type { Project } from "../types.ts";
+import type { HybridRole } from "./hybrid.ts";
 import { energize } from "./assistant.ts";
 import { STYLES } from "./styles.ts";
 
@@ -38,6 +39,8 @@ export interface ToolOutcome {
   /** WRITING help (needs the word list, loaded by the app). */
   rhymes?: { target: string; syllables?: number };
   flow?: { text: string };
+  /** AI HYBRID sound to invent for this instrument (done by the app: personal library). */
+  hybrid?: { trackId: string; role?: HybridRole };
 }
 
 export type VoiceLayerKind = "double" | "third-up" | "fifth-up" | "sixth-down" | "octave-up" | "octave-down";
@@ -103,6 +106,11 @@ export const PRODUCER_TOOLS: ToolDef[] = [
     input_schema: obj({ drops: { type: "boolean" } }),
   },
   {
+    name: "create_hybrid",
+    description: "Invente un son hybride pour un instrument mélodique : un vrai instrument enregistré superposé à un synthé (piano + nappe, guitare + pluck, basse + sub…), avec un nom, gardé dans la bibliothèque perso de l'utilisateur. role (optionnel) : keys, pluck, pad, lead, bass. Pas pour la 808.",
+    input_schema: obj({ track: { type: "string" }, role: { type: "string", enum: ["keys", "pluck", "pad", "lead", "bass"] } }, ["track"]),
+  },
+  {
     name: "find_rhymes",
     description: "Rimes françaises (dictionnaire Lexique 3, prononciation réelle) pour un mot ou une fin de phrase : multi-syllabes, riches, simples, les mots courants d'abord. syllables : longueur voulue des mots (optionnel).",
     input_schema: obj({ text: { type: "string" }, syllables: { type: "number" } }, ["text"]),
@@ -140,7 +148,7 @@ export function describeProject(p: Project): string {
     const ch = getChannel(p, i.id);
     const notes = p.patterns.reduce((n, pt) => n + (pt.notes[i.id]?.length ?? 0), 0);
     const snd = SOUND_LIBRARY.find((s) => s.preset === i.preset && (i.preset !== "sampler" || s.sample === i.sample));
-    lines.push(`- ${i.name} : ${i.preset === "sampler" ? `instrument réel ${i.sample}` : i.preset}${snd ? ` (son proche : ${snd.id})` : ""} · ${notes} notes · volume ${ch ? db(ch.volume) : "?"} · réverbe ${Math.round((ch?.sends.reverb ?? 0) * 100)} %${ch?.mute ? " · MUTE" : ""}`);
+    lines.push(`- ${i.name} : ${i.preset === "sampler" ? `instrument réel ${i.sample}` : i.preset}${snd ? ` (son proche : ${snd.id})` : ""}${i.layer ? ` + couche ${i.layer.preset}${i.hybrid ? ` = son hybride « ${i.hybrid} »` : ""}` : ""} · ${notes} notes · volume ${ch ? db(ch.volume) : "?"} · réverbe ${Math.round((ch?.sends.reverb ?? 0) * 100)} %${ch?.mute ? " · MUTE" : ""}`);
   }
   if (p.vocals.length) lines.push(`Voix : ${p.vocals.map((v) => `${v.name} (${v.takes.length} prise(s), ${v.clips.length} clip(s))`).join(", ")}.`);
   // Lyrics written by the user (text only, never audio), so the producer can help with the writing.
@@ -265,6 +273,14 @@ export function runProducerTool(p: Project, name: string, input: unknown): ToolO
     case "add_transitions":
       if (!p.arrangement.sections.length) return fail("L'arrangement n'a pas de sections : il faut d'abord générer ou construire la structure du morceau.");
       return { actions: [], result: "", transitions: { drops: a.drops !== false } };
+    case "create_hybrid": {
+      const tr = trackByName(p, a.track);
+      const ins = tr && p.instruments.find((i) => i.id === tr.id);
+      if (!ins) return fail(`Instrument « ${String(a.track)} » introuvable (instruments : ${p.instruments.map((i) => i.name).join(", ")}).`);
+      if (ins.preset === "808") return fail("La 808 reste une 808 : choisis un instrument mélodique.");
+      const role = (["keys", "pluck", "pad", "lead", "bass"] as const).find((r) => r === a.role);
+      return { actions: [], result: "", hybrid: { trackId: ins.id, ...(role ? { role } : {}) } };
+    }
     case "find_rhymes": {
       const target = typeof a.text === "string" ? a.text.trim().slice(0, 80) : "";
       if (!target) return fail("text manquant.");

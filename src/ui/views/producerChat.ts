@@ -16,6 +16,7 @@ import { SOUND_LIBRARY } from "../../core/soundLibrary.ts";
 import { desktop, type App, type ChatBlock, type ChatMessage } from "../app.ts";
 import { keyLabel } from "../../core/music.ts";
 import { analyzeFlow, findRhymes, flowAdvice } from "../../core/lyrics/writing.ts";
+import type { HybridRole } from "../../core/ai/hybrid.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 
 type Entry = {
@@ -50,7 +51,7 @@ export function createProducerChat(app: App, rerender: () => void) {
   function generate(styleId: string, prompt: string): string {
     const p = store.getState();
     const req = parseBeatPrompt(prompt || styleById(styleId).label, styleId, p.key.root);
-    const song = generateSong(p, req, Math.floor(Math.random() * 1e6), 0, preferencesFor(app.memory, req.style, styleById(req.style).sounds));
+    const song = app.personalize(generateSong(p, req, Math.floor(Math.random() * 1e6), 0, preferencesFor(app.memory, req.style, styleById(req.style).sounds)));
     app.applyActions([{ type: "patchProject", patch: song.patch }], "");
     app.startTasteSession(song);
     return song.summary.join(" ");
@@ -106,6 +107,14 @@ export function createProducerChat(app: App, rerender: () => void) {
     return [...lines, "", ...flowAdvice(flows, bpm)].join("\n");
   }
 
+  function hybrid(trackId: string, role?: HybridRole): string {
+    const made = app.createHybrid(trackId, role);
+    if (!made) return "Instrument introuvable.";
+    void app.engine.previewNote(trackId, (made.role === "bass" ? 36 : 60) + store.getState().key.root, 100, 0.9);
+    rerender();
+    return `Son « ${made.name} » créé et placé sur l'instrument : ${made.description}`;
+  }
+
   async function writingAnswer(r: { rhymes?: { target: string; syllables?: number }; flow?: { text: string } }): Promise<string> {
     return r.rhymes ? rhymes(r.rhymes.target, r.rhymes.syllables) : r.flow ? flowReport(r.flow.text) : "";
   }
@@ -135,6 +144,7 @@ export function createProducerChat(app: App, rerender: () => void) {
     if (reply.layers) void layers(reply.layers.trackId, reply.layers.kinds);
     if (reply.transitions) void transitions(reply.transitions.drops);
     if (reply.flip && reply.flip !== "import") flip(reply.flip);
+    if (reply.hybrid) entries.push({ role: "note", text: `🧪 ${hybrid(reply.hybrid.trackId, reply.hybrid.role)}` });
     const writing = reply.rhymes || reply.flow;
     entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: writing ? undefined : reply.suggestions, offers: reply.offers, pickSample: reply.flip === "import" });
     if (writing) {
@@ -184,6 +194,7 @@ export function createProducerChat(app: App, rerender: () => void) {
         else if (out.layers) result = await layers(out.layers.trackId, out.layers.kinds);
         else if (out.transitions) result = await transitions(out.transitions.drops);
         else if (out.flip) result = flip(out.flip);
+        else if (out.hybrid) result = hybrid(out.hybrid.trackId, out.hybrid.role);
         else if (out.rhymes || out.flow) result = await writingAnswer(out);
         else if (out.undo) undo(out.undo);
         else apply(out.actions, out.soundChanges);
