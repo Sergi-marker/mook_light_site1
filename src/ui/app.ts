@@ -9,6 +9,7 @@ import { Recorder, RecorderError } from "../audio/recorder.ts";
 import { renderProject, type RenderMedia } from "../audio/render.ts";
 import { flipSample, processTake, voiceLayer } from "../audio/studio.ts";
 import { chopRegions, flipPattern, mixToMono } from "../core/dsp/sampleFlip.ts";
+import { parseLexicon, type Lexicon } from "../core/lyrics/writing.ts";
 import type { Key } from "../core/music.ts";
 import { HARMONY_STEPS, type HarmonyKind } from "../core/dsp/harmony.ts";
 import { downlifter, impact, reverseCymbal, riser } from "../core/dsp/fx.ts";
@@ -441,6 +442,22 @@ export class App {
     void writeMedia("sample", id, bytes);
     this.store.dispatch({ type: "batch", actions: [{ type: "addSample", sample: { id, name: f.name, mime: f.type || "audio/*" } }, { type: "assignSample", trackId, sampleId: id }] });
     toast(`Sample chargé : ${f.name}`, "ok");
+  }
+
+  // --- writing help -------------------------------------------------------------------
+
+  private lexiconLoad: Promise<Lexicon | null> | null = null;
+
+  /** French word list (assets/lexique, ~1.2 MB), loaded once, on first use. */
+  lexicon(): Promise<Lexicon | null> {
+    this.lexiconLoad ??= fetch(new URL("lexique/fr.tsv", document.baseURI).href)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(parseLexicon)
+      .catch(() => {
+        this.lexiconLoad = null; // try again next time
+        return null;
+      });
+    return this.lexiconLoad;
   }
 
   // --- sample flip --------------------------------------------------------------------

@@ -39,7 +39,16 @@ export interface DialogReply {
   transitions?: { drops: boolean };
   /** SAMPLE FLIP: re-flip the chops, back to the original order, or ask for a file (button). */
   flip?: "flip" | "original" | "import";
+  /** WRITING help (needs the word list, loaded by the app): rhymes for a word / line end… */
+  rhymes?: { target: string };
+  /** …or the flow of a text (the given one, else the lyrics of the project). */
+  flow?: { text: string };
 }
+
+/** Quoted part of a message (« … », "…"), if any. */
+const quoted = (text: string) => /[«"“]\s*([^»"”]+?)\s*[»"”]/.exec(text)?.[1] ?? null;
+/** Lyrics written in the project (the first vocal track that has some). */
+const projectLyrics = (p: Project) => p.vocals.find((v) => v.lyrics?.trim())?.lyrics ?? "";
 
 const has = (t: string, re: RegExp) => re.test(t);
 const reply = (text: string, extra: Partial<DialogReply> = {}): DialogReply => ({ text, actions: [], suggestions: [], soundChanges: [], ...extra });
@@ -172,6 +181,23 @@ export function converse(p: Project, text: string, state: DialogState = {}): { r
       next.last = { text: `${state.last.text.split(/\b(?:en|par|avec)\b/)[0]} en ${tail}`, kind: "sound" };
       return { reply: reply(`${sentence(r.done)} Ça te va mieux ?`, { actions: r.actions, soundChanges: r.soundChanges, suggestions: followUp("sound") }), state: next };
     }
+  }
+
+  // Writing: rhymes
+  if (has(t, /\b(rimes?|rimer|rimant|rime avec|qui rime)\b/) && !has(t, /\b(c est quoi|qu est ce)\b/)) {
+    const m = /\b(?:rimes?|rimer|rimant|rime)\s+(?:avec|pour|en|sur|a|à)\s+(.+)$/i.exec(text);
+    let target = (quoted(text) ?? m?.[1] ?? "").replace(/[?!.,;:]+$/, "").replace(/^(le mot|la phrase|l'expression)\s+/i, "").trim();
+    if (!target) target = projectLyrics(p).trim().split("\n").filter((l) => l.trim() && !/^\[.*\]$/.test(l.trim())).pop()?.split(/\s+/).slice(-2).join(" ") ?? "";
+    if (!target) return { reply: reply("Donne-moi le mot ou la fin de phrase : par exemple « trouve des rimes avec nuit » ou « rime avec dans le noir ».", { suggestions: ["trouve des rimes avec nuit", "rime avec dans le noir"] }), state: next };
+    return { reply: reply(`Voici des rimes pour « ${target} » — d'abord les multi-syllabes, celles qui sonnent le plus en rap :`, { rhymes: { target }, suggestions: ["analyse mon flow", `rimes en 2 syllabes avec ${target}`] }), state: next };
+  }
+
+  // Writing: flow / syllables
+  if (has(t, /\b(flow|syllabes?|mon texte|mes paroles|mon couplet|mes lyrics|mes rimes|mon ecriture)\b/) && !has(t, /\b(c est quoi|qu est ce)\b/)) {
+    const own = quoted(text);
+    const lyrics = own ?? projectLyrics(p);
+    if (!lyrics.trim()) return { reply: reply("Je n'ai pas encore tes paroles : écris-les dans VOCALS (sous la piste vocale), une ligne par mesure, ou colle une phrase entre guillemets : « combien de syllabes dans \"j'suis dans le bloc avec mes frères\" ».", { suggestions: ["trouve des rimes avec nuit"] }), state: next };
+    return { reply: reply(own ? "Je compte :" : `J'analyse tes paroles à ${p.bpm} BPM, une ligne par mesure :`, { flow: { text: lyrics }, suggestions: ["trouve des rimes", "plus lent", "plus rapide"] }), state: next };
   }
 
   // Sample flip

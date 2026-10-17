@@ -20,6 +20,8 @@ copyFileSync("index.html", "dist/index.html");
 copyFileSync("src/styles.css", "dist/styles.css");
 // Recorded instruments (see scripts/fetch-samples.mjs).
 if (existsSync("assets/samples")) cpSync("assets/samples", "dist/samples", { recursive: true });
+// French word list for the writing help (see scripts/build-lexicon.mjs).
+if (existsSync("assets/lexique")) cpSync("assets/lexique", "dist/lexique", { recursive: true });
 if (existsSync("public/icon.png")) copyFileSync("public/icon.png", "dist/icon.png");
 // MP3 encoder (LAME, from the `lamejs` package) — copied when installed.
 const lame = ["node_modules/lamejs/lame.min.js", "node_modules/lamejs/lame.all.js"].find((f) => existsSync(f));

@@ -35,6 +35,9 @@ export interface ToolOutcome {
   /** Add transition FX (risers, impacts…) and optionally the drums cut before choruses. */
   transitions?: { drops: boolean };
   flip?: "flip" | "original";
+  /** WRITING help (needs the word list, loaded by the app). */
+  rhymes?: { target: string; syllables?: number };
+  flow?: { text: string };
 }
 
 export type VoiceLayerKind = "double" | "third-up" | "fifth-up" | "sixth-down" | "octave-up" | "octave-down";
@@ -100,6 +103,16 @@ export const PRODUCER_TOOLS: ToolDef[] = [
     input_schema: obj({ drops: { type: "boolean" } }),
   },
   {
+    name: "find_rhymes",
+    description: "Rimes françaises (dictionnaire Lexique 3, prononciation réelle) pour un mot ou une fin de phrase : multi-syllabes, riches, simples, les mots courants d'abord. syllables : longueur voulue des mots (optionnel).",
+    input_schema: obj({ text: { type: "string" }, syllables: { type: "number" } }, ["text"]),
+  },
+  {
+    name: "analyze_lyrics",
+    description: "Analyse de flow d'un texte (une ligne = une mesure au tempo du projet) : syllabes par ligne, densité (aéré → trop dense), schéma de rimes (A, B…), rimes multi-syllabiques, conseils. Sans « text », analyse les paroles écrites dans le projet. À utiliser pour vérifier des paroles que tu proposes.",
+    input_schema: obj({ text: { type: "string" } }, []),
+  },
+  {
     name: "flip_sample",
     description: "Sample flip déjà importé (pistes « Chop ») : mode « flip » = nouveau rythme et nouvel ordre des chops, « original » = rejoue la boucle telle quelle. L'import d'un nouveau sample se fait par l'utilisateur avec le bouton ✂️ Sample flip… de BEAT.",
     input_schema: obj({ mode: { type: "string", enum: ["flip", "original"] } }),
@@ -130,6 +143,9 @@ export function describeProject(p: Project): string {
     lines.push(`- ${i.name} : ${i.preset === "sampler" ? `instrument réel ${i.sample}` : i.preset}${snd ? ` (son proche : ${snd.id})` : ""} · ${notes} notes · volume ${ch ? db(ch.volume) : "?"} · réverbe ${Math.round((ch?.sends.reverb ?? 0) * 100)} %${ch?.mute ? " · MUTE" : ""}`);
   }
   if (p.vocals.length) lines.push(`Voix : ${p.vocals.map((v) => `${v.name} (${v.takes.length} prise(s), ${v.clips.length} clip(s))`).join(", ")}.`);
+  // Lyrics written by the user (text only, never audio), so the producer can help with the writing.
+  const lyr = p.vocals.find((v) => v.lyrics?.trim());
+  if (lyr) lines.push(`Paroles de « ${lyr.name} » :\n${lyr.lyrics!.trim().slice(0, 1500)}${lyr.lyrics!.trim().length > 1500 ? "\n[…]" : ""}`);
   lines.push(`Patterns : ${p.patterns.map((x) => `${x.name}${x.id === p.currentPatternId ? " (affiché)" : ""}`).join(", ")}.`);
   if (p.arrangement.sections.length) lines.push(`Arrangement : ${p.arrangement.sections.map((s) => `${s.name} (${s.length} mesures)`).join(" → ")}.`);
   else lines.push("Arrangement vide.");
@@ -249,6 +265,17 @@ export function runProducerTool(p: Project, name: string, input: unknown): ToolO
     case "add_transitions":
       if (!p.arrangement.sections.length) return fail("L'arrangement n'a pas de sections : il faut d'abord générer ou construire la structure du morceau.");
       return { actions: [], result: "", transitions: { drops: a.drops !== false } };
+    case "find_rhymes": {
+      const target = typeof a.text === "string" ? a.text.trim().slice(0, 80) : "";
+      if (!target) return fail("text manquant.");
+      const s = num(a.syllables, 1, 6);
+      return { actions: [], result: "", rhymes: { target, ...(s ? { syllables: Math.round(s) } : {}) } };
+    }
+    case "analyze_lyrics": {
+      const text = typeof a.text === "string" && a.text.trim() ? a.text.slice(0, 6000) : p.vocals.find((v) => v.lyrics?.trim())?.lyrics ?? "";
+      if (!text.trim()) return fail("Aucune parole dans le projet et pas de texte fourni.");
+      return { actions: [], result: "", flow: { text } };
+    }
     case "flip_sample":
       if (!p.tracks.some((t) => t.chop)) return fail("Aucun sample découpé dans ce projet : l'utilisateur doit d'abord cliquer sur « ✂️ Sample flip… » dans BEAT et choisir une boucle.");
       return { actions: [], result: "", flip: a.mode === "original" ? "original" : "flip" };
@@ -273,6 +300,7 @@ export function producerSystemPrompt(): string {
     `Sons disponibles (change_sound) : ${sounds}.`,
     `Styles disponibles (generate_beat) : ${styles}.`,
     "Toutes les modifications sont annulables (Ctrl+Z ou l'outil undo).",
+    "Paroles : tu peux aider à écrire, compléter ou corriger un texte (une ligne = une mesure), dans la langue et le style de l'utilisateur. Vérifie ce que tu proposes avec analyze_lyrics (syllabes, densité au tempo, rimes) et cherche les rimes avec find_rhymes. Ne recopie jamais les paroles d'un artiste existant.",
     "Si l'outil web_search est disponible, utilise-le quand une question porte sur l'actualité, un artiste, une tendance ou une technique que tu ne connais pas avec certitude ; résume en une ou deux phrases et cite la source (nom du site). Ne fais pas de recherche pour les simples modifications du projet.",
   ].join("\n\n");
 }

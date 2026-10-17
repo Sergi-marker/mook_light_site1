@@ -384,3 +384,30 @@ label.check { display: inline-flex; align-items: center; gap: 6px; cursor: point
 .bubble.typing { letter-spacing: 3px; animation: mic-pulse 1s ease-in-out infinite; }
 .chat-row { align-items: stretch; }
 .chat-input { flex: 1; resize: vertical; padding: 9px 12px; font: inherit; font-size: 15px; }
+
+/* Writing help (VOCALS → lyrics): flow grid, rhymes */
+.writing { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.writing h4 { margin: 0 0 4px; }
+.flow-grid { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; overflow-x: auto; }
+.flow-row { display: grid; grid-template-columns: 22px 120px minmax(320px, 1fr) minmax(120px, 1.2fr); gap: 8px; align-items: center; font-size: 12px; }
+.flow-row .scheme { text-align: center; font-weight: 700; border-radius: 4px; color: var(--muted); }
+.flow-row .density { font-variant-numeric: tabular-nums; border-radius: 4px; padding: 1px 6px; background: var(--panel-2); }
+.flow-row .density.d3 { color: #fbbf24; }
+.flow-row .density.d4 { color: #fb923c; }
+.flow-row .density.d5 { color: #f87171; font-weight: 600; }
+.flow-row .cells { display: grid; grid-template-columns: repeat(16, 1fr); gap: 2px; }
+.flow-row .cell { height: 20px; border-radius: 3px; background: var(--panel-2); font-style: normal; font-size: 9px; line-height: 20px; overflow: hidden; white-space: nowrap; padding-left: 2px; color: #fff; }
+.flow-row .cell.beat { box-shadow: inset 2px 0 0 var(--line); }
+.flow-row .cell.on { background: #3b3f52; }
+.flow-row .flow-text { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rh-a { background: #7c5cff !important; color: #fff !important; }
+.rh-b { background: #0ea5e9 !important; color: #fff !important; }
+.rh-c { background: #22c55e !important; color: #fff !important; }
+.rh-d { background: #f59e0b !important; color: #111 !important; }
+.rh-e { background: #ec4899 !important; color: #fff !important; }
+.rh-f, .rh-g, .rh-h { background: #14b8a6 !important; color: #fff !important; }
+.flow-advice { margin: 6px 0 10px; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.rhyme-target { min-width: 200px; }
+.rhyme-group { margin-top: 8px; }
+.rhyme-group strong { font-size: 12px; color: var(--muted); }
+.flip-bar { margin-top: 4px; }

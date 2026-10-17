@@ -15,6 +15,7 @@ import type { Action } from "../../core/reducer.ts";
 import { SOUND_LIBRARY } from "../../core/soundLibrary.ts";
 import { desktop, type App, type ChatBlock, type ChatMessage } from "../app.ts";
 import { keyLabel } from "../../core/music.ts";
+import { analyzeFlow, findRhymes, flowAdvice } from "../../core/lyrics/writing.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 
 type Entry = {
@@ -81,6 +82,34 @@ export function createProducerChat(app: App, rerender: () => void) {
     return ok ? (mode === "flip" ? "Nouveau flip écrit dans le pattern courant." : "Chops remis dans l'ordre d'origine.") : "Aucun sample découpé.";
   }
 
+  /** Rhymes as text (for the chat and for Claude). */
+  async function rhymes(target: string, syllables?: number): Promise<string> {
+    const lex = await app.lexicon();
+    if (!lex) return "Le dictionnaire de rimes n'a pas pu être chargé.";
+    const all = findRhymes(target, lex, { max: 60, syllables });
+    if (!all.length) return `Pas de rime trouvée pour « ${target} ».`;
+    const list = (xs: typeof all) => xs.slice(0, 14).map((r) => r.word).join(", ");
+    const multi = all.filter((r) => r.multi >= 2), rest = all.filter((r) => r.multi < 2);
+    return [
+      multi.length ? `Multi-syllabes : ${list(multi)}` : "",
+      rest.some((r) => r.kind === "riche") ? `Riches : ${list(rest.filter((r) => r.kind === "riche"))}` : "",
+      rest.some((r) => r.kind === "rime") ? `Simples : ${list(rest.filter((r) => r.kind === "rime"))}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  /** Flow analysis as text: one line per bar, then advice. */
+  async function flowReport(text: string): Promise<string> {
+    const lex = await app.lexicon();
+    const bpm = store.getState().bpm;
+    const flows = analyzeFlow(text, bpm, lex);
+    const lines = flows.slice(0, 24).map((f) => `${f.scheme || "·"} ${String(f.syllables).padStart(2)} syll. (${f.density}${f.rhymeSyllables >= 2 ? `, rime ${f.rhymeSyllables} syll.` : ""}) — ${f.text}`);
+    return [...lines, "", ...flowAdvice(flows, bpm)].join("\n");
+  }
+
+  async function writingAnswer(r: { rhymes?: { target: string; syllables?: number }; flow?: { text: string } }): Promise<string> {
+    return r.rhymes ? rhymes(r.rhymes.target, r.rhymes.syllables) : r.flow ? flowReport(r.flow.text) : "";
+  }
+
   async function pickSample(): Promise<void> {
     const r = await app.task("Sample flip : analyse, mise au tempo et découpe…", () => app.sampleFlip());
     if (!r) return;
@@ -106,7 +135,14 @@ export function createProducerChat(app: App, rerender: () => void) {
     if (reply.layers) void layers(reply.layers.trackId, reply.layers.kinds);
     if (reply.transitions) void transitions(reply.transitions.drops);
     if (reply.flip && reply.flip !== "import") flip(reply.flip);
-    entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: reply.suggestions, offers: reply.offers, pickSample: reply.flip === "import" });
+    const writing = reply.rhymes || reply.flow;
+    entries.push({ role: "assistant", text: note ? `${note} ${reply.text}` : reply.text, suggestions: writing ? undefined : reply.suggestions, offers: reply.offers, pickSample: reply.flip === "import" });
+    if (writing) {
+      void writingAnswer(reply).then((answer) => {
+        entries.push({ role: "assistant", text: answer, suggestions: reply.suggestions });
+        rerender();
+      });
+    }
   }
 
   // --- online (Claude + tools) ---------------------------------------------------------------
@@ -148,6 +184,7 @@ export function createProducerChat(app: App, rerender: () => void) {
         else if (out.layers) result = await layers(out.layers.trackId, out.layers.kinds);
         else if (out.transitions) result = await transitions(out.transitions.drops);
         else if (out.flip) result = flip(out.flip);
+        else if (out.rhymes || out.flow) result = await writingAnswer(out);
         else if (out.undo) undo(out.undo);
         else apply(out.actions, out.soundChanges);
         results.push({ type: "tool_result", tool_use_id: String(b.id), content: result || "Fait.", ...(out.isError ? { is_error: true } : {}) });

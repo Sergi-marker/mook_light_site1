@@ -100,7 +100,8 @@ export function createSettingsView(app: App): View {
     h("div", { class: "card" }, h("h3", {}, "Crédits — instruments enregistrés"),
       h("p", { class: "muted small" }, "Les instruments réels (moteur « Instrument réel ») sont des enregistrements libres de droits pour un usage commercial : vous pouvez vendre et diffuser les beats faits avec. Merci aux auteurs :"),
       h("ul", { class: "credits" }, ...SAMPLED_INSTRUMENTS.filter((i) => i.id !== "strings").map((i) => h("li", {}, h("strong", {}, i.name), ` — ${i.credit} · ${i.license}`))),
-      h("p", { class: "muted small" }, `Batterie et percussions enregistrées (${DRUM_SAMPLES.length} sons, kits du menu BEAT) : Sample Pi / Sonic Pi (sons Freesound) et Versilian Community Sample Library — CC0 1.0 (domaine public).`)));
+      h("p", { class: "muted small" }, `Batterie et percussions enregistrées (${DRUM_SAMPLES.length} sons, kits du menu BEAT) : Sample Pi / Sonic Pi (sons Freesound) et Versilian Community Sample Library — CC0 1.0 (domaine public).`),
+      h("p", { class: "muted small" }, "Aide à l'écriture (syllabes, rimes) : liste de mots dérivée de Lexique 3.83 — B. New, C. Pallier et al., www.lexique.org — licence CC BY-SA 4.0 (le fichier dérivé garde cette licence : lexique/LICENCE.txt).")));
   let tick = 0;
   function renderStats(): void {
     const lat = engine.getLatency();

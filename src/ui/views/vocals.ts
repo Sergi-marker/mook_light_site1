@@ -18,6 +18,7 @@ import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { drawWaveform, fmtDb, fmtPct, meter, reactive, slider } from "../widgets.ts";
 import { effectEditor, updateEffectMeters } from "./effectEditor.ts";
+import { writingPanel } from "./writingPanel.ts";
 
 const CLEAN_LIVE_DB: Record<string, number> = { low: 8, medium: 12, high: 18 };
 const LEVEL_AMOUNT: Record<string, number> = { light: 30, normal: 55, strong: 80 };
@@ -475,9 +476,19 @@ export function createVocalsView(app: App): View {
     if (v) {
       body.append(clipsCard(p, v));
       const lyrics = h("textarea", { class: "lyrics", rows: 6, placeholder: "Écrivez vos paroles ici (couplets, refrain, ad-libs)… Elles sont enregistrées avec le projet.", "aria-label": `Paroles de ${v.name}` }, v.lyrics ?? "");
-      lyrics.addEventListener("input", () => app.dispatch({ type: "updateVocalTrack", trackId: v.id, patch: { lyrics: lyrics.value.slice(0, 20000) } }, `lyrics:${v.id}`));
+      const save = () => app.dispatch({ type: "updateVocalTrack", trackId: v.id, patch: { lyrics: lyrics.value.slice(0, 20000) } }, `lyrics:${v.id}`);
+      lyrics.addEventListener("input", save);
       const words = (v.lyrics ?? "").trim().split(/\s+/).filter(Boolean).length;
-      body.append(h("div", { class: "card" }, h("h3", {}, `Paroles — ${v.name}`), lyrics, h("p", { class: "hint" }, `${words} mot(s) · ${(v.lyrics ?? "").split("\n").filter((l) => l.trim()).length} ligne(s)`)));
+      // A rhyme clicked in the writing help goes where the cursor is.
+      const insert = (word: string) => {
+        const a = lyrics.selectionStart ?? lyrics.value.length, b = lyrics.selectionEnd ?? a;
+        const before = lyrics.value.slice(0, a);
+        const text = (before && !/\s$/.test(before) ? " " : "") + word;
+        lyrics.setRangeText(text, a, b, "end");
+        lyrics.dispatchEvent(new Event("input"));
+        lyrics.focus();
+      };
+      body.append(h("div", { class: "card" }, h("h3", {}, `Paroles — ${v.name}`), lyrics, h("p", { class: "hint" }, `${words} mot(s) · ${(v.lyrics ?? "").split("\n").filter((l) => l.trim()).length} ligne(s)`), writingPanel(app, v.id, lyrics, insert)));
     }
 
     // Take comp results

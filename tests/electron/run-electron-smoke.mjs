@@ -355,6 +355,30 @@ await step("sample flip: a 92 BPM loop in A minor → 140 BPM F minor project, c
   assert.ok(r.peak > 0.05, "chops audible");
 });
 
+await step("writing help: word list loads through app://, flow grid while typing, rhymes inserted at the cursor", async () => {
+  await page.click('.nav-item:has-text("VOCALS")');
+  const area = page.locator("textarea.lyrics").first();
+  await area.waitFor({ timeout: 10000 });
+  await area.fill("J'suis dans le bloc avec mes frères\nOn fait du sale pour la lumière\nIls parlent beaucoup trop mais ils ne savent pas vraiment ce qu'on a traversé dans la vie de tous les jours");
+  await page.waitForFunction(() => /Dictionnaire : [\d\s\u202f]+ mots/.test(document.querySelector(".writing")?.textContent ?? ""), null, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelectorAll(".flow-row").length === 3, null, { timeout: 5000 });
+  const rows = await page.$$eval(".flow-row", (rs) => rs.map((r) => ({ scheme: r.querySelector(".scheme").textContent, density: r.querySelector(".density").textContent, on: r.querySelectorAll(".cell.on").length })));
+  await page.fill(".rhyme-target", "frérot");
+  await page.click('.writing button:has-text("Rimes")');
+  await page.waitForSelector(".rhyme-results .chip");
+  const chips = await page.$$eval(".rhyme-results .chip", (cs) => cs.map((c) => c.textContent));
+  await area.click();
+  await page.keyboard.press("Control+End");
+  await page.click(`.rhyme-results .chip:has-text("${chips[0]}")`);
+  const saved = await evalApp(() => window.__app.store.getState().vocals.find((v) => v.lyrics)?.lyrics ?? "");
+  console.log(`  # lignes ${rows.map((r) => `${r.scheme} ${r.density}`).join(" | ")} · rimes « frérot » : ${chips.slice(0, 6).join(", ")}`);
+  assert.deepEqual(rows.map((r) => r.scheme), ["A", "A", "·"]);
+  assert.match(rows[2].density, /trop dense/);
+  assert.ok(rows[0].on >= 8);
+  assert.ok(chips.includes("numéro") || chips.includes("métro"), chips.join(","));
+  assert.ok(saved.trimEnd().endsWith(chips[0]), "rhyme inserted and saved with the project");
+});
+
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));
 
 // Skip the "unsaved changes" prompt on close: quit the main process directly.

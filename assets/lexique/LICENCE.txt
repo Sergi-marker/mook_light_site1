@@ -1,0 +1,13 @@
+fr.tsv — liste de mots français avec prononciation et nombre de syllabes,
+dérivée de Lexique 3.83 (Boris New, Christophe Pallier et al., http://www.lexique.org).
+
+Licence : Creative Commons Attribution - Partage dans les mêmes conditions 4.0 International
+(CC BY-SA 4.0) — https://creativecommons.org/licenses/by-sa/4.0/deed.fr
+
+Modifications : mots utilisés au moins 0,3 fois par million (films + livres), une prononciation
+par orthographe (la plus fréquente), colonnes réduites à orthographe / phonétique / syllabes.
+
+Références : New, B., Pallier, C., Brysbaert, M., Ferrand, L. (2004) Lexique 2 : A New French
+Lexical Database. Behavior Research Methods, Instruments, & Computers, 36(3), 516-524.
+New, B., Pallier, C., Ferrand, L., Matos, R. (2001) Une base de données lexicales du français
+contemporain sur internet : LEXIQUE. L'Année Psychologique, 101, 447-462.
