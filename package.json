@@ -21,11 +21,12 @@
     "test:matrix": "node tests/video/run-render-matrix.mjs",
     "build:free": "node scripts/build-free.mjs",
     "test:free": "node tests/video/run-free-tests.mjs",
+    "test:dub": "node tests/video/run-dub-tests.mjs",
     "test:account": "node --disable-warning=ExperimentalWarning tests/video/run-account-tests.mjs",
     "video": "node scripts/serve-video.mjs",
     "server": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/index.mjs",
     "server:dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/index.mjs --dev",
-    "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:video && npm run test:matrix && npm run test:account && npm run test:free && npm run test:electron",
+    "test:all": "npm run typecheck && npm test && npm run test:browser && npm run test:e2e && npm run test:video && npm run test:matrix && npm run test:account && npm run test:free && npm run test:dub && npm run test:electron",
     "dist:win": "node scripts/build.mjs && electron-builder --win nsis portable",
     "setup:electron": "node scripts/setup-electron.mjs"
   },

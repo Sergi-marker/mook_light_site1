@@ -166,3 +166,21 @@ details[open] summary { margin-bottom: 8px; }
 
 .app-footer { text-align: center; font-size: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
 .app-footer a { color: inherit; }
+
+/* Accueil : choix du type d'animation */
+.home-btn { background: none; border: 0; padding: 0; cursor: pointer; line-height: 0; border-radius: 10px; }
+.home-btn:focus-visible { outline: 2px solid var(--accent, #ffd84d); }
+.home { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: radial-gradient(circle at 50% 18%, #23255a 0%, #0b0c1d 62%); padding: 32px 16px calc(32px + env(safe-area-inset-bottom)); }
+body.on-home { overflow: hidden; }
+.home-inner { max-width: 920px; margin: 0 auto; text-align: center; }
+.home-logo { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+.home h2 { font-size: clamp(24px, 5vw, 36px); margin: 18px 0 6px; font-weight: 900; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 14px; margin: 26px 0; text-align: left; }
+.home-card { display: flex; flex-direction: column; gap: 8px; padding: 20px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: inherit; font: inherit; cursor: pointer; transition: transform 0.15s, border-color 0.15s, background 0.15s; }
+.home-card:hover, .home-card:focus-visible { transform: translateY(-2px); border-color: #ffd84d; background: rgba(255,216,77,0.08); outline: none; }
+.home-card strong { font-size: 19px; }
+.home-card span { color: #b9bad0; font-size: 14px; line-height: 1.45; }
+.home-card .home-emoji { font-size: 34px; color: inherit; }
+.home-card.soon { cursor: default; opacity: 0.6; border-style: dashed; }
+.home-card.soon:hover { transform: none; border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
+.home .small { font-size: 12px; }

@@ -2,7 +2,7 @@
 // Rendu d'une image de la vidéo à l'instant t sur un canvas 2D.
 
 import { poseAt, lerpPose, DUO_ACTIONS } from "./poses.js";
-import { drawFigure, figureJoints } from "./figure.js";
+import { drawFigure, drawSketchFigure, figureJoints } from "./figure.js";
 import { sceneAt, rng, VOICE_LEAD, detectFx, detectTransition } from "./script.js";
 import { drawSetBehind, drawSetFront, drawStrings } from "./scenery.js";
 
@@ -30,6 +30,8 @@ export const BACKDROPS = {
   park: ["Parc", "Park", "Park"],
   gym: ["Salle de sport", "Fitnessstudio", "Gym"],
   sky: ["Ciel étoilé", "Sternenhimmel", "Starry sky"],
+  cartoon: ["Pièce dessinée (aplats)", "Gezeichnetes Zimmer", "Cartoon room"],
+  cartoonBlue: ["Salon dessiné (bleu)", "Gezeichnetes Wohnzimmer", "Cartoon living room"],
   image: ["Mon image", "Mein Bild", "My image"],
 };
 
@@ -90,14 +92,15 @@ export function fontCss(id, size) {
 const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7"];
 
 /** Géométrie de la mise en page selon le format et la position des sous-titres. */
-export function layout(W, H, captionPos = "top") {
+/** big : style « dessin », personnages plus grands et plus bas (comme les dessins animés de référence). */
+export function layout(W, H, captionPos = "top", big = false) {
   const portrait = H > W * 1.2, landscape = W > H * 1.2;
-  const groundY = H * (portrait ? 0.665 : landscape ? 0.86 : 0.8);
+  const groundY = H * (big ? (portrait ? 0.79 : landscape ? 0.9 : 0.86) : portrait ? 0.665 : landscape ? 0.86 : 0.8);
   const topY = H * (portrait ? 0.29 : landscape ? 0.16 : 0.18);
   const captionY = captionPos === "bottom" ? (portrait ? groundY + H * 0.13 : H * 0.93) : captionPos === "middle" ? H * (portrait ? 0.36 : 0.3) : topY;
   return {
     groundY,
-    figH: H * (portrait ? 0.25 : landscape ? 0.46 : 0.36),
+    figH: H * (portrait ? 0.25 : landscape ? 0.46 : 0.36) * (big ? 1.45 : 1),
     captionY,
     captionSize: Math.round(Math.min(W, H) * (portrait ? 0.068 : landscape ? 0.062 : 0.06)),
     captionWidth: W * (portrait ? 0.84 : 0.8),
@@ -165,6 +168,7 @@ function drawBackground(ctx, W, H, L, theme, t, backdrop, bgImage) {
 
 function paintBackground(ctx, W, H, L, theme, backdrop, bgImage) {
   const t = 0;
+  if (backdrop === "cartoon" || backdrop === "cartoonBlue") return paintCartoonRoom(ctx, W, H, L, backdrop);
   const th = THEMES[theme] ?? THEMES.nuit;
   const g = ctx.createRadialGradient(W / 2, H * 0.38, Math.min(W, H) * 0.05, W / 2, H * 0.45, Math.max(W, H) * 0.75);
   g.addColorStop(0, th.top);
@@ -217,6 +221,42 @@ function paintBackground(ctx, W, H, L, theme, backdrop, bgImage) {
   glow.addColorStop(1, `${th.floor}0)`);
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
+}
+
+/** Décor de dessin animé en aplats de couleur (mur, plinthe, sol), sans projecteur. */
+function paintCartoonRoom(ctx, W, H, L, kind) {
+  const c = kind === "cartoonBlue"
+    ? { top: "#c4d3e6", wall: "#9fb8d6", line: "#56657a", floor: "#c9a98a", base: "#efe9e1" }
+    : { top: "#c3c6d3", wall: "#e3b5a0", line: "#6d6f78", floor: "#d6a18a", base: "#f2ebe4" };
+  const gy = L.groundY, band = gy - L.figH * 1.9;
+  ctx.fillStyle = c.top;
+  ctx.fillRect(0, 0, W, band);
+  ctx.fillStyle = c.line;
+  ctx.fillRect(0, band, W, Math.max(2, H * 0.004));
+  ctx.fillStyle = c.wall;
+  ctx.fillRect(0, band + Math.max(2, H * 0.004), W, gy - band);
+  // Plinthe et sol.
+  ctx.fillStyle = c.base;
+  ctx.fillRect(0, gy - H * 0.012, W, H * 0.012);
+  ctx.fillStyle = c.floor;
+  ctx.fillRect(0, gy, W, H - gy);
+  // Coups de pinceau légers : l'aspect « dessiné à la main ».
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = "#ffffff";
+  for (let i = 0; i < 9; i++) {
+    const x = ((i * 0.37) % 1) * W, y = band + ((i * 0.53) % 1) * (gy - band);
+    ctx.fillRect(x, y, W * 0.18, H * 0.006);
+  }
+  ctx.globalAlpha = 1;
+  // Cadre au mur et fenêtre simple.
+  ctx.strokeStyle = "#161616";
+  ctx.lineWidth = Math.max(2, Math.min(W, H) * 0.006);
+  const fw = Math.min(W, H) * 0.22, fx = W * 0.12, fy = band + (gy - band) * 0.18;
+  ctx.fillStyle = "#f7f1e6";
+  ctx.fillRect(fx, fy, fw, fw * 0.75);
+  ctx.strokeRect(fx, fy, fw, fw * 0.75);
+  ctx.fillStyle = kind === "cartoonBlue" ? "#e6b35a" : "#8fb4d9";
+  ctx.fillRect(fx + fw * 0.12, fy + fw * 0.1, fw * 0.76, fw * 0.55);
 }
 
 /** Décors en silhouettes : présents mais discrets, pour ne pas voler la vedette au personnage. */
@@ -597,8 +637,26 @@ function drawLogo(ctx, W, H, settings) {
 
 const TALKING_FACES = new Set(["neutral", "happy", "talk", "angry", "closed"]);
 
-/** Bouche qui bouge pendant que le personnage parle (dialogue). */
-function talking(p, local, voiceStart, voiceEnd) {
+// Son importé (mode audio / vidéo → dessin animé) : volume de la voix pour animer la bouche.
+let lip = null;
+/** data = { env: Float32Array (0..1), rate: valeurs par seconde } ou null. */
+export function setLipSync(data) { lip = data; }
+
+/** Ouverture de la bouche (0..1) d'après le volume réel de la voix à l'instant t (s). */
+export function lipLevel(t) {
+  if (!lip) return 0;
+  const i = t * lip.rate;
+  const a = Math.floor(i);
+  let v = 0, n = 0;
+  for (let k = a - 1; k <= a + 1; k++) if (k >= 0 && k < lip.env.length) { v += lip.env[k]; n++; }
+  v = n ? v / n : 0;
+  return v < 0.08 ? 0 : Math.min(1, Math.pow(v, 0.7) * 1.15);
+}
+
+/** Bouche qui bouge pendant que le personnage parle (dialogue). level : volume réel (son importé). */
+function talking(p, local, voiceStart, voiceEnd, level = null) {
+  if (!TALKING_FACES.has(p.face) && p.face !== "laugh" && p.face !== "sad") return p;
+  if (level != null) return level > 0 ? { ...p, face: p.face === "angry" ? "angry" : p.face === "laugh" ? "laugh" : "talk", mouthOpen: level } : { ...p, mouthOpen: 0, face: p.face === "talk" ? "neutral" : p.face };
   if (local < voiceStart || local > voiceEnd || !TALKING_FACES.has(p.face)) return p;
   const m = Math.abs(Math.sin(local * 11)) * 0.7 + Math.abs(Math.sin(local * 4.3)) * 0.3;
   return { ...p, face: p.face === "angry" ? "angry" : "talk", mouthOpen: m };
@@ -622,8 +680,9 @@ function scenePoses(item, localIn) {
   // Celui qui parle remue la bouche pendant sa réplique.
   if (s.speaker === 0 || s.speaker === 1) {
     const vs = VOICE_LEAD, ve = item.voiceDur != null ? VOICE_LEAD + item.voiceDur : item.duration * 0.8;
-    if (s.speaker === 0) p0 = talking(p0, localIn, vs, ve);
-    else if (p1) p1 = talking(p1, localIn, vs, ve);
+    const level = s.dub && lip ? lipLevel(item.start + localIn) : null;
+    if (s.speaker === 0) p0 = talking(p0, localIn, vs, ve, level);
+    else if (p1) p1 = talking(p1, localIn, vs, ve, level);
   }
   return { p0, p1, duo, flip, pos };
 }
@@ -651,6 +710,11 @@ function livelyPose(action, local, r, role) {
 function easeOutBack(x, c = 1.25) {
   const y = x - 1;
   return 1 + (c + 1) * y * y * y + c * y * y;
+}
+
+/** Proportions du style « dessin ». */
+export function sketchMorph(c = {}) {
+  return { ...c, headSize: (c.headSize ?? 1) * 1.65, torso: (c.torso ?? 1) * 0.85 };
 }
 
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -862,7 +926,7 @@ function shakeOffset(fx, action, local, W) {
 function drawScene(ctx, project, tl, t) {
   const { settings } = project;
   const W = ctx.canvas.width, H = ctx.canvas.height;
-  const L = layout(W, H, settings.captionPos);
+  const L = layout(W, H, settings.captionPos, settings.figureStyle === "sketch");
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const at = sceneAt(tl, Math.min(t, Math.max(0, tl.total - 1e-3)));
@@ -883,7 +947,9 @@ function drawScene(ctx, project, tl, t) {
     k = easeOutBack(local / BLEND);
   }
 
-  const chars = settings.characters ?? [{}, {}];
+  // Style « dessin » : grosse tête, buste plus court (proportions des dessins animés de référence).
+  const sketch = settings.figureStyle === "sketch";
+  const chars = (settings.characters ?? [{}, {}]).map((c) => (sketch ? sketchMorph(c) : c));
   const duoGap = Math.min(W * 0.17, L.figH * 0.62);
   const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
   const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));
@@ -940,10 +1006,12 @@ function drawScene(ctx, project, tl, t) {
     ctx.save();
     ctx.globalAlpha = duoAmt;
     shadow(x1 + (p1.dx ?? 0) * L.figH, L.figH * 0.16);
-    drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH, look);
+    if (sketch) drawSketchFigure(ctx, p1, chars[1], x1, L.groundY, L.figH);
+    else drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH, look);
     ctx.restore();
   }
-  drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
+  if (sketch) drawSketchFigure(ctx, p0, chars[0], x0, L.groundY, L.figH);
+  else drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
   if (p0.set) drawSetFront(ctx, p0, J0, setT);
   if (p1?.set) drawSetFront(ctx, p1, J1, setT);
   if (p1 && duoAmt > 0.5) {

@@ -912,3 +912,311 @@ function drawBook(ctx, sk, d) {
   ctx.fillRect(0.004, -0.044, 0.064, 0.088);
   ctx.restore();
 }
+
+// ---------- Style « dessin » : contour noir, grosse tête couleur peau, t-shirt, bras et jambes fins ----------
+
+const INK = "#161616";
+const SKETCH_LIMB = "#f7f7f5";
+
+/** Tête des personnages en style dessin : la couleur du pictogramme blanc devient une couleur de peau. */
+function sketchSkin(m) {
+  return luminance(m.color) > 0.9 ? "#e4aa78" : m.color;
+}
+
+/** Trait épais à contour noir passant par des points (membre fin). */
+function inkLimb(ctx, pts, w, fill) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (const q of pts.slice(1)) ctx.lineTo(q[0], q[1]);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = w + 0.022;
+  ctx.stroke();
+  ctx.strokeStyle = fill;
+  ctx.lineWidth = w;
+  ctx.stroke();
+}
+
+/** Main dessinée : quatre petits doigts dans le prolongement de l'avant-bras. */
+function inkHand(ctx, elbow, hand, w) {
+  const ux = hand[0] - elbow[0], uy = hand[1] - elbow[1];
+  const n = Math.hypot(ux, uy) || 1;
+  const a = Math.atan2(uy / n, ux / n);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 0.009;
+  ctx.lineCap = "round";
+  for (const s of [-0.75, -0.25, 0.25, 0.75]) {
+    const b = a + s * 0.55;
+    const len = 0.045 - Math.abs(s) * 0.012;
+    ctx.beginPath();
+    ctx.moveTo(hand[0] + Math.cos(a) * w * 0.2, hand[1] + Math.sin(a) * w * 0.2);
+    ctx.lineTo(hand[0] + Math.cos(b) * len, hand[1] + Math.sin(b) * len);
+    ctx.stroke();
+  }
+}
+
+function drawSketchFace(ctx, p, m, cx, cy, r, d) {
+  const face = p.face ?? "neutral";
+  const fx = cx + d * r * 0.12;
+  const ey = cy - r * 0.02, sx = r * 0.36;
+  ctx.fillStyle = INK;
+  ctx.strokeStyle = INK;
+  ctx.lineCap = "round";
+  // Sourcils : leur angle porte l'émotion.
+  ctx.lineWidth = r * 0.07;
+  for (const s of [-1, 1]) {
+    const bx = fx + s * sx, by = ey - r * 0.32;
+    const tilt = face === "angry" ? 0.18 * s : face === "sad" || face === "cry" ? -0.16 * s : 0;
+    ctx.beginPath();
+    ctx.moveTo(bx - r * 0.16, by + tilt * r);
+    ctx.quadraticCurveTo(bx, by - r * (face === "surprised" ? 0.14 : 0.08), bx + r * 0.16, by - tilt * r);
+    ctx.stroke();
+  }
+  // Yeux.
+  for (const s of [-1, 1]) {
+    const ex = fx + s * sx;
+    if (face === "closed" || face === "laugh") {
+      ctx.lineWidth = r * 0.06;
+      ctx.beginPath();
+      ctx.arc(ex, ey + r * 0.02, r * 0.1, face === "laugh" ? Math.PI * 1.1 : Math.PI * 0.1, face === "laugh" ? Math.PI * 1.9 : Math.PI * 0.9);
+      ctx.stroke();
+      continue;
+    }
+    const big = face === "surprised";
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, r * (big ? 0.11 : 0.09), r * (big ? 0.14 : 0.12), 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Paupière : regard posé (comme les dessins de référence), sauf surpris.
+    if (!big) {
+      ctx.lineWidth = r * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(ex - r * 0.13, ey - r * 0.03);
+      ctx.lineTo(ex + r * 0.13, ey - r * 0.03);
+      ctx.stroke();
+      ctx.fillStyle = sketchSkin(m);
+      ctx.fillRect(ex - r * 0.12, ey - r * 0.16, r * 0.24, r * 0.11);
+      ctx.fillStyle = INK;
+    }
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(ex + r * 0.03, ey + r * 0.01, r * 0.025, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = INK;
+  }
+  // Bouche.
+  const my = cy + r * 0.38, open = p.mouthOpen ?? 0;
+  ctx.lineWidth = r * 0.06;
+  ctx.beginPath();
+  if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
+    const w = face === "surprised" ? r * 0.12 : r * 0.2;
+    ctx.ellipse(fx, my, w, r * (0.05 + 0.16 * Math.max(open, face === "surprised" ? 0.8 : 0.2)), 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#5a1a1a";
+    ctx.fill();
+    ctx.stroke();
+  } else if (face === "happy") {
+    ctx.arc(fx, my - r * 0.16, r * 0.22, Math.PI * 0.2, Math.PI * 0.8);
+    ctx.stroke();
+  } else if (face === "sad" || face === "cry") {
+    ctx.arc(fx, my + r * 0.14, r * 0.18, Math.PI * 1.2, Math.PI * 1.8);
+    ctx.stroke();
+  } else {
+    // Petit trait légèrement de travers : l'air pensif des vidéos de référence.
+    ctx.moveTo(fx - r * 0.17, my + r * 0.02);
+    ctx.quadraticCurveTo(fx, my - r * 0.03, fx + r * 0.17, my - r * 0.03);
+    ctx.stroke();
+  }
+  if ((face === "sad" || face === "cry") && p.symbol === "tear") {
+    ctx.fillStyle = "#8fd0ff";
+    ctx.beginPath();
+    ctx.ellipse(fx + sx, ey + r * 0.25, r * 0.05, r * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawSketchHead(ctx, p, m, sk, d) {
+  const [cx, cy] = sk.headC;
+  const r = sk.headR;
+  const skin = sketchSkin(m);
+  // Cheveux longs derrière la tête.
+  if (m.hair === "long" || m.hair === "ponytail") {
+    ctx.fillStyle = m.detail;
+    ctx.beginPath();
+    if (m.hair === "long") ctx.ellipse(cx - d * r * 0.1, cy + r * 0.25, r * 1.08, r * 1.05, 0, 0, Math.PI * 2);
+    else ctx.ellipse(cx - d * r * 1.05, cy - r * 0.1, r * 0.3, r * 0.5, d * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = skin;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 0.014;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  // Ombre douce sur le côté opposé à la lumière.
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = "rgba(120,60,20,0.16)";
+  ctx.beginPath();
+  ctx.arc(cx + d * r * 0.35, cy + r * 0.1, r * 1.0, 0, Math.PI * 2);
+  ctx.arc(cx - d * r * 0.25, cy - r * 0.15, r * 1.02, 0, Math.PI * 2, true);
+  ctx.fill("evenodd");
+  // Cheveux sur le dessus.
+  if (m.hair && m.hair !== "none") {
+    ctx.fillStyle = m.detail;
+    ctx.beginPath();
+    if (m.hair === "curly") for (let i = 0; i < 7; i++) { const a = Math.PI * (1.05 + i * 0.15); ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.arc(cx + Math.cos(a) * r * 0.85, cy + Math.sin(a) * r * 0.85, r * 0.3, 0, Math.PI * 2); }
+    else if (m.hair === "spiky") { ctx.moveTo(cx - r, cy - r * 0.2); for (let i = 0; i <= 6; i++) ctx.lineTo(cx - r + (i * 2 * r) / 6, cy - r * (i % 2 ? 1.25 : 0.6)); ctx.lineTo(cx + r, cy - r * 0.2); }
+    else { ctx.ellipse(cx - d * r * 0.08, cy - r * 0.62, r * 1.05, r * 0.5, 0, 0, Math.PI * 2); }
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  if (m.hair === "bun") {
+    ctx.fillStyle = m.detail;
+    ctx.beginPath();
+    ctx.arc(cx - d * r * 0.2, cy - r * 1.05, r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  drawSketchFace(ctx, p, m, cx, cy, r, d);
+  if (m.glasses) {
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = r * 0.05;
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(cx + d * r * 0.12 + s * r * 0.36, cy - r * 0.02, r * 0.2, 0, Math.PI * 2); ctx.stroke(); }
+  }
+  if (m.beard) {
+    ctx.fillStyle = m.detail;
+    ctx.beginPath();
+    ctx.arc(cx + d * r * 0.1, cy + r * 0.2, r * 0.82, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.quadraticCurveTo(cx, cy + r * 0.62, cx + r * 0.78, cy + r * 0.45);
+    ctx.fill();
+  }
+  if (m.cap || m.headband) {
+    ctx.fillStyle = m.detail;
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 0.01;
+    ctx.beginPath();
+    if (m.cap) {
+      ctx.arc(cx, cy - r * 0.15, r * 1.0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillRect(cx + (d > 0 ? 0 : -r * 1.3), cy - r * 0.32, r * 1.3, r * 0.14);
+    } else {
+      ctx.rect(cx - r * 0.98, cy - r * 0.55, r * 1.96, r * 0.2);
+      ctx.fill();
+    }
+  }
+}
+
+/**
+ * Dessine le personnage en style « dessin » (BD : contour noir, tête couleur peau, t-shirt, membres fins).
+ * Mêmes paramètres et même repère que drawFigure.
+ */
+export function drawSketchFigure(ctx, p, morphIn, x, groundY, H) {
+  const m = morphFrom(morphIn);
+  const h = H * m.height;
+  const sk = skeleton(p, m);
+  const low = lowestPoint(sk, p);
+  const d = p.dir ?? 1;
+  ctx.save();
+  ctx.translate(x + (p.dx ?? 0) * H, groundY - (low + (p.lift ?? 0)) * h);
+  ctx.scale(h, h);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  drawPropsBehind(ctx, p, sk, low, d, m);
+
+  const build = m.build ?? 1;
+  const limbW = 0.028 * Math.sqrt(build);
+  // Vue de face (comme les dessins animés de référence) : chaque bras part d'un côté du t-shirt,
+  // chaque jambe d'un côté du bassin ; le bras et la jambe « arrière » sont en miroir.
+  {
+    const off = 0.075 * build, legOff = 0.035 * build;
+    const N0 = sk.neck, H0 = sk.hip;
+    let ax = H0[0] - N0[0], ay = H0[1] - N0[1];
+    const al = Math.hypot(ax, ay) || 1;
+    ax /= al; ay /= al;
+    const px = -ay * d, py = ax * d; // perpendiculaire au buste, vers l'avant du personnage
+    const side = (pts, base, s, mirror) => pts.map((q) => {
+      const rx = q[0] - base[0], ry = q[1] - base[1];
+      // Composante perpendiculaire au buste : en miroir pour le côté arrière.
+      const along = rx * ax + ry * ay, across = rx * px + ry * py;
+      const ac = mirror ? -Math.abs(across) - 0.004 : Math.abs(across) + 0.004;
+      return [base[0] + px * s + ax * along + px * ac, base[1] + py * s + ay * along + py * ac];
+    });
+    const front = side([sk.shoulder, sk.elbowF, sk.handF], sk.shoulder, off, false);
+    const back = side([sk.shoulder, sk.elbowB, sk.handB], sk.shoulder, -off, true);
+    [sk.shoulderF, sk.elbowF, sk.handF] = front;
+    [sk.shoulderB, sk.elbowB, sk.handB] = back;
+    const legF = side([sk.hip, sk.kneeF, sk.footF], sk.hip, legOff, false);
+    const legB = side([sk.hip, sk.kneeB, sk.footB], sk.hip, -legOff, true);
+    if (!p.rot && !p.sit) {
+      [sk.hipF, sk.kneeF, sk.footF] = legF;
+      [sk.hipB, sk.kneeB, sk.footB] = legB;
+    } else { sk.hipF = sk.hip; sk.hipB = sk.hip; }
+  }
+  const bottom = m.bottom ?? "none";
+  const legFill = bottom === "pants" ? m.bottomColor : SKETCH_LIMB;
+  const shade = (c) => shadeColor(c, 0.9);
+
+  // Côté arrière.
+  inkLimb(ctx, [sk.shoulderB, sk.elbowB, sk.handB], limbW, shade(SKETCH_LIMB));
+  inkHand(ctx, sk.elbowB, sk.handB, limbW);
+  if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handB, INK);
+  inkLimb(ctx, [sk.hipB, sk.kneeB, sk.footB], limbW * 1.1, shade(legFill));
+  inkLimb(ctx, [sk.hipF, sk.kneeF, sk.footF], limbW * 1.1, legFill);
+  if (bottom === "shorts") {
+    for (const [hp, k, f] of [[sk.hipB, sk.kneeB, shade(m.bottomColor)], [sk.hipF, sk.kneeF, m.bottomColor]]) inkLimb(ctx, [hp, lerpPt(hp, k, 0.6)], limbW * 1.9, f);
+  }
+
+  // T-shirt (ou robe) : trapèze qui suit le buste.
+  const N = sk.neck, P = sk.hip;
+  let ux = P[0] - N[0], uy = P[1] - N[1];
+  const n = Math.hypot(ux, uy) || 1;
+  ux /= n; uy /= n;
+  const vx = -uy, vy = ux;
+  const dress = m.top === "dress" || m.skirt;
+  const wTop = 0.08 * build, wBot = (dress ? 0.15 : 0.1) * build + (m.belly ?? 0) * 0.04;
+  const t0 = [N[0] + ux * 0.0, N[1] + uy * 0.0], b0 = [P[0] + ux * (dress ? 0.16 : 0.07), P[1] + uy * (dress ? 0.16 : 0.07)];
+  const tee = m.top && m.top !== "none" ? m.topColor : "#fbfbfb";
+  ctx.beginPath();
+  ctx.moveTo(t0[0] - vx * wTop, t0[1] - vy * wTop);
+  ctx.quadraticCurveTo(t0[0], t0[1] - 0.012, t0[0] + vx * wTop, t0[1] + vy * wTop);
+  ctx.lineTo(b0[0] + vx * wBot, b0[1] + vy * wBot);
+  ctx.quadraticCurveTo(b0[0] + ux * 0.012, b0[1] + uy * 0.012, b0[0] - vx * wBot, b0[1] - vy * wBot);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(t0[0] - vx * wBot * d, t0[1] - vy * wBot * d, t0[0] + vx * wBot * d, t0[1] + vy * wBot * d);
+  g.addColorStop(0, shadeColor(tee, 0.86));
+  g.addColorStop(0.45, tee);
+  g.addColorStop(1, tee);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 0.013;
+  ctx.stroke();
+  if (m.tie) {
+    ctx.fillStyle = m.detail;
+    ctx.beginPath();
+    ctx.moveTo(N[0] + ux * 0.02 - vx * 0.012, N[1] + uy * 0.02 - vy * 0.012);
+    ctx.lineTo(N[0] + ux * 0.02 + vx * 0.012, N[1] + uy * 0.02 + vy * 0.012);
+    ctx.lineTo(N[0] + ux * 0.17, N[1] + uy * 0.17);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Côté avant.
+  if (p.prop === "phone") drawPhone(ctx, sk, d);
+  if (p.prop === "book") drawBook(ctx, sk, d);
+  inkLimb(ctx, [sk.shoulderF, sk.elbowF, sk.handF], limbW, SKETCH_LIMB);
+  inkHand(ctx, sk.elbowF, sk.handF, limbW);
+  if (p.prop === "dumbbell") drawDumbbell(ctx, sk.handF, INK);
+
+  drawSketchHead(ctx, p, m, sk, d);
+  if (p.prop === "mask") drawMask(ctx, sk, d, p.setK ?? 0);
+  if (p.symbol) drawSymbol(ctx, p.symbol, sk, d, p);
+  ctx.restore();
+}
+
+function shadeColor(hex, f) {
+  return /^#[0-9a-f]{6}$/i.test(hex) ? shade(hex, f) : hex;
+}

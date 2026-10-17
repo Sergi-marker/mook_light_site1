@@ -9,6 +9,8 @@ await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await launchChromium({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
+// L'éditeur directement (sans passer par la page d'accueil, testée à part).
+await page.addInitScript(() => sessionStorage.setItem("animots.inApp", "1"));
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 // En mode local (sans serveur de comptes), la vérification /api/config répond 404 : c'est attendu.
@@ -90,11 +92,13 @@ await step("style prêt à l'emploi et style enregistré", async () => {
 
 await step("personnage : vêtements et galerie « Mes personnages »", async () => {
   await page.getByRole("tab", { name: "Personnages" }).click();
-  await page.locator("section.card").first().getByRole("button", { name: "Urbain (sweat)" }).click();
+  // Premier éditeur de personnage (la première carte de l'onglet est le choix du style).
+  const card = page.locator("section.card").filter({ has: page.locator("input.name-input") }).first();
+  await card.getByRole("button", { name: "Urbain (sweat)" }).click();
   const m = await page.evaluate(() => window.__videoStudio.project.settings.characters[0]);
   assert.equal(m.top, "hoodie");
-  await page.locator("section.card").first().locator("input.name-input").fill("Mon héros");
-  await page.locator("section.card").first().getByRole("button", { name: "+ Enregistrer" }).click();
+  await card.locator("input.name-input").fill("Mon héros");
+  await card.getByRole("button", { name: "+ Enregistrer" }).click();
   assert.ok(await page.getByRole("button", { name: "Mon héros" }).first().isVisible());
 });
 

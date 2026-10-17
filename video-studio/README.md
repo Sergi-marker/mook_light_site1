@@ -118,3 +118,12 @@ Tests : `node --test tests/unit/videoStudio.test.ts` (découpage, détection, po
 ## Version gratuite, installable et sur les stores
 
 Voir [STORES.md](STORES.md) : site public gratuit (Cloudflare Pages), application installable hors ligne, paquets pour le Microsoft Store, Google Play, Samsung et Huawei avec PWABuilder, et textes des fiches en français, allemand et anglais.
+
+## Audio / vidéo → dessin animé
+
+Sur la page d'accueil, choisissez **« Audio / vidéo → dessin animé »**, puis importez une vidéo ou un audio de personnes qui parlent (MP4, MOV, WebM, MP3, M4A, WAV).
+- Le **son d'origine est gardé** tel quel ; les personnes deviennent des personnages de dessin animé (style « dessin » : contour noir, tête couleur peau, t-shirt) dans une pièce dessinée.
+- **Qui parle quand** : les passages de parole sont repérés, et les deux voix sont séparées d'après leur hauteur. Si elles se ressemblent trop, l'application alterne et vous invite à vérifier ; un bouton inverse les deux personnages.
+- **Sous-titres automatiques** : la parole est retranscrite sur l'appareil par Whisper (modèle libre, environ 80 Mo téléchargés une seule fois), en français, allemand, anglais et d'autres langues.
+- **Bouche synchronisée** sur le volume réel de la voix, gestes déduits des paroles (rire, colère, réflexion…), gros plans sur celui qui parle.
+- Le fichier importé est gardé dans le navigateur : le dessin animé le retrouve après un rechargement.

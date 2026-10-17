@@ -23,6 +23,8 @@ await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 const browser = await launchChromium({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
+// L'éditeur directement (sans passer par la page d'accueil, testée à part).
+await page.addInitScript(() => sessionStorage.setItem("animots.inApp", "1"));
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 let failed = 0;

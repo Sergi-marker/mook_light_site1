@@ -244,3 +244,39 @@ test("sous-titres : plusieurs mots par ligne (pas un mot par ligne)", async () =
   const lines = wrapWords(ctx, captionWords("Pourquoi tu ne montres plus rien", true), 120);
   assert.deepEqual(lines.map((l: any[]) => l.map((w) => w.text).join(" ")), ["POURQUOI TU", "NE MONTRES", "PLUS RIEN"]);
 });
+
+test("audio → dessin animé : passages de parole, deux voix, scènes calées sur le son", async () => {
+  const { analyzeDialogue, voiceSegments, envelope, clusterSpeakers, attachText, buildDubScenes, TALK_GESTURES } = await import("../../video-studio/js/dub.js");
+  const sr = 16000, total = 7.5;
+  const parts = [[0.3, 1.8, 120], [2.3, 3.6, 230], [4.0, 5.5, 125], [6.1, 7.0, 220]];
+  const x = new Float32Array(Math.round(total * sr));
+  let seed = 1;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) - 0.5;
+  for (let i = 0; i < x.length; i++) x[i] = rnd() * 0.004;
+  for (const [a, b, f] of parts) for (let i = Math.round(a * sr); i < b * sr; i++) {
+    const t = i / sr, am = 0.5 + 0.5 * Math.sin(t * 2 * Math.PI * 4);
+    x[i] += am * 0.3 * (Math.sin(2 * Math.PI * f * t) + 0.5 * Math.sin(4 * Math.PI * f * t));
+  }
+  const segs = voiceSegments(envelope(x, sr, 50), 50);
+  assert.equal(segs.length, 4);
+  for (const [i, s] of segs.entries()) assert.ok(Math.abs(s.start - parts[i][0]) < 0.15 && Math.abs(s.end - parts[i][1]) < 0.15);
+  const r = analyzeDialogue(x, sr, { chunks: [{ text: "Tu viens courir demain ?", start: 0.3, end: 1.8 }, { text: "Oui, salut !", start: 2.3, end: 3.6 }], names: ["Paul", "Marie"] });
+  assert.ok(r.confident);
+  assert.deepEqual(r.turns.map((t: any) => t.speaker), [0, 1, 0, 1]);
+  assert.equal(r.turns[0].text, "Tu viens courir demain ?");
+  // Durées : exactement celles du son ; gestes : sur place (pas de course au milieu d'une discussion).
+  assert.ok(Math.abs(r.scenes.reduce((a: number, s: any) => a + s.duration, 0) - total) < 1e-6);
+  assert.equal(r.scenes.find((s: any) => s.kind === "scene").action, "speak");
+  assert.ok(r.scenes.filter((s: any) => s.kind === "scene").every((s: any) => TALK_GESTURES.has(s.action) && s.dub && s.figures === 2));
+  assert.equal(r.scenes.find((s: any) => s.kind === "scene" && s.speaker === 1).speakerName, "Marie");
+  // Voix identiques : on alterne et on prévient.
+  const same = clusterSpeakers([{ pitch: 200, zcr: 0.1, voiced: 5 }, { pitch: 205, zcr: 0.1, voiced: 5 }, { pitch: 198, zcr: 0.1, voiced: 5 }]);
+  assert.equal(same.confident, false);
+  assert.deepEqual(same.labels, [0, 1, 0]);
+  // Texte rattaché au passage qui le chevauche le plus.
+  const att = attachText([{ start: 0, end: 2 }, { start: 3, end: 5 }], [{ text: "a", start: 0.2, end: 1.5 }, { text: "b", start: 2.8, end: 4.9 }]);
+  assert.deepEqual(att.map((s: any) => s.text), ["a", "b"]);
+  // Une seule personne : un seul personnage.
+  const solo = buildDubScenes([{ start: 0.5, end: 2, speaker: 0, text: "Bonjour" }], 3, { speakers: 1 });
+  assert.ok(solo.every((s: any) => s.kind === "pause" || s.figures === 1));
+});

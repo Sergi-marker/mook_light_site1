@@ -26,7 +26,7 @@
   <body>
     <header class="top">
       <div>
-        <h1 class="brand-title"><img class="brand-logo" src="./img/logo.svg" alt="" width="40" height="40" /><span id="appTitle">Animots</span></h1>
+        <h1 class="brand-title"><button id="homeBtn" class="home-btn" type="button" aria-label="Accueil"><img class="brand-logo" src="./img/logo.svg" alt="" width="40" height="40" /></button><span id="appTitle">Animots</span></h1>
         <p id="tagline" class="muted"></p>
       </div>
       <div class="top-actions">
@@ -56,6 +56,7 @@
         <div id="panel" class="panel"></div>
       </div>
     </main>
+    <section id="home" class="home" hidden></section>
     <footer id="appFooter" class="app-footer muted" hidden></footer>
     <div id="toasts" class="toasts" aria-live="polite"></div>
     <script type="module" src="./js/app.js"></script>

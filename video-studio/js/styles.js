@@ -6,7 +6,7 @@ import { PRESETS } from "./figure.js";
 
 /** Réglages qui font partie d'un style (le texte, l'accroche et la langue n'en font pas partie). */
 export const STYLE_KEYS = [
-  "theme", "backdrop", "bgImage", "format", "transition", "voiceFx", "voicePitch",
+  "theme", "backdrop", "bgImage", "format", "figureStyle", "transition", "voiceFx", "voicePitch",
   "captionFont", "captionPos", "captionBox", "captionStyle", "captionColor", "captionScale", "accent", "uppercase", "speakerLabels", "progressBar",
   "characters", "music", "musicVol", "neuralVoice", "charVoice0", "charVoice1", "voiceRate",
   "handle", "logo", "logoPos", "logoSize", "outro",
@@ -15,10 +15,20 @@ export const STYLE_KEYS = [
 /** Valeurs communes aux styles prêts : un style prêt remet ces réglages à zéro (mais garde @signature et logo). */
 const BUILTIN_BASE = {
   backdrop: "none", bgImage: "", captionScale: 1, captionColor: "#ffffff", speakerLabels: true, progressBar: false,
-  voiceRate: 1, neuralVoice: "", charVoice0: "", charVoice1: "", transition: "auto", voiceFx: "natural", voicePitch: 0,
+  figureStyle: "clean", voiceRate: 1, neuralVoice: "", charVoice0: "", charVoice1: "", transition: "auto", voiceFx: "natural", voicePitch: 0,
 };
 
 export const BUILTIN_STYLES = {
+  dessin: {
+    label: ["Dessin animé (BD)", "Zeichentrick", "Cartoon"],
+    settings: {
+      ...BUILTIN_BASE,
+      figureStyle: "sketch", theme: "aube", backdrop: "cartoon", captionFont: "poppins", captionPos: "bottom", captionBox: "box", captionStyle: "words",
+      captionColor: "#ffffff", accent: "#ffd84d", uppercase: false, music: "lofi", musicVol: 0.2,
+      characters: [{ ...PRESETS.penseur.morph }, { ...PRESETS.gris.morph, color: "#c68b5e", glasses: false }],
+      outro: "Abonne-toi pour la suite",
+    },
+  },
   psy: {
     label: ["Psychologie sombre", "Psychologie dunkel", "Dark psychology"],
     settings: {
