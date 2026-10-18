@@ -14,7 +14,7 @@ const FILES = [
   "./img/logo.svg", "./img/icon-192.png", "./img/icon-512.png",
   "./js/app.js", "./js/account.js", "./js/audio.js", "./js/export.js", "./js/figure.js", "./js/i18n.js",
   "./js/kokoro-worker.js", "./js/poses.js", "./js/pwa.js", "./js/renderer.js", "./js/scenery.js", "./js/script.js",
-  "./js/dub.js", "./js/transcribe.js", "./js/whisper-worker.js", "./js/speaker-worker.js",
+  "./js/dub.js", "./js/transcribe.js", "./js/whisper-worker.js", "./js/speaker-worker.js", "./js/faces.js",
   "./js/styles.js", "./js/translate.js", "./js/voice.js", "./js/voicefx.js",
 ];
 

@@ -23,6 +23,7 @@
   le site tout seul avec `npx wrangler deploy` ; la case « Build command » de Cloudflare peut rester vide.
 - Avant d'activer de l'argent (publicité, abonnements) : rappeler qu'il faut l'accord des autorités pour son titre de séjour.
 - Deux types d'animation, proposés sur la page d'accueil : « Texte → vidéo animée » et « Audio / vidéo → dessin animé »
-  (son d'origine gardé, retranscription Whisper sur l'appareil, deux voix séparées, bouche synchronisée, style « dessin »).
+  (son d'origine gardé, retranscription Whisper mot à mot, 1 à 4 personnes reconnues par empreinte de voix WeSpeaker,
+  frise de correction, bouche qui forme les sons, ressemblance aux vraies personnes via MediaPipe, style « dessin »).
   Le propriétaire proposera d'autres types d'animation : les ajouter comme nouvelles cartes de l'accueil.
 - Tests : `npm test`, `npm run test:video`, `npm run test:matrix`, `npm run test:account`, `npm run test:free`, `npm run test:dub`.

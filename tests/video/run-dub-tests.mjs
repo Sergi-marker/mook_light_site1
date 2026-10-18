@@ -7,6 +7,24 @@
 import assert from "node:assert/strict";
 import { launchChromium } from "../playwright.mjs";
 import { videoStudioServer } from "../../scripts/serve-video.mjs";
+import { mkdir, writeFile, access, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+// Photos de test (téléchargées au premier lancement, jamais enregistrées dans le dépôt) :
+// portrait officiel (domaine public) et image de test classique d'OpenCV.
+const PHOTOS = {
+  left: "https://storage.googleapis.com/mediapipe-assets/portrait.jpg",
+  right: "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/lena.jpg",
+};
+const cacheDir = fileURLToPath(new URL("../.cache/", import.meta.url));
+const servedDir = fileURLToPath(new URL("../../video-studio/__test-photos/", import.meta.url));
+await mkdir(cacheDir, { recursive: true });
+await mkdir(servedDir, { recursive: true });
+for (const [name, url] of Object.entries(PHOTOS)) {
+  const file = `${cacheDir}${name}.jpg`;
+  try { await access(file); } catch { await writeFile(file, Buffer.from(await (await fetch(url)).arrayBuffer())); }
+  await writeFile(`${servedDir}${name}.jpg`, await (await import("node:fs/promises")).readFile(file));
+}
 
 const server = videoStudioServer();
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -15,7 +33,8 @@ const browser = await launchChromium({ args: ["--autoplay-policy=no-user-gesture
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|status of 404/.test(m.text())) errors.push(m.text()); });
+// MediaPipe écrit ses messages d'information sur la console d'erreur : ce ne sont pas des erreurs.
+page.on("console", (m) => { if (m.type() === "error" && !/fonts\.g|status of 404|^INFO:|XNNPACK/.test(m.text())) errors.push(m.text()); });
 let failed = 0;
 const step = async (name, fn) => {
   try { await fn(); console.log(`ok - ${name}`); } catch (e) { failed++; console.log(`not ok - ${name}\n  ${e.message}`); }
@@ -93,6 +112,61 @@ await step("import : retranscription, deux personnes, répliques calées sur le 
   assert.ok(Math.abs(info.sum - info.dub.duration) < 0.05, `durée ${info.sum} / ${info.dub.duration}`);
 });
 
+await step("vidéo avec de vrais visages : les personnages prennent leur allure", async () => {
+  // Vraie vidéo : deux photos côte à côte, avec le son du dialogue.
+  const made = await page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const ac = new AudioContext();
+    const audio = await ac.decodeAudioData(bytes.buffer);
+    const load = (u) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u; });
+    const [L, R] = await Promise.all([load("./__test-photos/left.jpg"), load("./__test-photos/right.jpg")]);
+    const c = document.createElement("canvas");
+    c.width = 1280; c.height = 720;
+    const g = c.getContext("2d");
+    const draw = () => {
+      g.fillStyle = "#333"; g.fillRect(0, 0, 1280, 720);
+      g.drawImage(L, 0, 0, L.width, L.height, 0, 0, 576, 720);
+      g.drawImage(R, 0, 0, R.width, R.height, 640, 0, 640, 640);
+    };
+    draw();
+    const dest = ac.createMediaStreamDestination();
+    const src = ac.createBufferSource();
+    src.buffer = audio;
+    src.connect(dest);
+    const stream = new MediaStream([...c.captureStream(15).getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const rec = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const chunks = [];
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.start();
+    src.start();
+    const t0 = performance.now();
+    await new Promise((res) => { const tick = () => { draw(); if (performance.now() - t0 < audio.duration * 1000 + 300) requestAnimationFrame(tick); else res(); }; tick(); });
+    rec.stop();
+    await new Promise((res) => (rec.onstop = res));
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const out = new Uint8Array(await blob.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode(...out.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }, video.b64);
+  await page.getByRole("tab", { name: "Audio / vidéo" }).click();
+  await page.locator('input[type="file"][accept="audio/*,video/*"]').setInputFiles({ name: "deux-personnes.webm", mimeType: "video/webm", buffer: Buffer.from(made, "base64") });
+  await page.getByRole("button", { name: /Créer le dessin animé/ }).click();
+  await page.waitForFunction(() => window.__videoStudio.project.dubInfo?.name === "deux-personnes.webm", null, { timeout: 900000 });
+  const r = await page.evaluate(() => ({ info: window.__videoStudio.project.dubInfo, chars: window.__videoStudio.project.settings.characters.slice(0, 2) }));
+  console.log(`  visages : ${r.info.faces} · personnages ressemblants : ${r.info.lookalike} · ${JSON.stringify(r.chars.map((c) => ({ peau: c.color, cheveux: c.hair, couleur: c.detail, haut: c.topColor })))}`);
+  assert.equal(r.info.faces, 2, "deux visages");
+  assert.equal(r.info.lookalike, 2, "deux personnages ressemblants");
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  // À gauche : costume bleu marine (sombre, plus bleu que rouge) et cheveux gris courts.
+  const [r0, g0, b0] = hex(r.chars[0].topColor);
+  assert.ok(r0 + g0 + b0 < 200 && b0 > r0, `vêtement ${r.chars[0].topColor}`);
+  assert.equal(r.chars[0].hair, "short");
+  // Les deux personnes n'ont pas la même couleur de peau ni le même vêtement.
+  assert.notEqual(r.chars[0].color, r.chars[1].color);
+  assert.notEqual(r.chars[0].topColor, r.chars[1].topColor);
+});
+
 await step("aperçu : la bouche suit la voix, rendu sans erreur", async () => {
   const r = await page.evaluate(async () => {
     const v = window.__videoStudio;
@@ -139,5 +213,6 @@ await step("aucune erreur JavaScript", async () => assert.deepEqual(errors, []))
 
 await browser.close();
 server.close();
+await rm(servedDir, { recursive: true, force: true });
 if (failed) { console.log(`${failed} échec(s)`); process.exit(1); }
 console.log("Audio / vidéo → dessin animé : tous les tests passent");

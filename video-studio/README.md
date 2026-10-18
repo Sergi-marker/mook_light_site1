@@ -122,8 +122,10 @@ Voir [STORES.md](STORES.md) : site public gratuit (Cloudflare Pages), applicatio
 ## Audio / vidéo → dessin animé
 
 Sur la page d'accueil, choisissez **« Audio / vidéo → dessin animé »**, puis importez une vidéo ou un audio de personnes qui parlent (MP4, MOV, WebM, MP3, M4A, WAV).
-- Le **son d'origine est gardé** tel quel ; les personnes deviennent des personnages de dessin animé (style « dessin » : contour noir, tête couleur peau, t-shirt) dans une pièce dessinée.
-- **Qui parle quand** : les passages de parole sont repérés, et les deux voix sont séparées d'après leur hauteur. Si elles se ressemblent trop, l'application alterne et vous invite à vérifier ; un bouton inverse les deux personnages.
-- **Sous-titres automatiques** : la parole est retranscrite sur l'appareil par Whisper (modèle libre, environ 80 Mo téléchargés une seule fois), en français, allemand, anglais et d'autres langues.
-- **Bouche synchronisée** sur le volume réel de la voix, gestes déduits des paroles (rire, colère, réflexion…), gros plans sur celui qui parle.
+- Le **son d'origine est gardé** tel quel ; les personnes deviennent des personnages de dessin animé (style « dessin ») dans une pièce dessinée.
+- **Qui parle, de 1 à 4 personnes** : chaque réplique reçoit une empreinte de voix (modèle WeSpeaker, ≈ 26 Mo) ; le nombre de personnes est trouvé automatiquement (ou choisi). Mesuré sur de vraies voix : 12/12 répliques justes à 4 personnes, 9/9 à 3, 6/6 à 2. À 3 ou 4 personnes, l'écran montre celui qui parle et celui à qui il répond.
+- **Frise de correction** : une couleur par personne ; toucher une réplique la donne à une autre personne.
+- **Sous-titres mot à mot** : la parole est retranscrite par Whisper (≈ 80 Mo, une seule fois), passage par passage, avec l'instant exact de chaque mot.
+- **Bouche réaliste** : la forme suit les sons (a, é, o, m, f…) et s'ouvre selon le volume réel de la voix.
+- **Ressemblance** (vidéo) : les visages sont repérés (MediaPipe, ≈ 4 Mo) ; chaque personnage prend la couleur de peau (ton naturel), les cheveux et la couleur du vêtement de la vraie personne. Quand on voit nettement qui bouge la bouche, l'image confirme qui parle.
 - Le fichier importé est gardé dans le navigateur : le dessin animé le retrouve après un rechargement.

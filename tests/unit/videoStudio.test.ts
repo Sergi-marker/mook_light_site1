@@ -280,3 +280,37 @@ test("audio → dessin animé : passages de parole, deux voix, scènes calées s
   const solo = buildDubScenes([{ start: 0.5, end: 2, speaker: 0, text: "Bonjour" }], 3, { speakers: 1 });
   assert.ok(solo.every((s: any) => s.kind === "pause" || s.figures === 1));
 });
+
+test("ressemblance : personnes de gauche à droite, qui bouge la bouche, couleurs naturelles", async () => {
+  const { groupPeople, visualSpeaker, matchVoicesToFaces, naturalSkin, regionColor, morphFromPerson } = await import("../../video-studio/js/faces.js");
+  // 20 images : visage A à gauche (bouche qui bouge de 0 à 2 s), visage B à droite (bouge de 2 à 4 s).
+  const raw = Array.from({ length: 20 }, (_, i) => {
+    const t = i * 0.2;
+    const wob = (on: boolean) => (on ? 0.1 + 0.25 * Math.abs(Math.sin(i * 1.7)) : 0.05);
+    return { t, faces: [
+      { cx: 0.25 + (i % 3) * 0.01, jaw: wob(t < 2), skin: [200, 150, 110], hair: "short", hairColor: [90, 90, 90], clothes: [25, 35, 50] },
+      { cx: 0.75, jaw: wob(t >= 2), skin: [240, 200, 180], hair: "long", hairColor: [40, 30, 20], clothes: [200, 40, 60] },
+    ] };
+  });
+  const faces = groupPeople(raw);
+  assert.equal(faces.people.length, 2);
+  assert.ok(faces.people[0].x < faces.people[1].x);
+  assert.equal(faces.people[1].hair, "long");
+  assert.equal(faces.people[0].clothes, "#192332");
+  assert.equal(visualSpeaker(faces, 0.1, 1.9), 0);
+  assert.equal(visualSpeaker(faces, 2.1, 3.9), 1);
+  assert.equal(visualSpeaker(faces, 1.95, 2.05), null); // trop court pour trancher
+  // Voix 0 parle de 2 à 4 s (donc la personne de droite), voix 1 de 0 à 2 s.
+  assert.deepEqual(matchVoicesToFaces(faces, [{ start: 2, end: 4, person: 0 }, { start: 0, end: 2, person: 1 }], 2), [1, 0]);
+  // Peau : toujours un ton naturel, même sur une photo très rouge.
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(naturalSkin("#c45855").slice(i, i + 2), 16));
+  assert.ok(r > g && g > b && r - g < 70, naturalSkin("#c45855"));
+  const m = morphFromPerson({ eyes: "big" }, faces.people[1]);
+  assert.equal(m.hair, "long");
+  assert.equal(m.top, "tshirt");
+  assert.equal(m.eyes, "big");
+  // Couleur médiane d'une zone d'image.
+  const img = { width: 4, height: 4, data: new Uint8ClampedArray(64).map((_, i) => (i % 4 === 0 ? 200 : i % 4 === 3 ? 255 : 10)) };
+  assert.deepEqual(regionColor(img, 0, 0, 4, 4), [200, 10, 10]);
+  assert.equal(regionColor(img, 10, 10, 20, 20), null);
+});

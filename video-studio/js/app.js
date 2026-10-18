@@ -15,6 +15,7 @@ import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
 import { initPwa, renderPwaUi } from "./pwa.js";
 import { analyzeDialogue, envelope, dialogueUnits, recastScenes, visemesFromWords, voiceSegments } from "./dub.js";
 import { transcribeSegments, toMono16k, voiceEmbeddings } from "./transcribe.js";
+import { analyzeFaces, visualSpeaker, matchVoicesToFaces, morphFromPerson } from "./faces.js";
 import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi, refundExport } from "./account.js";
 
 const STORE = "videoStudio.project.v1";
@@ -781,6 +782,18 @@ async function processDub(file, status, bar) {
     }
   }
   if (signal.aborted) throw new Error("ABORTED");
+  // Vidéo : visages des vraies personnes (allure des personnages, et qui bouge la bouche).
+  let faces = null;
+  if (file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|m4v)$/i.test(file.name)) {
+    status.textContent = t("dubFaces");
+    try {
+      faces = await analyzeFaces(file, buf.duration, (pr) => { bar.value = pr.done / pr.total; status.textContent = `${t("dubFaces")} ${pr.done}/${pr.total}`; }, signal);
+    } catch (e) {
+      if (e?.message === "ABORTED") throw e;
+      faces = null;
+    }
+  }
+  if (signal.aborted) throw new Error("ABORTED");
   // Qui parle : empreinte de chaque voix par le modèle de reconnaissance (repli : analyse maison).
   const { units } = dialogueUnits(mono, 16000, { words });
   const want = s.dubSpeakers ?? "auto";
@@ -798,16 +811,27 @@ async function processDub(file, status, bar) {
   status.textContent = t("dubSpeakers");
   await new Promise((r) => setTimeout(r, 0));
   const names = dubNames();
-  const res = analyzeDialogue(mono, 16000, { speakers: want === "auto" ? "auto" : Number(want), words, units, embeddings, names });
+  const visual = faces && faces.people.length >= 2 ? (u) => visualSpeaker(faces, u.start, u.end) : null;
+  const res = analyzeDialogue(mono, 16000, { speakers: want === "auto" ? "auto" : Number(want), words, units, embeddings, names, visual });
   dubBuffer = buf;
   dubLip = { env: res.env, rate: res.rate, visemes: res.visemes };
   track.buffer = buf;
   setLipSync(dubLip);
   ensureDubCharacters(res.persons);
+  // Les personnages prennent l'allure des vraies personnes (peau, cheveux, vêtement).
+  let lookalike = 0;
+  if (faces && s.dubLookalike !== false) {
+    const map = matchVoicesToFaces(faces, res.turns, res.persons);
+    map.forEach((f, v) => {
+      if (f == null || !faces.people[f]) return;
+      s.characters[v] = morphFromPerson(s.characters[v] ?? {}, faces.people[f]);
+      lookalike++;
+    });
+  }
   project.scenes = res.scenes;
   project.dubWords = words;
   project.text = res.turns.map((tr) => (res.persons > 1 ? `${names[tr.person]} : ${tr.text}` : tr.text)).join("\n");
-  project.dubInfo = { name: file.name, duration: buf.duration, confident: res.confident, persons: res.persons, speakers: res.persons, turns: res.turns.length, transcribed: words.length > 0, voiceModel: !!embeddings };
+  project.dubInfo = { name: file.name, duration: buf.duration, confident: res.confident, persons: res.persons, speakers: res.persons, turns: res.turns.length, transcribed: words.length > 0, voiceModel: !!embeddings, faces: faces?.people.length ?? 0, lookalike };
   s.voiceMode = "off";
   s.trackVol = s.trackVol ?? 1;
   pos = 0;
@@ -927,6 +951,7 @@ function dubPanel() {
       h("p", {}, `${info.turns} ${t("dubTurns")} · ${persons} ${persons > 1 ? t("dubPeople") : t("dubPerson")} · ${fmtTime(info.duration)}`),
       persons > 1 && !info.confident ? h("p", { class: "notice" }, t("dubCheckSpeakers")) : null,
       !info.transcribed ? h("p", { class: "help" }, t("dubNoSubtitles")) : null,
+      info.lookalike ? h("p", { class: "help" }, `👤 ${t("dubLookalikeDone")}`) : null,
       persons > 1 ? h("p", { class: "help" }, t("dubFriseHelp")) : null,
       friseBox,
       h("div", { class: "grid2" }, ...Array.from({ length: persons }, (_, i) => field(
@@ -957,6 +982,7 @@ function dubPanel() {
         field(t("dubSpeakersLabel"), select(String(s.dubSpeakers ?? "auto"), [["auto", t("dubAuto")], ["1", t("dubOne")], ["2", t("dubTwo")], ["3", t("dubThree")], ["4", t("dubFour")]], (v) => set({ dubSpeakers: v === "auto" ? "auto" : Number(v) }))),
         field(t("dubLangLabel"), select(s.dubLang ?? "auto", [["auto", t("dubLangAuto")], ["fr", "Français"], ["de", "Deutsch"], ["en", "English"], ["es", "Español"], ["it", "Italiano"], ["pt", "Português"], ["nl", "Nederlands"], ["tr", "Türkçe"], ["ar", "العربية"]], (v) => set({ dubLang: v })))),
       toggle(t("dubTranscribeLabel"), s.dubTranscribe !== false, (v) => set({ dubTranscribe: v })),
+      toggle(t("dubLookalikeLabel"), s.dubLookalike !== false, (v) => set({ dubLookalike: v })),
       h("div", { class: "row wrap" }, go, cancel),
       bar, status,
       h("p", { class: "help" }, t("dubHelp"))),
