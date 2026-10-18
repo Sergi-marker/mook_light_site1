@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Animots">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="22%" r="85%">
+      <stop offset="0" stop-color="#2e3170"/>
+      <stop offset="0.55" stop-color="#141533"/>
+      <stop offset="1" stop-color="#07081a"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c8ceff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#c8ceff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Projecteur et sol lumineux -->
+  <path d="M196 0 L316 0 L380 420 L132 420 Z" fill="url(#beam)"/>
+  <ellipse cx="226" cy="430" rx="132" ry="18" fill="#cdd2ff" opacity="0.35"/>
+  <!-- Bulle de parole -->
+  <path d="M300 88 h132 a40 40 0 0 1 40 40 v58 a40 40 0 0 1 -40 40 h-70 l-42 34 l8 -34 h-28 a40 40 0 0 1 -40 -40 v-58 a40 40 0 0 1 40 -40 z" fill="#ffd84d"/>
+  <circle cx="330" cy="157" r="14" fill="#14152f"/>
+  <circle cx="370" cy="157" r="14" fill="#14152f"/>
+  <circle cx="410" cy="157" r="14" fill="#14152f"/>
+  <!-- Personnage pictogramme -->
+  <g stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <g stroke="#0b0b12" stroke-width="52">
+      <path d="M210 410 L222 330 L240 410"/>
+      <path d="M222 236 L222 330"/>
+      <path d="M222 252 L176 300 L170 340"/>
+      <path d="M222 252 L262 226 L280 192"/>
+    </g>
+    <g stroke="#f1f1f3" stroke-width="40">
+      <path d="M210 410 L222 330 L240 410" stroke="#d6d7de"/>
+      <path d="M222 252 L176 300 L170 340" stroke="#d6d7de"/>
+      <path d="M222 236 L222 330" stroke-width="58"/>
+      <path d="M222 252 L262 226 L280 192"/>
+    </g>
+  </g>
+  <circle cx="218" cy="176" r="46" fill="#0b0b12"/>
+  <circle cx="218" cy="176" r="40" fill="#f1f1f3"/>
+  <ellipse cx="230" cy="170" rx="5.5" ry="8" fill="#16161e"/>
+  <ellipse cx="250" cy="170" rx="5.5" ry="8" fill="#16161e"/>
+  <path d="M228 192 q12 10 24 0" stroke="#16161e" stroke-width="5" fill="none" stroke-linecap="round"/>
+</svg>

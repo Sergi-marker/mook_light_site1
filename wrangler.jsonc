@@ -1,0 +1,14 @@
+// Cloudflare (Workers, fichiers statiques) : publie la version gratuite d'Animots.
+// La construction est lancée ici même : le site se construit et se publie avec la seule commande
+// « npx wrangler deploy », quelle que soit la commande de construction réglée dans Cloudflare.
+{
+  "name": "tsafack",
+  "compatibility_date": "2025-09-01",
+  "build": {
+    "command": "node scripts/build-free.mjs"
+  },
+  "assets": {
+    "directory": "./dist-free",
+    "not_found_handling": "404-page"
+  }
+}
