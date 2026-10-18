@@ -19,7 +19,7 @@ const env = process.env;
 
 await rm(out, { recursive: true, force: true });
 await mkdir(out, { recursive: true });
-await cp(src, out, { recursive: true, filter: (p) => !p.endsWith(".md") });
+await cp(src, out, { recursive: true, filter: (p) => !p.endsWith(".md") && !/[\\/]__[^\\/]*/.test(p.slice(src.length)) });
 
 // 1. Mode gratuit : l'application ne cherche pas de serveur de comptes.
 let html = await readFile(join(out, "index.html"), "utf8");
