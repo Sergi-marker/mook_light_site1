@@ -55,6 +55,7 @@ await step("préparation : vraie vidéo d'un dialogue (voix d'homme et de femme)
     return { b64: btoa(bin), type: blob.type, name: a.download };
   });
   assert.ok(video.b64.length > 20000);
+  if (process.env.DUB_SAVE) (await import("node:fs")).writeFileSync(process.env.DUB_SAVE, Buffer.from(video.b64, "base64"));
   console.log(`  ${video.name} (${video.type})`);
 });
 
@@ -78,7 +79,7 @@ await step("import : retranscription, deux personnes, répliques calées sur le 
       total: v.timeline.total,
     };
   });
-  console.log(`  ${info.dub.turns} répliques · voix nettement différentes : ${info.dub.confident}`);
+  console.log(`  ${info.dub.turns} répliques · voix nettement différentes : ${info.dub.confident} · modèle de voix : ${info.dub.voiceModel}`);
   for (const [i, tx] of info.texts.entries()) console.log(`  [${info.speakers[i] + 1}] ${tx}`);
   assert.ok(info.dub.transcribed, "retranscription");
   assert.ok(info.dub.turns >= 3 && info.dub.turns <= 8, `répliques : ${info.dub.turns}`);
@@ -105,7 +106,7 @@ await step("aperçu : la bouche suit la voix, rendu sans erreur", async () => {
     return { frames, open, shut };
   });
   // La bouche s'ouvre pendant la parole et se ferme dans les silences.
-  assert.ok(r.frames > 10 && r.open > 5 && r.shut > 2, JSON.stringify(r));
+  assert.ok(r.frames > 10 && r.open > 5 && r.shut > 2, JSON.stringify(r) + " total=" + (await page.evaluate(() => window.__videoStudio.timeline.total)));
 });
 
 await step("export du dessin animé avec le son d'origine", async () => {

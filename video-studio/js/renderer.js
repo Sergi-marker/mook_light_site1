@@ -4,6 +4,7 @@
 import { poseAt, lerpPose, DUO_ACTIONS } from "./poses.js";
 import { drawFigure, drawSketchFigure, figureJoints } from "./figure.js";
 import { sceneAt, rng, VOICE_LEAD, detectFx, detectTransition } from "./script.js";
+import { shapeAt } from "./dub.js";
 import { drawSetBehind, drawSetFront, drawStrings } from "./scenery.js";
 
 export const FORMATS = {
@@ -89,7 +90,7 @@ export function fontCss(id, size) {
 }
 
 /** Couleur d'étiquette de chaque personnage (nom au-dessus de sa réplique). */
-const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7"];
+const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7", "#9be7a4", "#ffd27a"];
 
 /** Géométrie de la mise en page selon le format et la position des sous-titres. */
 /** big : style « dessin », personnages plus grands et plus bas (comme les dessins animés de référence). */
@@ -442,9 +443,17 @@ function drawCaption(ctx, scene, local, duration, W, H, L, settings, alpha, voic
   const span = voiceDur != null ? voiceDur * 0.94 : Math.min(duration * 0.75, words.length / (wps * 1.25));
   const weights = words.map((w) => w.text.length + 2);
   const totalW = weights.reduce((a, b) => a + b, 0);
-  const starts = [];
+  let starts = [];
   weights.reduce((acc, w) => { starts.push(lead + (acc / totalW) * span); return acc + w; }, 0);
   starts.push(lead + span);
+  // Son importé retranscrit : chaque mot apparaît à l'instant exact où il est prononcé.
+  const timed = scene.words;
+  if (Array.isArray(timed) && timed.length) {
+    const n = words.length, m = timed.length;
+    starts = words.map((_, i) => timed[Math.min(m - 1, Math.round((i * (m - 1)) / Math.max(1, n - 1)))].t);
+    for (let i = 1; i < n; i++) starts[i] = Math.max(starts[i], starts[i - 1]);
+    starts.push(Math.max(starts[n - 1] + 0.05, timed[m - 1].e));
+  }
   const space = ctx.measureText(" ").width;
   const top = L.captionY - total / 2;
 
@@ -454,7 +463,7 @@ function drawCaption(ctx, scene, local, duration, W, H, L, settings, alpha, voic
     ctx.globalAlpha = alpha;
     ctx.font = fontCss("montserrat", size * 0.5);
     ctx.textAlign = "center";
-    ctx.fillStyle = SPEAKER_COLORS[scene.speaker] ?? accent;
+    ctx.fillStyle = SPEAKER_COLORS[scene.person ?? scene.speaker] ?? accent;
     ctx.shadowColor = "rgba(0,0,0,0.8)";
     ctx.shadowBlur = size * 0.15;
     ctx.fillText(scene.speakerName.toUpperCase(), W / 2, top - size * 0.55);
@@ -642,6 +651,14 @@ let lip = null;
 /** data = { env: Float32Array (0..1), rate: valeurs par seconde } ou null. */
 export function setLipSync(data) { lip = data; }
 
+/** Forme de la bouche (A, E, O, M, F, C) d'après les mots retranscrits, ou null. */
+export function lipShape(t) {
+  return lip?.visemes?.length ? shapeAt(lip.visemes, t) : null;
+}
+
+/** Ouverture de la bouche selon la forme du son (la voix forte ouvre plus, M ferme toujours). */
+const SHAPE_OPEN = { A: 1, E: 0.55, O: 0.75, M: 0.04, F: 0.18, C: 0.42 };
+
 /** Ouverture de la bouche (0..1) d'après le volume réel de la voix à l'instant t (s). */
 export function lipLevel(t) {
   if (!lip) return 0;
@@ -654,9 +671,13 @@ export function lipLevel(t) {
 }
 
 /** Bouche qui bouge pendant que le personnage parle (dialogue). level : volume réel (son importé). */
-function talking(p, local, voiceStart, voiceEnd, level = null) {
+function talking(p, local, voiceStart, voiceEnd, level = null, shape = null) {
   if (!TALKING_FACES.has(p.face) && p.face !== "laugh" && p.face !== "sad") return p;
-  if (level != null) return level > 0 ? { ...p, face: p.face === "angry" ? "angry" : p.face === "laugh" ? "laugh" : "talk", mouthOpen: level } : { ...p, mouthOpen: 0, face: p.face === "talk" ? "neutral" : p.face };
+  if (level != null) {
+    if (level <= 0) return { ...p, mouthOpen: 0, mouthShape: null, face: p.face === "talk" ? "neutral" : p.face };
+    const open = shape ? Math.min(1, SHAPE_OPEN[shape] * (0.55 + 0.6 * level)) : level;
+    return { ...p, face: p.face === "angry" ? "angry" : p.face === "laugh" ? "laugh" : "talk", mouthOpen: open, mouthShape: shape };
+  }
   if (local < voiceStart || local > voiceEnd || !TALKING_FACES.has(p.face)) return p;
   const m = Math.abs(Math.sin(local * 11)) * 0.7 + Math.abs(Math.sin(local * 4.3)) * 0.3;
   return { ...p, face: p.face === "angry" ? "angry" : "talk", mouthOpen: m };
@@ -680,9 +701,11 @@ function scenePoses(item, localIn) {
   // Celui qui parle remue la bouche pendant sa réplique.
   if (s.speaker === 0 || s.speaker === 1) {
     const vs = VOICE_LEAD, ve = item.voiceDur != null ? VOICE_LEAD + item.voiceDur : item.duration * 0.8;
-    const level = s.dub && lip ? lipLevel(item.start + localIn) : null;
-    if (s.speaker === 0) p0 = talking(p0, localIn, vs, ve, level);
-    else if (p1) p1 = talking(p1, localIn, vs, ve, level);
+    const g = item.start + localIn;
+    const level = s.dub && lip ? lipLevel(g) : null;
+    const shape = s.dub && lip ? lipShape(g) : null;
+    if (s.speaker === 0) p0 = talking(p0, localIn, vs, ve, level, shape);
+    else if (p1) p1 = talking(p1, localIn, vs, ve, level, shape);
   }
   return { p0, p1, duo, flip, pos };
 }
@@ -949,7 +972,11 @@ function drawScene(ctx, project, tl, t) {
 
   // Style « dessin » : grosse tête, buste plus court (proportions des dessins animés de référence).
   const sketch = settings.figureStyle === "sketch";
-  const chars = (settings.characters ?? [{}, {}]).map((c) => (sketch ? sketchMorph(c) : c));
+  const allChars = (settings.characters ?? [{}, {}]).map((c) => (sketch ? sketchMorph(c) : c));
+  // Distribution : quelles personnes sont à l'écran (mode dessin animé à 3 ou 4 personnes : duos alternés).
+  const castOf = (sc) => (Array.isArray(sc?.cast) && sc.cast.length ? sc.cast : [0, 1]);
+  const cast = castOf(item.scene);
+  const chars = [allChars[cast[0]] ?? allChars[0] ?? {}, allChars[cast[1]] ?? allChars[1] ?? allChars[0] ?? {}];
   const duoGap = Math.min(W * 0.17, L.figH * 0.62);
   const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
   const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));

@@ -184,3 +184,10 @@ body.on-home { overflow: hidden; }
 .home-card.soon { cursor: default; opacity: 0.6; border-style: dashed; }
 .home-card.soon:hover { transform: none; border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
 .home .small { font-size: 12px; }
+
+/* Frise « qui parle » du mode dessin animé */
+.dub-frise { display: flex; align-items: stretch; height: 40px; border-radius: 10px; overflow: hidden; background: rgba(255,255,255,0.06); margin: 8px 0 12px; }
+.dub-turn { border: 0; border-right: 2px solid #0b0c1d; min-width: 6px; padding: 0; font: 800 12px "Montserrat", sans-serif; color: #10111f; cursor: pointer; overflow: hidden; }
+.dub-turn:hover, .dub-turn:focus-visible { filter: brightness(1.15); outline: none; }
+.dub-gap { min-width: 0; }
+.dub-dot { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; color: #10111f; font-weight: 800; font-size: 12px; }

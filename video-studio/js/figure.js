@@ -621,9 +621,15 @@ function drawHead(ctx, sk, p, m, d) {
   const my = fy + r * 0.42;
   const open = p.mouthOpen ?? 0;
   ctx.beginPath();
-  if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
-    const w = face === "surprised" ? r * 0.16 : r * 0.28;
-    ctx.ellipse(fx, my, w, r * (0.06 + 0.2 * Math.max(open, face === "surprised" ? 0.8 : 0.15)), 0, 0, Math.PI * 2);
+  const mShape = face === "talk" ? p.mouthShape : null;
+  if (mShape === "M" || mShape === "F") {
+    ctx.moveTo(fx - r * 0.2, my);
+    ctx.lineTo(fx + r * 0.2, my);
+    ctx.stroke();
+  } else if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
+    const md = mShape ? mouthDims(mShape, open, r * 1.25) : null;
+    const w = face === "surprised" ? r * 0.16 : md ? md.w : r * 0.28;
+    ctx.ellipse(fx, my, w, md ? md.h : r * (0.06 + 0.2 * Math.max(open, face === "surprised" ? 0.8 : 0.15)), 0, 0, Math.PI * 2);
     if (darkSkin) {
       ctx.fillStyle = "#2a0b0b";
       ctx.fill();
@@ -954,6 +960,18 @@ function inkHand(ctx, elbow, hand, w) {
   }
 }
 
+/** Taille de la bouche selon la forme du son : A grande ouverte, E large, O ronde, C petite. */
+function mouthDims(shape, open, r) {
+  const o = Math.max(0.15, open);
+  switch (shape) {
+    case "A": return { w: r * 0.22, h: r * (0.08 + 0.17 * o) };
+    case "E": return { w: r * 0.27, h: r * (0.05 + 0.08 * o) };
+    case "O": return { w: r * 0.11, h: r * (0.08 + 0.12 * o) };
+    case "C": return { w: r * 0.16, h: r * (0.04 + 0.08 * o) };
+    default: return { w: r * 0.2, h: r * (0.05 + 0.16 * o) };
+  }
+}
+
 function drawSketchFace(ctx, p, m, cx, cy, r, d) {
   const face = p.face ?? "neutral";
   const fx = cx + d * r * 0.12;
@@ -1006,12 +1024,32 @@ function drawSketchFace(ctx, p, m, cx, cy, r, d) {
   const my = cy + r * 0.38, open = p.mouthOpen ?? 0;
   ctx.lineWidth = r * 0.06;
   ctx.beginPath();
-  if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
-    const w = face === "surprised" ? r * 0.12 : r * 0.2;
-    ctx.ellipse(fx, my, w, r * (0.05 + 0.16 * Math.max(open, face === "surprised" ? 0.8 : 0.2)), 0, 0, Math.PI * 2);
+  const shape = face === "talk" ? p.mouthShape : null;
+  if (shape === "M" || shape === "F") {
+    // Lèvres fermées (m, b, p) ou lèvre sous les dents (f, v).
+    ctx.moveTo(fx - r * 0.17, my);
+    ctx.lineTo(fx + r * 0.17, my);
+    ctx.stroke();
+    if (shape === "F") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(fx - r * 0.1, my - r * 0.07, r * 0.2, r * 0.06);
+      ctx.strokeRect(fx - r * 0.1, my - r * 0.07, r * 0.2, r * 0.06);
+    }
+  } else if (face === "laugh" || face === "talk" || face === "surprised" || (face === "angry" && open > 0.5)) {
+    const dims = mouthDims(shape, face === "surprised" ? 0.8 : open, r);
+    const w = face === "surprised" ? r * 0.12 : dims.w;
+    ctx.ellipse(fx, my, w, face === "surprised" ? r * (0.05 + 0.16 * 0.8) : dims.h, 0, 0, Math.PI * 2);
     ctx.fillStyle = "#5a1a1a";
     ctx.fill();
     ctx.stroke();
+    // Dents du haut pour les sons ouverts (a, è).
+    if (shape === "A" || shape === "E") {
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(fx - w, my - dims.h, w * 2, dims.h * 0.45);
+      ctx.restore();
+    }
   } else if (face === "happy") {
     ctx.arc(fx, my - r * 0.16, r * 0.22, Math.PI * 0.2, Math.PI * 0.8);
     ctx.stroke();

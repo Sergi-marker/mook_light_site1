@@ -13,8 +13,8 @@ import { VOICE_FX } from "./voicefx.js";
 import { translateLines, directScenes } from "./translate.js";
 import { t, pick, setUiLang, EXAMPLES } from "./i18n.js";
 import { initPwa, renderPwaUi } from "./pwa.js";
-import { analyzeDialogue, envelope } from "./dub.js";
-import { transcribe, toMono16k } from "./transcribe.js";
+import { analyzeDialogue, envelope, dialogueUnits, recastScenes, visemesFromWords, voiceSegments } from "./dub.js";
+import { transcribeSegments, toMono16k, voiceEmbeddings } from "./transcribe.js";
 import { initAccount, accountPanel, gateExport, exportNotice, shareButton, account, renderAccountUi, refundExport } from "./account.js";
 
 const STORE = "videoStudio.project.v1";
@@ -71,7 +71,7 @@ function normalizeProject(p, d = defaultProject()) {
 function defaultDubProject() {
   const d = defaultProject();
   applyStyle(d.settings, BUILTIN_STYLES.dessin.settings);
-  Object.assign(d.settings, { voiceMode: "off", music: "none", trackVol: 1, hook: "", outro: "", dubSpeakers: 2, dubLang: "auto", dubTranscribe: true, dubNames: ["", ""] });
+  Object.assign(d.settings, { voiceMode: "off", music: "none", trackVol: 1, hook: "", outro: "", dubSpeakers: "auto", dubLang: "auto", dubTranscribe: true, dubNames: ["", ""] });
   return { ...d, mode: "dub", text: "", scenes: [], dubInfo: null };
 }
 
@@ -533,7 +533,7 @@ function charEditor(index) {
   const color = (key) => h("input", { type: "color", value: m[key], oninput: (e) => set({ [key]: e.target.value }) });
   const mine = loadList(MY_CHARS);
   return h("section", { class: "card" },
-    h("h3", {}, t(index === 0 ? "charMain" : "charSecond")),
+    h("h3", {}, mode === "dub" ? dubNames()[index] : t(index === 0 ? "charMain" : "charSecond")),
     h("div", { class: "char" },
       mini,
       h("div", { class: "stack" },
@@ -578,7 +578,9 @@ function charsPanel() {
     save();
     draw();
   }));
-  const el = h("div", { class: "stack" }, h("section", { class: "card" }, styleSel), charEditor(0), charEditor(1));
+  const count = mode === "dub" ? Math.min(4, Math.max(2, project.dubInfo?.persons ?? 2)) : 2;
+  if (mode === "dub") ensureDubCharacters(count);
+  const el = h("div", { class: "stack" }, h("section", { class: "card" }, styleSel), ...Array.from({ length: count }, (_, i) => charEditor(i)));
   requestAnimationFrame(runMiniPreviews);
   return el;
 }
@@ -735,6 +737,19 @@ let dubBuffer = null; // son d'origine décodé (joué et exporté tel quel)
 let dubLip = null; // volume de la voix pour la bouche des personnages
 const trackStash = { text: null }; // piste importée du mode texte, mise de côté pendant le mode dessin animé
 
+/** Noms des personnes du dessin animé (« Personnage 1 »… si non renseignés). */
+function dubNames() {
+  const n = project.settings.dubNames ?? [];
+  return [0, 1, 2, 3].map((i) => n[i] || `${t("speaker")} ${i + 1}`);
+}
+
+/** Un personnage par personne (jusqu'à 4), chacun avec son allure. */
+function ensureDubCharacters(count) {
+  const s = project.settings;
+  const extra = [{ ...PRESETS.etudiante.morph }, { ...PRESETS.pro.morph, color: "#c68b5e" }];
+  while (s.characters.length < Math.min(4, Math.max(2, count))) s.characters.push(extra[s.characters.length - 2] ?? {});
+}
+
 /** Son importé → personnages, répliques, sous-titres et bouche synchronisée. */
 async function processDub(file, status, bar) {
   const s = project.settings;
@@ -751,38 +766,55 @@ async function processDub(file, status, bar) {
     throw new Error(t("dubDecodeError"));
   }
   const mono = await toMono16k(buf);
-  let chunks = [];
+  let words = [];
   if (s.dubTranscribe !== false) {
     try {
-      const r = await transcribe(mono, s.dubLang ?? "auto", (pr) => {
-        if (pr.phase === "transcribe") { status.textContent = t("dubTranscribing"); bar.removeAttribute("value"); }
+      const speech = voiceSegments(envelope(mono, 16000, 50), 50);
+      const r = await transcribeSegments(mono, speech, s.dubLang ?? "auto", (pr) => {
+        if (pr.phase === "transcribe") { status.textContent = `${t("dubTranscribing")} ${pr.done + 1}/${pr.total}`; bar.value = pr.done / Math.max(1, pr.total); }
         else if (pr.percent != null) { status.textContent = `${t("dubModelDownload")} ${pr.percent} %`; bar.value = pr.percent / 100; }
       }, signal);
-      chunks = r.chunks;
+      words = r.words ?? [];
     } catch (e) {
       if (e?.message === "ABORTED") throw e;
       toast(`${t("dubNoTranscript")} (${e?.message ?? e})`, "error");
     }
   }
   if (signal.aborted) throw new Error("ABORTED");
+  // Qui parle : empreinte de chaque voix par le modèle de reconnaissance (repli : analyse maison).
+  const { units } = dialogueUnits(mono, 16000, { words });
+  const want = s.dubSpeakers ?? "auto";
+  let embeddings = null;
+  if (want !== 1 && units.length > 1) {
+    status.textContent = t("dubVoices");
+    try {
+      embeddings = await voiceEmbeddings(units.map((u) => mono.slice(Math.floor(u.start * 16000), Math.ceil(u.end * 16000))), (pr) => {
+        if (pr.phase === "embed") { bar.value = pr.done / pr.total; status.textContent = `${t("dubVoices")} ${pr.done}/${pr.total}`; }
+        else if (pr.percent != null) { bar.value = pr.percent / 100; status.textContent = `${t("dubVoiceModel")} ${pr.percent} %`; }
+      });
+    } catch { embeddings = null; }
+  }
+  if (signal.aborted) throw new Error("ABORTED");
   status.textContent = t("dubSpeakers");
   await new Promise((r) => setTimeout(r, 0));
-  const speakers = Number(s.dubSpeakers) === 1 ? 1 : 2;
-  const names = (s.dubNames ?? []).map((n, i) => n || `${t("speaker")} ${i + 1}`);
-  const res = analyzeDialogue(mono, 16000, { speakers, chunks, names });
+  const names = dubNames();
+  const res = analyzeDialogue(mono, 16000, { speakers: want === "auto" ? "auto" : Number(want), words, units, embeddings, names });
   dubBuffer = buf;
-  dubLip = { env: res.env, rate: res.rate };
+  dubLip = { env: res.env, rate: res.rate, visemes: res.visemes };
   track.buffer = buf;
   setLipSync(dubLip);
+  ensureDubCharacters(res.persons);
   project.scenes = res.scenes;
-  project.text = res.turns.map((tr) => (speakers === 2 ? `${names[tr.speaker]} : ${tr.text}` : tr.text)).join("\n");
-  project.dubInfo = { name: file.name, duration: buf.duration, confident: res.confident, speakers, turns: res.turns.length, transcribed: chunks.length > 0 };
+  project.dubWords = words;
+  project.text = res.turns.map((tr) => (res.persons > 1 ? `${names[tr.person]} : ${tr.text}` : tr.text)).join("\n");
+  project.dubInfo = { name: file.name, duration: buf.duration, confident: res.confident, persons: res.persons, speakers: res.persons, turns: res.turns.length, transcribed: words.length > 0, voiceModel: !!embeddings };
   s.voiceMode = "off";
   s.trackVol = s.trackVol ?? 1;
-  try { await idb.put("dubSource", file); } catch { /* stockage plein : le dessin animé marche quand même jusqu'au rechargement */ }
   pos = 0;
   rebuildTimeline();
   save();
+  // Le fichier est gardé pour le retrouver après un rechargement (après la mise à jour de l'écran).
+  try { await idb.put("dubSource", file); } catch { /* stockage plein : le dessin animé marche quand même jusqu'au rechargement */ }
 }
 
 /** Au chargement : on retrouve le son du dernier dessin animé. */
@@ -810,12 +842,44 @@ async function restoreDubNow() {
     const mono = await toMono16k(buf);
     if (mode !== "dub") return;
     dubBuffer = buf;
-    dubLip = { env: envelope(mono, 16000, 50), rate: 50 };
+    dubLip = { env: envelope(mono, 16000, 50), rate: 50, visemes: visemesFromWords(project.dubWords ?? []) };
     track.buffer = buf;
     setLipSync(dubLip);
     draw();
     if (currentTab === "dub") renderPanel();
   } catch { /* fichier illisible : il faudra le réimporter */ }
+}
+
+const PERSON_COLORS = ["#8fd0ff", "#ffb3c7", "#9be7a4", "#ffd27a"];
+
+/** Frise des répliques : une couleur par personne ; toucher une réplique la donne à la personne suivante. */
+function dubTimeline(onChange) {
+  const info = project.dubInfo;
+  const total = tl.total || 1;
+  const persons = Math.max(1, info?.persons ?? 2);
+  const bar = h("div", { class: "dub-frise", role: "group", "aria-label": t("dubFrise") });
+  const names = dubNames();
+  let tAcc = 0;
+  project.scenes.forEach((sc, i) => {
+    const start = tAcc;
+    tAcc += sc.duration;
+    const w = `${(sc.duration / total) * 100}%`;
+    if (sc.kind !== "scene") { bar.append(h("span", { class: "dub-gap", style: `width:${w}` })); return; }
+    const person = sc.person ?? 0;
+    bar.append(h("button", {
+      class: "dub-turn", style: `width:${w};background:${PERSON_COLORS[person]}`, title: `${names[person]} : ${sc.text}`,
+      "aria-label": `${fmtTime(start)} ${names[person]} : ${sc.text}`,
+      onclick: () => {
+        const next = persons > 1 ? (person + 1) % persons : person;
+        project.scenes[i] = { ...sc, person: next };
+        project.scenes = recastScenes(project.scenes, dubNames());
+        rebuildTimeline();
+        seek(start + 0.01);
+        onChange();
+      },
+    }, String(person + 1)));
+  });
+  return bar;
 }
 
 function dubPanel() {
@@ -850,29 +914,48 @@ function dubPanel() {
       bar.hidden = true;
     }
   } }, `✨ ${t("dubCreate")}`);
-  const result = info ? h("section", { class: "card" },
-    h("h3", {}, t("dubResult")),
-    h("p", {}, `${info.turns} ${t("dubTurns")} · ${info.speakers} ${t("figures").toLowerCase()} · ${fmtTime(info.duration)}`),
-    info.speakers === 2 && !info.confident ? h("p", { class: "notice" }, t("dubCheckSpeakers")) : null,
-    !info.transcribed ? h("p", { class: "help" }, t("dubNoSubtitles")) : null,
-    h("div", { class: "row wrap" },
-      info.speakers === 2 ? h("button", { class: "btn", onclick: () => {
-        project.scenes = project.scenes.map((sc) => (sc.speaker === 0 || sc.speaker === 1 ? { ...sc, speaker: 1 - sc.speaker } : sc));
-        rebuildTimeline();
-        toast(t("dubSwapped"));
-      } }, `⇄ ${t("dubSwap")}`) : null,
-      h("button", { class: "btn", onclick: () => { currentTab = "scenes"; renderTabs(); renderPanel(); } }, t("dubSeeScenes")),
-      h("button", { class: "btn", onclick: () => { currentTab = "chars"; renderTabs(); renderPanel(); } }, t("dubSeeChars")))) : null;
+
+  let result = null;
+  if (info) {
+    const persons = Math.max(1, info.persons ?? info.speakers ?? 2);
+    const names = dubNames();
+    const friseBox = h("div", {});
+    const refresh = () => friseBox.replaceChildren(dubTimeline(refresh));
+    refresh();
+    result = h("section", { class: "card" },
+      h("h3", {}, t("dubResult")),
+      h("p", {}, `${info.turns} ${t("dubTurns")} · ${persons} ${persons > 1 ? t("dubPeople") : t("dubPerson")} · ${fmtTime(info.duration)}`),
+      persons > 1 && !info.confident ? h("p", { class: "notice" }, t("dubCheckSpeakers")) : null,
+      !info.transcribed ? h("p", { class: "help" }, t("dubNoSubtitles")) : null,
+      persons > 1 ? h("p", { class: "help" }, t("dubFriseHelp")) : null,
+      friseBox,
+      h("div", { class: "grid2" }, ...Array.from({ length: persons }, (_, i) => field(
+        h("span", { class: "dub-dot", style: `background:${PERSON_COLORS[i]}` }, String(i + 1)),
+        h("input", { type: "text", value: s.dubNames?.[i] ?? "", placeholder: names[i], oninput: (e) => {
+          const list = [...(s.dubNames ?? [])];
+          list[i] = e.target.value;
+          set({ dubNames: list });
+          project.scenes = recastScenes(project.scenes, dubNames());
+          rebuildTimeline();
+        } })))),
+      h("div", { class: "row wrap" },
+        persons === 2 ? h("button", { class: "btn", onclick: () => {
+          project.scenes = recastScenes(project.scenes.map((sc) => (sc.kind === "scene" ? { ...sc, person: 1 - (sc.person ?? 0) } : sc)), dubNames());
+          rebuildTimeline();
+          refresh();
+          toast(t("dubSwapped"));
+        } }, `⇄ ${t("dubSwap")}`) : null,
+        h("button", { class: "btn", onclick: () => { currentTab = "scenes"; renderTabs(); renderPanel(); } }, t("dubSeeScenes")),
+        h("button", { class: "btn", onclick: () => { currentTab = "chars"; renderTabs(); renderPanel(); } }, t("dubSeeChars"))));
+  }
   return h("div", { class: "stack" },
     h("section", { class: "card" },
       h("h3", {}, `🎬 ${t("dubTitle")}`),
       h("p", { class: "help" }, t("dubIntro")),
       h("div", { class: "row wrap" }, h("label", { class: "btn" }, `📁 ${t("dubChoose")}`, input), fileName),
       h("div", { class: "grid2" },
-        field(t("dubSpeakersLabel"), select(String(s.dubSpeakers ?? 2), [["2", t("dubTwo")], ["1", t("dubOne")]], (v) => set({ dubSpeakers: Number(v) }))),
-        field(t("dubLangLabel"), select(s.dubLang ?? "auto", [["auto", t("dubLangAuto")], ["fr", "Français"], ["de", "Deutsch"], ["en", "English"], ["es", "Español"], ["it", "Italiano"], ["pt", "Português"], ["nl", "Nederlands"], ["tr", "Türkçe"], ["ar", "العربية"]], (v) => set({ dubLang: v }))),
-        field(`${t("dubName")} 1`, h("input", { type: "text", value: s.dubNames?.[0] ?? "", placeholder: `${t("speaker")} 1`, oninput: (e) => set({ dubNames: [e.target.value, s.dubNames?.[1] ?? ""] }) })),
-        field(`${t("dubName")} 2`, h("input", { type: "text", value: s.dubNames?.[1] ?? "", placeholder: `${t("speaker")} 2`, oninput: (e) => set({ dubNames: [s.dubNames?.[0] ?? "", e.target.value] }) }))),
+        field(t("dubSpeakersLabel"), select(String(s.dubSpeakers ?? "auto"), [["auto", t("dubAuto")], ["1", t("dubOne")], ["2", t("dubTwo")], ["3", t("dubThree")], ["4", t("dubFour")]], (v) => set({ dubSpeakers: v === "auto" ? "auto" : Number(v) }))),
+        field(t("dubLangLabel"), select(s.dubLang ?? "auto", [["auto", t("dubLangAuto")], ["fr", "Français"], ["de", "Deutsch"], ["en", "English"], ["es", "Español"], ["it", "Italiano"], ["pt", "Português"], ["nl", "Nederlands"], ["tr", "Türkçe"], ["ar", "العربية"]], (v) => set({ dubLang: v })))),
       toggle(t("dubTranscribeLabel"), s.dubTranscribe !== false, (v) => set({ dubTranscribe: v })),
       h("div", { class: "row wrap" }, go, cancel),
       bar, status,
