@@ -90,3 +90,47 @@ test("lane names, muted clips, fades and lyrics survive save / load", () => {
   assert.equal(back.vocals[0].clips[0].fadeOut, 0.5);
   assert.equal(back.vocals[0].lyrics, "Couplet 1\nligne 2");
 });
+
+test("section length typed in bars: the rest of the song follows, the section's music is stretched", () => {
+  let p = createEmptyProject("sec");
+  const pat = p.patterns[0].id;
+  for (const [name, start, length] of [["Couplet", 0, 8], ["Refrain", 8, 8], ["Couplet 2", 16, 8]] as const) p = reduce(p, { type: "addSection", section: { name, start, length, color: "#888" } });
+  p = reduce(p, { type: "addClip", clip: { patternId: pat, lane: 0, start: 8, length: 8 } }); // refrain music
+  p = reduce(p, { type: "addClip", clip: { patternId: pat, lane: 0, start: 16, length: 8 } }); // couplet 2 music
+  const id = (n: string, q: Project) => q.arrangement.sections.find((s) => s.name === n)!;
+  // Refrain 8 → 16 bars.
+  const longer = reduce(p, { type: "resizeSection", sectionId: id("Refrain", p).id, length: 16, shift: true });
+  assert.deepEqual([id("Refrain", longer).start, id("Refrain", longer).length], [8, 16]);
+  assert.equal(id("Couplet 2", longer).start, 24, "next section moved");
+  assert.deepEqual(longer.arrangement.clips.map((c) => [c.start, c.length]).sort((a, b) => a[0] - b[0]), [[8, 16], [24, 8]], "refrain clip stretched, next clip moved");
+  // Back to 4 bars: the end of the refrain is removed, what follows moves back.
+  const shorter = reduce(p, { type: "resizeSection", sectionId: id("Refrain", p).id, length: 4, shift: true });
+  assert.deepEqual([id("Refrain", shorter).length, id("Couplet 2", shorter).start], [4, 12]);
+  assert.deepEqual(shorter.arrangement.clips.map((c) => [c.start, c.length]).sort((a, b) => a[0] - b[0]), [[8, 4], [12, 8]]);
+  // Without « décaler la suite »: only the section changes.
+  const alone = reduce(p, { type: "resizeSection", sectionId: id("Refrain", p).id, length: 12, shift: false });
+  assert.equal(id("Refrain", alone).length, 12);
+  assert.equal(id("Couplet 2", alone).start, 16);
+  assert.deepEqual(alone.arrangement.clips, p.arrangement.clips);
+  assert.equal(reduce(p, { type: "resizeSection", sectionId: id("Refrain", p).id, length: 8, shift: true }), p, "same length: no change");
+});
+
+test("live take: one long pattern (not a loop) holding the notes as played, placed on a free lane", () => {
+  let p = createEmptyProject("live");
+  p = reduce(p, { type: "addInstrument", preset: "sampler" });
+  const ins = p.instruments.at(-1)!;
+  p = reduce(p, { type: "addClip", clip: { patternId: p.patterns[0].id, lane: 0, start: 0, length: 16 } });
+  // 10 bars of a continuous piano: long notes, one crossing several bars.
+  const notes = [{ pitch: 60, start: 0, length: 40, velocity: 90 }, { pitch: 64, start: 37.3, length: 3.2, velocity: 70 }, { pitch: 67, start: 150, length: 9, velocity: 100 }];
+  const q = reduce(p, { type: "addLiveTake", instrumentId: ins.id, startBar: 2, bars: 10, notes, name: "Piano live 1", patternId: "pat_live" });
+  const pat = q.patterns.find((x) => x.id === "pat_live")!;
+  assert.equal(pat.stepCount, 256, "16 bars of room for a 10-bar take");
+  assert.deepEqual(pat.notes[ins.id].map((n) => [n.pitch, n.start, n.length]), [[60, 0, 40], [64, 37.3, 3.2], [67, 150, 9]], "timing kept as played");
+  const clip = q.arrangement.clips.find((c) => c.patternId === "pat_live")!;
+  assert.deepEqual([clip.start, clip.length], [2, 10]);
+  assert.equal(clip.lane, 1, "lane 0 is busy over those bars");
+  // Saved and reloaded: long patterns survive.
+  const back = parseProject(new TextEncoder().encode(projectToJson(q))).project;
+  assert.equal(back.patterns.find((x) => x.id === "pat_live")!.stepCount, 256);
+  assert.equal(reduce(p, { type: "addLiveTake", instrumentId: ins.id, startBar: 0, bars: 4, notes: [], name: "x" }), p, "no notes: nothing added");
+});

@@ -96,9 +96,22 @@ export class MixerGraph {
   }
 
   private rebuildInserts(s: Strip, ch: Channel): void {
-    for (const fx of s.inserts) fx.dispose();
+    // Effects still in the chain are kept (not rebuilt): an echo or a reverb tail keeps ringing
+    // when another effect is added, removed or switched on/off on the same track.
+    const wanted = this.inactive.has(ch.id) ? [] : ch.inserts.filter((e) => e.enabled);
+    const old = new Map(s.inserts.map((fx) => [`${fx.id}:${fx.type}`, fx]));
+    const next = wanted.map((e) => {
+      const k = `${e.id}:${e.type}`;
+      const fx = old.get(k);
+      if (!fx) return buildEffect(this.ctx, e, this.env);
+      old.delete(k);
+      fx.update(e);
+      return fx;
+    });
+    for (const fx of old.values()) fx.dispose();
     s.input.disconnect();
-    s.inserts = this.inactive.has(ch.id) ? [] : ch.inserts.filter((e) => e.enabled).map((e) => buildEffect(this.ctx, e, this.env));
+    for (const fx of next) fx.output.disconnect();
+    s.inserts = next;
     let node: AudioNode = s.input;
     for (const fx of s.inserts) {
       node.connect(fx.input);
@@ -107,6 +120,12 @@ export class MixerGraph {
     }
     node.connect(s.pan);
     s.insertSig = sig(ch.inserts);
+  }
+
+  /** Where a strip's output and sends must go right now (changes only when routing or returns change). */
+  private routeKey(ch: Channel): string {
+    const dest = ch.kind === "master" ? "out" : this.strips.has(ch.output) ? ch.output : MASTER;
+    return `${dest}|${this.strips.has(RET_REVERB)}|${this.strips.has(RET_DELAY)}`;
   }
 
   private connectOutput(s: Strip, ch: Channel): void {
@@ -127,7 +146,7 @@ export class MixerGraph {
     const dl = this.strips.get(RET_DELAY);
     if (rv && ch.kind !== "return" && ch.kind !== "master") s.sendReverb.connect(rv.input);
     if (dl && ch.kind !== "return" && ch.kind !== "master") s.sendDelay.connect(dl.input);
-    s.outputId = ch.output;
+    s.outputId = this.routeKey(ch);
   }
 
   /** Bring the graph in line with the project (create/remove strips, params, routing). */
@@ -142,12 +161,7 @@ export class MixerGraph {
         this.strips.delete(id);
       }
     // Create first so routing can find destinations.
-    let created = false;
-    for (const ch of p.channels)
-      if (!this.strips.has(ch.id)) {
-        this.createStrip(ch);
-        created = true;
-      }
+    for (const ch of p.channels) if (!this.strips.has(ch.id)) this.createStrip(ch);
     const keySig = `${p.key.root}|${p.key.scale}`;
     const keyChanged = keySig !== this.lastKeySig;
     this.lastKeySig = keySig;
@@ -162,7 +176,9 @@ export class MixerGraph {
           if (prev !== e || (keyChanged && e.type === "autopitch")) s.inserts[i]?.update(e);
         });
       }
-      if (created || s.outputId !== ch.output || !s.last) this.connectOutput(s, ch);
+      // Only strips whose destination changed are re-wired: re-wiring every strip when one track
+      // is added used to cut all channels (and echo / reverb tails) for an instant.
+      if (s.outputId !== this.routeKey(ch) || !s.last) this.connectOutput(s, ch);
       const audible = isChannelAudible(ch, p.channels);
       set(s.fader.gain, audible ? ch.volume : 0);
       set(s.pan.pan, ch.pan);

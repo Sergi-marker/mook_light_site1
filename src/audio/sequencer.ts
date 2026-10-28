@@ -93,9 +93,9 @@ export class Sequencer {
   }
 
   /** Load what one instrument needs for these pitches (preview of a just-chosen sound). */
-  async prepareInstrument(p: Project, instrumentId: string, pitches: number[]): Promise<void> {
+  async prepareInstrument(p: Project, instrumentId: string, pitches: number[], whole = false): Promise<void> {
     this.syncInstruments(p);
-    await this.voices.get(instrumentId)?.prepare(pitches);
+    await this.voices.get(instrumentId)?.prepare(pitches, whole);
   }
 
   private silenced(channelId: string): boolean {
@@ -186,9 +186,15 @@ export class Sequencer {
     v?.play({ pitch, velocity: velocity / 127, time: this.ctx.currentTime + 0.01, duration });
   }
 
-  /** Live note-on/off from a MIDI keyboard: plays a note of fixed max length. */
-  liveNote(instrumentId: string, pitch: number, velocity: number, duration: number): void {
-    this.previewNote(instrumentId, pitch, velocity, duration);
+  /**
+   * Live key down (on-screen piano, computer keyboard, MIDI): the note sounds until the returned
+   * release is called (key up / sustain pedal up). Capped at 60 s.
+   */
+  liveNoteOn(instrumentId: string, pitch: number, velocity: number): () => void {
+    const v = this.voices.get(instrumentId);
+    if (!v) return () => {};
+    const release = v.play({ pitch, velocity: velocity / 127, time: this.ctx.currentTime + 0.005, duration: 60 });
+    return () => release(this.ctx.currentTime);
   }
 
   /** Schedule everything of `pattern` at its local `step`, at audio time `time`. */

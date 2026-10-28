@@ -74,10 +74,10 @@ const maxPeak = (ms) => page.evaluate(async (ms) => {
   return peak;
 }, ms);
 
-await step("window opens on app://, 9 modules, no errors", async () => {
+await step("window opens on app://, 10 modules, no errors", async () => {
   await page.waitForSelector(".sidebar", { timeout: 30000 });
   assert.match(page.url(), /^app:\/\/studio\//);
-  assert.equal(await page.locator(".nav-item").count(), 9);
+  assert.equal(await page.locator(".nav-item").count(), 10);
   assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), "Beatmaker Studio");
   assert.deepEqual(errors, []);
 });
@@ -449,6 +449,96 @@ await step("hybrid instruments: the synth layer is heard (piano + pad, bass + su
   const after = await evalApp((id) => ({ n: window.__app.hybrids.length, hybrid: window.__app.store.getState().instruments.find((i) => i.id === id)?.hybrid }), target);
   assert.equal(after.n, before + 1);
   assert.equal(after.hybrid, await evalApp(() => window.__app.hybrids[0].name));
+});
+
+await step("🎹 JOUER: held notes from the computer keyboard, key up never stops the beat, a live take lands on the arrangement", async () => {
+  await page.click('.nav-item:has-text("JOUER")');
+  await page.waitForSelector(".live-keys");
+  // A held note keeps sounding while the key is down, and stops soon after it is released.
+  const ins = await evalApp(() => {
+    const app = window.__app;
+    app.dispatch({ type: "addInstrument", preset: "pad", name: "Nappe test" });
+    const id = app.store.getState().instruments.at(-1).id;
+    app.selectedInstrumentId = id;
+    app.emit();
+    return id;
+  });
+  await evalApp((id) => window.__app.engine.prepareLive(id), ins);
+  await page.locator(".live-keys").click({ position: { x: 5, y: 5 } }); // focus the page (not a field)
+  await page.waitForTimeout(800);
+  await page.keyboard.down("KeyA");
+  const held = await maxPeak(1500);
+  await page.keyboard.up("KeyA");
+  await page.waitForTimeout(1200);
+  const after = await maxPeak(400);
+  // The beat keeps playing when a key is released (it used to silence everything).
+  await evalApp(() => { window.__app.engine.setMode("pattern"); });
+  await page.click(".btn-play");
+  await page.waitForTimeout(300);
+  await page.keyboard.down("KeyD");
+  await page.waitForTimeout(150);
+  await page.keyboard.up("KeyD");
+  const beatAfterKeyUp = await maxPeak(800);
+  await page.click(".btn-play");
+  // Live take: 1 bar count-in, then a long chord held across 3 bars.
+  const bpm = await evalApp(() => window.__app.store.getState().bpm);
+  const bar = (240 / bpm) * 1000;
+  await evalApp(() => { window.__app.engine.cursor = 0; });
+  await page.click('.live-view button:has-text("Enregistrer")');
+  await page.waitForFunction(() => window.__app.liveRec && window.__app.engine.currentPosition() >= 0.5, null, { timeout: 15000 });
+  await page.keyboard.down("KeyA");
+  await page.keyboard.down("KeyD");
+  await page.waitForTimeout(bar * 3);
+  await page.keyboard.up("KeyA");
+  await page.keyboard.up("KeyD");
+  await page.keyboard.down("KeyG");
+  await page.waitForTimeout(bar * 0.5);
+  await page.keyboard.up("KeyG");
+  await page.click('.live-view button:has-text("Arrêter")');
+  const take = await evalApp((id) => {
+    const p = window.__app.store.getState();
+    const pat = p.patterns.find((x) => x.name.startsWith("Nappe test live"));
+    const clip = pat && p.arrangement.clips.find((c) => c.patternId === pat.id);
+    return pat && { steps: pat.stepCount, notes: pat.notes[id].map((n) => ({ pitch: n.pitch, start: +n.start.toFixed(2), length: +n.length.toFixed(2) })), clip: clip && { start: clip.start, length: clip.length } };
+  }, ins);
+  console.log(`  # note tenue ${held.toFixed(3)} → relâchée ${after.toFixed(4)} · beat après relâchement ${beatAfterKeyUp.toFixed(3)} · prise ${JSON.stringify(take)}`);
+  assert.ok(held > 0.02, "held note audible");
+  assert.ok(after < held * 0.15, "released note stops");
+  assert.ok(beatAfterKeyUp > 0.05, "the beat goes on after a key up");
+  assert.ok(take && take.notes.length === 3, "3 notes recorded");
+  const chord = take.notes.filter((n) => n.pitch === 60 || n.pitch === 64);
+  assert.ok(chord.every((n) => n.length > 16 * 2.6 && n.length < 16 * 3.4), "the chord lasts ~3 bars, as held (not cut to a loop)");
+  assert.ok(take.clip && take.clip.start === 0 && take.clip.length >= 3);
+});
+
+await step("arrangement: a section length typed in bars moves the rest of the song; adding an effect keeps the echo ringing", async () => {
+  await page.click('.nav-item:has-text("ARRANGEMENT")');
+  const r = await evalApp(async () => {
+    const app = window.__app;
+    app.dispatch({ type: "batch", actions: [
+      { type: "addSection", section: { name: "TestRefrain", start: 100, length: 8, color: "#f00" } },
+      { type: "addSection", section: { name: "TestApres", start: 108, length: 4, color: "#0f0" } },
+    ] });
+    const p = app.store.getState();
+    const sec = p.arrangement.sections.find((s) => s.name === "TestRefrain");
+    // The echo effect object survives when another effect is added on the same channel.
+    const ch = p.channels.find((c) => c.kind === "vocal");
+    app.dispatch({ type: "addEffect", channelId: ch.id, effectType: "delay" });
+    const strip = app.engine.mixer.strips.get(ch.id);
+    const delayBefore = strip.inserts.find((x) => x.type === "delay");
+    app.dispatch({ type: "addEffect", channelId: ch.id, effectType: "eq" });
+    const delayAfter = app.engine.mixer.strips.get(ch.id).inserts.find((x) => x.type === "delay");
+    return { id: sec.id, kept: delayBefore === delayAfter };
+  });
+  await page.click(`.tl-section:has-text("TestRefrain")`);
+  await page.fill('.section-inspector input[aria-label="Nombre de mesures"]', "16");
+  await page.press('.section-inspector input[aria-label="Nombre de mesures"]', "Enter");
+  const after = await evalApp(() => window.__app.store.getState().arrangement.sections.filter((s) => s.name.startsWith("Test")).map((s) => [s.name, s.start, s.length]));
+  const rulerMax = await page.$$eval(".tl-bar-num", (els) => Math.max(...els.map((e) => Number(e.textContent))));
+  console.log(`  # sections ${JSON.stringify(after)} · règle jusqu'à la mesure ${rulerMax} · écho conservé : ${r.kept}`);
+  assert.deepEqual(after, [["TestRefrain", 100, 16], ["TestApres", 116, 4]]);
+  assert.ok(rulerMax >= 120, "the ruler reaches past the last section");
+  assert.ok(r.kept, "delay not rebuilt when another effect is added");
 });
 
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));

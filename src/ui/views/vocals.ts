@@ -602,7 +602,11 @@ export function createVocalsView(app: App): View {
     frame() {
       inMeter.update(recorder.level);
       if (++tick % 15 === 0) {
-        latencyEl.textContent = recorder.isOpen ? `Monitoring ≈ ${Math.round(recorder.monitoringLatencyMs())} ms (entrée + sortie)` : "";
+        const ms = Math.round(recorder.monitoringLatencyMs());
+        // Above ~25 ms your own voice in the headphones sounds doubled (an « echo »).
+        latencyEl.textContent = !recorder.isOpen ? "" : ms > 25 && recorder.monitoringTrack
+          ? `Monitoring ≈ ${ms} ms : si tu entends ta voix en écho, coupe ce monitoring et utilise l'écoute directe de ta carte son (bouton « Direct monitor » / « Mix » sur l'interface), ou choisis la latence la plus basse dans PARAMÈTRES. Si ta carte son et l'app renvoient toutes les deux ta voix, tu l'entends deux fois.`
+          : `Monitoring ≈ ${ms} ms (entrée + sortie)`;
         recState.textContent = recorder.isRecording ? (engine.currentPosition() < 0 ? "● COUNT-IN…" : "● RECORDING") : "";
         recState.classList.toggle("on", recorder.isRecording);
         updateEffectMeters(app, body);

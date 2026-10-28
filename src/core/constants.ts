@@ -5,6 +5,8 @@ export const BPM_MAX = 220;
 export const DEFAULT_BPM = 140;
 
 export const STEP_COUNTS: readonly StepCount[] = [16, 32, 64];
+/** Every valid pattern length (long ones come from live playing). */
+export const ALL_STEP_COUNTS: readonly StepCount[] = [16, 32, 64, 128, 256, 512];
 /** The sequencer grid is in 16th notes. */
 export const STEPS_PER_BEAT = 4;
 

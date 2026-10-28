@@ -338,9 +338,16 @@ export class InstrumentVoice {
   /** Compensation for the 808 chain's compressor look-ahead (Chromium: 6 ms). */
   static readonly LOOKAHEAD_808 = 0.006;
 
-  play(ev: NoteEvent): void {
-    this.layer?.play(ev);
-    if (this.track.preset === "808") return this.play808(ev);
+  /**
+   * Schedule a note. Returns its release: calling it with an audio time ends the note there
+   * (live playing: the note lasts while the key is held), with the sound's own release.
+   */
+  play(ev: NoteEvent): (at: number) => void {
+    const releaseLayer = this.layer?.play(ev);
+    if (this.track.preset === "808") {
+      const r808 = this.play808(ev);
+      return releaseLayer ? (at) => { releaseLayer(at); r808(at); } : r808;
+    }
     const c = this.ctx;
     const s = this.track.synth;
     const t = ev.time;
@@ -408,7 +415,7 @@ export class InstrumentVoice {
           // live note played the instant an instrument is chosen): load it, skip this note.
           void loadInstrument(this.ctx, inst, [sp]);
           voiceGain.disconnect();
-          return;
+          return releaseLayer ?? (() => {});
         }
         const src = c.createBufferSource();
         src.buffer = buf;
@@ -535,9 +542,24 @@ export class InstrumentVoice {
       for (const src of sources) this.active.delete(src);
       voiceGain.disconnect();
     };
+    const rel = Math.max(0.03, s.release);
+    const mono = s.mono ? this.lastMono : null;
+    return (at: number) => {
+      releaseLayer?.(at);
+      if (at >= end) return;
+      const when = Math.max(at, t + 0.005);
+      const g = voiceGain.gain;
+      if (typeof g.cancelAndHoldAtTime === "function") g.cancelAndHoldAtTime(when);
+      else g.cancelScheduledValues(when);
+      g.setTargetAtTime(0, when, rel / 4);
+      for (const src of sources) {
+        try { src.stop(Math.min(stopAt, when + rel * 1.5 + 0.05)); } catch { /* already stopped */ }
+      }
+      if (mono && this.lastMono === mono) mono.end = when;
+    };
   }
 
-  private play808(ev: NoteEvent): void {
+  private play808(ev: NoteEvent): (at: number) => void {
     const p = this.track.bass808;
     const osc = this.osc808!;
     const amp = this.amp808!;
@@ -563,6 +585,15 @@ export class InstrumentVoice {
     amp.gain.setTargetAtTime(0, end, Math.max(0.01, p.release) / 4);
     this.last808End = end;
     this.last808Freq = f;
+    // Release only while this note is still the one sounding (a newer note took over otherwise).
+    return (at: number) => {
+      if (at >= end || this.last808End !== end) return;
+      const when = Math.max(at, t + 0.005);
+      if (typeof amp.gain.cancelAndHoldAtTime === "function") amp.gain.cancelAndHoldAtTime(when);
+      else amp.gain.cancelScheduledValues(when);
+      amp.gain.setTargetAtTime(0, when, Math.max(0.01, p.release) / 4);
+      this.last808End = when;
+    };
   }
 
   /** Silence everything immediately (transport stop). */

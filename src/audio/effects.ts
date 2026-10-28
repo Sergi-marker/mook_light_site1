@@ -73,6 +73,39 @@ export function makeImpulse(ctx: BaseAudioContext, decay: number, size: number, 
   return buf;
 }
 
+// --- feedback-cycle latency ----------------------------------------------------------------
+// Web Audio runs a cycle (a DelayNode feeding back into itself) one render quantum late in
+// Chromium. Measured once at start-up (128 frames when not measured: Chromium / Electron).
+let cycleFrames = 128;
+export const cycleLatencyFrames = () => cycleFrames;
+
+/** Measure the extra delay of a feedback cycle in this browser (offline, ~1 ms of work). */
+export async function calibrateCycleLatency(sampleRate = 44100): Promise<number> {
+  try {
+    const ctx = new OfflineAudioContext(1, Math.round(sampleRate * 0.05), sampleRate);
+    const imp = ctx.createBuffer(1, 1, sampleRate);
+    imp.getChannelData(0)[0] = 1;
+    const src = ctx.createBufferSource();
+    src.buffer = imp;
+    const sum = ctx.createGain();
+    const d = ctx.createDelay(1);
+    d.delayTime.value = 0.01;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.5;
+    src.connect(sum);
+    sum.connect(d).connect(fb).connect(sum);
+    sum.connect(ctx.destination);
+    src.start(0);
+    const data = (await ctx.startRendering()).getChannelData(0);
+    let at = -1;
+    for (let i = 10; i < data.length; i++) if (Math.abs(data[i]) > 0.25) { at = i; break; }
+    if (at > 0) cycleFrames = Math.max(0, Math.min(512, at - Math.round(0.01 * sampleRate)));
+  } catch {
+    /* keep the default */
+  }
+  return cycleFrames;
+}
+
 export function delaySeconds(time: ParamValue | undefined, bpm: number): number {
   const beat = 60 / bpm;
   switch (time) {
@@ -238,33 +271,77 @@ export function buildEffect(ctx: BaseAudioContext, e: Effect, env: EffectEnv): E
       });
     }
     case "delay": {
-      const split = ctx.createChannelSplitter(2);
-      const merge = ctx.createChannelMerger(2);
-      const dl = ctx.createDelay(4);
-      const dr = ctx.createDelay(4);
-      const fb = ctx.createGain();
+      // Echo with exactly one DelayNode inside the feedback loop. Browsers delay a feedback cycle
+      // by one extra render quantum (Chromium: 128 samples ≈ 3 ms per repeat): the loop delay is
+      // shortened by that measured amount, so every repeat lands exactly on the tempo.
+      //  • first repeat:  input → dIn (time) → sum                     (not in the loop)
+      //  • repeats:       sum → loop delay → tone → feedback → sum
+      //      mono:      loop = time, feedback = fb       → L and R = sum
+      //      ping-pong: loop = 2 × time               → L = sum, R = sum delayed by time
+      //      (as before: the level drops by « feedback » once per left-right round trip)
+      const q = cycleLatencyFrames() / ctx.sampleRate;
+      const inGain = ctx.createGain();
+      const dIn = ctx.createDelay(4);
+      const sum = ctx.createGain();
+      const loop = ctx.createDelay(8);
       const tone = ctx.createBiquadFilter();
       tone.type = "lowpass";
-      const inGain = ctx.createGain();
-      // Ping-pong: input → L delay → R delay → (feedback) → L delay …
-      inGain.connect(dl);
-      dl.connect(tone).connect(dr);
-      dr.connect(fb).connect(dl);
-      dl.connect(merge, 0, 0);
-      dr.connect(merge, 0, 1);
-      void split;
-      let bpmTimer: ReturnType<typeof setInterval> | null = null;
+      const fbGain = ctx.createGain();
+      const dR = ctx.createDelay(4);
+      const toneR = ctx.createBiquadFilter();
+      toneR.type = "lowpass";
+      const ppR = ctx.createGain();
+      const monoR = ctx.createGain();
+      const merge = ctx.createChannelMerger(2);
+      // Short duck of the echo when its time changes: the time jumps instead of gliding (a glide
+      // bends the pitch of the repeats — the « wobbly » echo).
+      const duck = ctx.createGain();
+      inGain.connect(dIn).connect(sum);
+      sum.connect(loop).connect(tone).connect(fbGain).connect(sum);
+      sum.connect(merge, 0, 0);
+      sum.connect(monoR).connect(merge, 0, 1);
+      sum.connect(dR).connect(toneR).connect(ppR).connect(merge, 0, 1);
+      merge.connect(duck);
       let current = e;
-      const applyTime = () => {
-        const s = delaySeconds(current.params.time, env.bpm());
-        dl.delayTime.setTargetAtTime(s, t(), 0.02);
-        dr.delayTime.setTargetAtTime(current.params.pingPong === false ? 0.0001 : s, t(), 0.02);
+      let lastSig = "";
+      const settings = (x: Effect) => ({
+        s: delaySeconds(x.params.time, env.bpm()),
+        fb: Math.min(0.92, Math.max(0, num(x.params.feedback, 0.35))),
+        pp: x.params.pingPong !== false,
+      });
+      const apply = (x: Effect, first: boolean) => {
+        const { s, fb, pp } = settings(x);
+        const now = t();
+        const sigNow = `${s}|${pp}`;
+        const at = first || sigNow === lastSig ? now : now + 0.03;
+        if (!first && sigNow !== lastSig) {
+          duck.gain.cancelScheduledValues(now);
+          duck.gain.setTargetAtTime(0, now, 0.006);
+          duck.gain.setTargetAtTime(1, at, 0.012);
+        }
+        if (sigNow !== lastSig) {
+          dIn.delayTime.setValueAtTime(s, at);
+          dR.delayTime.setValueAtTime(s, at);
+          loop.delayTime.setValueAtTime(Math.max(0, (pp ? 2 * s : s) - q), at);
+          monoR.gain.setValueAtTime(pp ? 0 : 1, at);
+        }
+        if (first) {
+          fbGain.gain.value = fb;
+          ppR.gain.value = pp ? 1 : 0;
+        } else {
+          fbGain.gain.setTargetAtTime(fb, at, 0.01);
+          ppR.gain.setTargetAtTime(pp ? 1 : 0, at, 0.01);
+        }
+        const hz = num(x.params.toneHz, 5000);
+        tone.frequency.setTargetAtTime(hz, now, 0.01);
+        toneR.frequency.setTargetAtTime(hz, now, 0.01);
+        lastSig = sigNow;
       };
-      const node = dryWet(ctx, e, inGain, merge, (x) => {
+      apply(e, true);
+      let bpmTimer: ReturnType<typeof setInterval> | null = null;
+      const node = dryWet(ctx, e, inGain, duck, (x) => {
         current = x;
-        applyTime();
-        fb.gain.setTargetAtTime(Math.min(0.92, Math.max(0, num(x.params.feedback, 0.35))), t(), 0.01);
-        tone.frequency.setTargetAtTime(num(x.params.toneHz, 5000), t(), 0.01);
+        apply(x, false);
       }, () => { if (bpmTimer) clearInterval(bpmTimer); });
       // Keep tempo-synced delays in time when the BPM changes (real-time contexts only).
       if (typeof setInterval !== "undefined" && "suspend" in ctx && !(ctx instanceof OfflineAudioContext)) {
@@ -272,7 +349,7 @@ export function buildEffect(ctx: BaseAudioContext, e: Effect, env: EffectEnv): E
         bpmTimer = setInterval(() => {
           if (env.bpm() !== lastBpm) {
             lastBpm = env.bpm();
-            applyTime();
+            apply(current, false);
           }
         }, 250);
       }

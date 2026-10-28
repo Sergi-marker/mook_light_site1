@@ -98,10 +98,10 @@ const clickCanvas = async (sel, x, y, opts = {}) => {
   await page.mouse.click(box.x + x, box.y + y, opts);
 };
 
-await step("1. app opens without errors; 9 modules", async () => {
+await step("1. app opens without errors; 10 modules", async () => {
   await page.goto(url);
   await page.waitForSelector(".sidebar");
-  assert.equal(await page.locator(".nav-item").count(), 9);
+  assert.equal(await page.locator(".nav-item").count(), 10);
   assert.deepEqual(errors, []);
 });
 

@@ -6,7 +6,8 @@ import type { Key } from "./music.ts";
 
 export type InstrumentKind = "kick" | "snare" | "clap" | "closedHat" | "openHat" | "perc" | "808";
 
-export type StepCount = 16 | 32 | 64;
+/** 16 / 32 / 64 from the step sequencer; 128 / 256 / 512 for takes played live (up to 32 bars). */
+export type StepCount = 16 | 32 | 64 | 128 | 256 | 512;
 
 export interface Step {
   on: boolean;

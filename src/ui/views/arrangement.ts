@@ -78,7 +78,15 @@ export function createArrangementView(app: App): View {
   const el = h("section", { class: "view arrangement-view", tabindex: 0 }, toolbar, palette, help, inspector, scroll);
 
   const spb = () => stepsPerBarOf(store.getState());
-  const totalBars = (p: Project) => Math.max(32, songLengthBars(p) + 8, p.arrangement.loop.end + 4);
+  // Enough bars to fill the window and go past the last clip AND the last section, so the ruler
+  // always shows where you are (no need to drag something to the right to make bars appear).
+  const totalBars = (p: Project) => Math.max(
+    32, songLengthBars(p) + 8, p.arrangement.loop.end + 4,
+    p.arrangement.sections.reduce((m, s) => Math.max(m, s.start + s.length), 0) + 8,
+    Math.ceil((scroll.clientWidth - HEAD_W) / barW) + 1,
+  );
+  /** « Décaler la suite » when a section length is typed (remembered while the view lives). */
+  let shiftAfter = true;
   const barAtX = (x: number) => Math.max(0, (x - HEAD_W) / barW);
   const snapBar = (b: number) => Math.max(0, Math.round(b / Math.max(0.25, snap)) * Math.max(0.25, snap));
   const snapStep = (st: number) => Math.max(0, Math.round(st / (snap * spb())) * (snap * spb()));
@@ -227,12 +235,24 @@ export function createArrangementView(app: App): View {
       elm.setPointerCapture(e.pointerId);
       let moved = false;
       let dx = 0, dL = 0;
+      // Live info while dragging: start bar and length, as they will be dropped.
+      const info = h("div", { class: "drag-info" });
+      const start0 = (left0 - HEAD_W) / barW, len0 = (w0 + 1) / barW;
+      const fmt = (b: number) => (Number.isInteger(b) ? String(b) : b.toFixed(2).replace(/\.?0+$/, ""));
+      const showInfo = () => {
+        const d = dx / barW;
+        const start = mode === "move" ? snapBar(start0 + d) : mode === "trim" ? snapBar(start0 + d) : start0;
+        const len = mode === "resize" ? Math.max(snap || 1, snapBar(len0 + d)) : mode === "trim" ? Math.max(snap || 1, len0 - (start - start0)) : len0;
+        info.textContent = `mesure ${fmt(start + 1)} · ${fmt(len)} mes.`;
+      };
       const mv = (ev: PointerEvent) => {
         dx = ev.clientX - x0;
         dL = opts.lanes ? Math.round((ev.clientY - y0) / LANE_H) : 0;
         if (Math.abs(dx) > 3 || Math.abs(ev.clientY - y0) > 3) moved = true;
         if (!moved) return;
         elm.classList.add("dragging");
+        if (!info.isConnected) elm.append(info);
+        showInfo();
         if (mode === "resize") elm.style.width = `${Math.max(4, w0 + dx)}px`;
         else if (mode === "trim") {
           elm.style.left = `${left0 + dx}px`;
@@ -240,6 +260,7 @@ export function createArrangementView(app: App): View {
         } else elm.style.transform = `translate(${dx}px, ${dL * LANE_H}px)`;
       };
       const up = () => {
+        info.remove();
         elm.removeEventListener("pointermove", mv);
         elm.removeEventListener("pointerup", up);
         elm.removeEventListener("pointercancel", up);
@@ -263,6 +284,31 @@ export function createArrangementView(app: App): View {
     inspector.textContent = "";
     if (selected.size !== 1) return;
     const id = [...selected][0];
+    const sec = p.arrangement.sections.find((s) => s.id === id);
+    if (sec) {
+      const nameIn = h("input", { type: "text", value: sec.name, "aria-label": "Nom de la section", onchange: () => nameIn.value.trim() && app.dispatch({ type: "updateSection", sectionId: sec.id, patch: { name: nameIn.value.trim().slice(0, 30) } }) }) as HTMLInputElement;
+      const startIn = h("input", { type: "number", min: 1, max: 999, step: 1, value: sec.start + 1, "aria-label": "Mesure de début", style: "width:70px", onchange: () => {
+        const v = Math.round(Number(startIn.value));
+        if (v >= 1) app.dispatch({ type: "updateSection", sectionId: sec.id, patch: { start: v - 1 } });
+      } }) as HTMLInputElement;
+      const setLen = (n: number) => {
+        if (!(n >= 1)) return;
+        app.dispatch({ type: "resizeSection", sectionId: sec.id, length: n, shift: shiftAfter });
+        toast(`« ${sec.name} » : ${n} mesure(s)${shiftAfter && n !== sec.length ? " — la suite du morceau a été décalée" : ""}. Ctrl+Z pour annuler.`, "ok");
+      };
+      const lenIn = h("input", { type: "number", min: 1, max: 256, step: 1, value: sec.length, "aria-label": "Nombre de mesures", style: "width:70px", onchange: () => setLen(Math.round(Number(lenIn.value))) }) as HTMLInputElement;
+      lenIn.addEventListener("keydown", (e) => { if (e.key === "Enter") setLen(Math.round(Number(lenIn.value))); });
+      const shiftBox = h("input", { type: "checkbox", checked: shiftAfter, onchange: () => (shiftAfter = shiftBox.checked) }) as HTMLInputElement;
+      inspector.append(h("div", { class: "card row-inline section-inspector" },
+        h("strong", {}, "Section"),
+        h("label", { class: "field" }, h("span", { class: "slider-label" }, "NOM"), nameIn),
+        h("label", { class: "field" }, h("span", { class: "slider-label" }, "DÉBUT (mesure)"), startIn),
+        h("label", { class: "field" }, h("span", { class: "slider-label" }, "MESURES"), lenIn),
+        ...[4, 8, 12, 16, 24, 32].map((n) => h("button", { class: `btn btn-sm ${n === sec.length ? "btn-primary" : ""}`, title: `${n} mesures`, onclick: () => setLen(n) }, String(n))),
+        h("label", { class: "row-inline", title: "Rallonger ou raccourcir la section décale tout ce qui vient après (sections, clips, voix, automation) et prolonge la musique de la section" }, shiftBox, " Décaler la suite"),
+        h("span", { class: "hint" }, `mesures ${sec.start + 1} → ${sec.start + sec.length} · ${Math.round(stepsToSeconds(sec.length * spb(), p.bpm))} s`)));
+      return;
+    }
     const pc = p.arrangement.clips.find((c) => c.id === id);
     if (pc) {
       const patSel = h("select", { "aria-label": "Pattern du clip", onchange: () => app.dispatch({ type: "updateClip", clipId: pc.id, patch: { patternId: patSel.value } }) },
@@ -328,7 +374,8 @@ export function createArrangementView(app: App): View {
     // ruler (bars + time every 4 bars)
     const ruler = h("div", { class: "tl-row tl-ruler", style: `height:32px` }, h("div", { class: "tl-head" }, "Mesure"));
     for (let b = 0; b < bars; b++) {
-      if (barW >= 18 || b % 4 === 0) ruler.append(h("span", { class: "tl-bar-num", style: `left:${HEAD_W + b * barW}px` }, String(b + 1)));
+      // Every bar numbered whenever it fits; every 2nd / 4th bar when zoomed far out.
+      if (barW >= 16 || (barW >= 9 && b % 2 === 0) || b % 4 === 0) ruler.append(h("span", { class: "tl-bar-num", style: `left:${HEAD_W + b * barW}px` }, String(b + 1)));
       if (b % 8 === 0 && barW >= 14) {
         const t = Math.round(stepsToSeconds(b * s, p.bpm));
         ruler.append(h("span", { class: "tl-time", style: `left:${HEAD_W + b * barW + 2}px` }, `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`));
@@ -362,7 +409,7 @@ export function createArrangementView(app: App): View {
     // sections
     const secRow = h("div", { class: "tl-row tl-sections", style: "height:28px" }, h("div", { class: "tl-head" }, "Sections"));
     for (const sec of p.arrangement.sections) {
-      const b = h("div", { class: `tl-section ${selected.has(sec.id) ? "selected" : ""}`, style: `left:${HEAD_W + sec.start * barW}px;width:${sec.length * barW - 1}px;background:${sec.color}`, title: `${sec.name} — mesures ${sec.start + 1} à ${sec.start + sec.length} (double-clic = renommer)` }, sec.name);
+      const b = h("div", { class: `tl-section ${selected.has(sec.id) ? "selected" : ""}`, style: `left:${HEAD_W + sec.start * barW}px;width:${sec.length * barW - 1}px;background:${sec.color}`, title: `${sec.name} — mesures ${sec.start + 1} à ${sec.start + sec.length} (clic = régler le nombre de mesures, double-clic = renommer)` }, `${sec.name} · ${sec.length}`);
       b.addEventListener("contextmenu", (e) => { e.preventDefault(); app.dispatch({ type: "removeSection", sectionId: sec.id }); });
       b.addEventListener("dblclick", () => {
         const n = window.prompt("Nom de la section :", sec.name);

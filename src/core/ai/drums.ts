@@ -1,7 +1,7 @@
 // AI DRUM GENERATOR: genre-specific probability grids + energy / complexity / swing.
 // Produces ordinary editable steps (velocity, rolls) for the 7 drum lanes.
 
-import type { InstrumentKind, Step } from "../types.ts";
+import type { InstrumentKind, Step, StepCount } from "../types.ts";
 import type { Genre } from "./prompt.ts";
 import { rng } from "./rng.ts";
 import { parseGrid, type StyleDef } from "./styles.ts";
@@ -10,7 +10,7 @@ export interface DrumGenOptions {
   genre: Genre;
   energy: number;
   complexity: number;
-  stepCount: 16 | 32 | 64;
+  stepCount: StepCount;
   seed: number;
   /** Variation used for chorus / verse differences (0 = base). */
   variation?: number;

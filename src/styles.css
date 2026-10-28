@@ -416,3 +416,16 @@ label.check { display: inline-flex; align-items: center; gap: 6px; cursor: point
 .hybrid-current { margin-top: 8px; }
 .hybrid-lib ul { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
 .hybrid-lib li { display: flex; gap: 6px; align-items: center; }
+/* Arrangement: live bar info while dragging, section inspector */
+.drag-info { position: absolute; top: -22px; left: 0; white-space: nowrap; background: #000c; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 4px; pointer-events: none; z-index: 5; }
+.section-inspector input[type="number"] { text-align: center; }
+.tl-section.dragging, .tl-clip.dragging, .tl-aclip.dragging { overflow: visible; }
+
+/* 🎹 JOUER: on-screen keyboard */
+.live-keys { --kw: calc(100% / var(--whites)); position: relative; display: flex; height: 180px; margin: 12px 0; user-select: none; touch-action: none; }
+.live-key.white { flex: 1; background: #f4f4f5; border: 1px solid #27272a; border-radius: 0 0 5px 5px; position: relative; }
+.live-key.black { position: absolute; top: 0; width: calc(var(--kw) * 0.6); height: 62%; background: #18181b; border-radius: 0 0 4px 4px; z-index: 2; border: 1px solid #000; }
+.live-key.on.white { background: var(--accent-2); }
+.live-key.on.black { background: var(--accent); }
+.live-key-name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #52525b; pointer-events: none; }
+.live-rec-info { color: var(--danger); font-weight: 600; min-height: 1.2em; }

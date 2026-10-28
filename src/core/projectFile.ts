@@ -1,4 +1,4 @@
-import { DEFAULT_VELOCITY, INSTRUMENTS, PITCH_RANGE, PROJECT_FORMAT, PROJECT_VERSION, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX, DEFAULT_BPM } from "./constants.ts";
+import { DEFAULT_VELOCITY, INSTRUMENTS, PITCH_RANGE, PROJECT_FORMAT, PROJECT_VERSION, ALL_STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX, DEFAULT_BPM } from "./constants.ts";
 import { SCALES, type ScaleId } from "./music.ts";
 import {
   busChannels, clamp, clampBpm, createEmptyProject, createInstrument, createVocalTrack, drumChannel, emptySteps,
@@ -154,7 +154,7 @@ function parseChannel(c: unknown, fallback: Channel): Channel {
 
 function migrateV1(p: Obj, warnings: string[], sampleIds: Set<string>): Project {
   const base = createEmptyProject(str(p.name, "Untitled Beat"));
-  const stepCount: StepCount = STEP_COUNTS.includes(p.stepCount as StepCount) ? (p.stepCount as StepCount) : 16;
+  const stepCount: StepCount = ALL_STEP_COUNTS.includes(p.stepCount as StepCount) ? (p.stepCount as StepCount) : 16;
   const tracks: Track[] = [];
   const channels: Channel[] = [];
   const drums: Record<string, Step[]> = {};
@@ -269,7 +269,7 @@ function parseV2(p: Obj, warnings: string[], sampleIds: Set<string>, assetIds: S
 
   const patterns: Pattern[] = arr(p.patterns).flatMap((raw, i): Pattern[] => {
     if (!isObj(raw)) return [];
-    const stepCount: StepCount = STEP_COUNTS.includes(raw.stepCount as StepCount) ? (raw.stepCount as StepCount) : 16;
+    const stepCount: StepCount = ALL_STEP_COUNTS.includes(raw.stepCount as StepCount) ? (raw.stepCount as StepCount) : 16;
     const drumsRaw = isObj(raw.drums) ? raw.drums : {};
     const notesRaw = isObj(raw.notes) ? raw.notes : {};
     return [{

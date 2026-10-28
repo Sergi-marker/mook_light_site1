@@ -3,6 +3,7 @@ import { AudioEngine } from "/app/audio/engine.js";
 import { renderProject } from "/app/audio/render.js";
 import { ProjectStore } from "/app/core/store.js";
 import { createEmptyProject, effect } from "/app/core/project.js";
+import { calibrateCycleLatency } from "/app/audio/effects.js";
 import { reduce } from "/app/core/reducer.js";
 import { TEMPLATES, projectFromTemplate } from "/app/core/templates.js";
 import { SOUND_LIBRARY, soundParams } from "/app/core/soundLibrary.js";
@@ -278,6 +279,37 @@ window.tests = {
       delayOnsets: onsets(dl.getChannelData(0), SR, 0.02, 0.05),
       mutedOnsets: onsets(muted.getChannelData(0), SR), soloOnsets: onsets(soloed.getChannelData(0), SR),
     };
+  },
+  /** A click through the Delay insert: where each repeat lands (mono and ping-pong). */
+  async delayRepeats() {
+    const out = { cycleFrames: await calibrateCycleLatency(SR) };
+    for (const pingPong of [false, true]) {
+      let p = empty();
+      p = reduce(p, { type: "setBpm", bpm: 120 });
+      const v = p.vocals[0];
+      const ctx = new OfflineAudioContext(1, 1, SR);
+      // One-sample click 10 ms into a 20 ms clip (away from the clip's fades): easy to locate.
+      const click = ctx.createBuffer(1, Math.round(SR * 0.02), SR);
+      click.getChannelData(0)[Math.round(SR * 0.01)] = 0.9;
+      const asset = { id: "a1", name: "click", sampleRate: SR, frames: click.length, channels: 1 };
+      p = reduce(p, { type: "setInserts", channelId: v.id, inserts: [effect("delay", { time: 300, feedback: 0.7, mix: 1, pingPong, toneHz: 18000 })] });
+      p = reduce(p, { type: "addTake", trackId: v.id, take: { id: "t1", name: "Take 1", assetId: "a1", startStep: 0, recordedAt: "" }, asset, clip: { takeId: "t1", start: 0, offset: 0, duration: 0.02, gainDb: 0 } });
+      p = reduce(p, { type: "addClip", clip: { patternId: p.patterns[0].id, lane: 0, start: 0, length: 2 } });
+      const buf = await renderProject(p, { samples: new Map(), assets: new Map([["a1", click]]) }, { mode: "song", tail: 0 });
+      const where = (ch) => {
+        const d = buf.getChannelData(ch);
+        const res = [];
+        for (let n = 1; n <= 6; n++) {
+          const c = Math.round((n * 0.3 + 0.01) * SR), w = Math.round(0.02 * SR);
+          let best = 0, at = -1;
+          for (let i = c - w; i < c + w; i++) if (Math.abs(d[i]) > best) { best = Math.abs(d[i]); at = i; }
+          res.push({ n, ms: Math.round(((at / SR) - n * 0.3 - 0.01) * 10000) / 10, level: Math.round(best * 1000) / 1000 });
+        }
+        return res;
+      };
+      out[pingPong ? "pingPong" : "mono"] = { left: where(0), right: where(1) };
+    }
+    return out;
   },
   async songModeAndVocals() {
     let p = empty();

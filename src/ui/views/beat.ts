@@ -1,6 +1,6 @@
 import { generateDrums } from "../../core/ai/drums.ts";
 import { STYLE_FAMILIES, STYLES, styleById } from "../../core/ai/styles.ts";
-import { instrumentDef, PITCH_RANGE, STEP_COUNTS, STEPS_PER_BEAT } from "../../core/constants.ts";
+import { ALL_STEP_COUNTS, instrumentDef, PITCH_RANGE, STEPS_PER_BEAT } from "../../core/constants.ts";
 import { currentPattern, getChannel } from "../../core/project.ts";
 import type { Action } from "../../core/reducer.ts";
 import type { Project, Step, StepCount, Track } from "../../core/types.ts";
@@ -30,7 +30,7 @@ const VEL_STEP = 8;
 export function createBeatView(app: App): View {
   const { store, engine } = app;
   const stepsSelect = h("select", { "aria-label": "Nombre de steps", onchange: () => app.dispatch({ type: "setStepCount", stepCount: Number(stepsSelect.value) as StepCount }) },
-    ...STEP_COUNTS.map((n) => h("option", { value: n }, `${n} steps`)));
+    ...ALL_STEP_COUNTS.map((n) => h("option", { value: n }, n > 64 ? `${n} steps (${n / 16} mesures, jeu live)` : `${n} steps`)));
   const genreSel = h("select", { "aria-label": "Style du générateur" }, ...STYLE_FAMILIES.map((fam) => h("optgroup", { label: fam },
     ...STYLES.filter((x) => x.family === fam).map((x) => h("option", { value: x.id }, x.label)))));
   const humanAmt = h("input", { type: "range", min: 0, max: 1, step: 0.05, value: 0.5, "aria-label": "Quantité d'humanisation", title: "Quantité d'humanisation" });

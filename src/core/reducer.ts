@@ -1,4 +1,4 @@
-import { PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
+import { ALL_STEP_COUNTS, PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
 import { isSampledInstrument } from "./sampleLibrary.ts";
 import { drumKit, isDrumSample } from "./drumSamples.ts";
@@ -103,6 +103,16 @@ export type Action =
   | { type: "addAudioClips"; trackId: string; clips: Omit<AudioClip, "id">[] }
   /** Insert (bars > 0) or delete (bars < 0) time at bar `at`, shifting everything after it. */
   | { type: "insertBars"; at: number; bars: number }
+  /**
+   * A take played live: a new pattern (as long as the take, up to 32 bars) holding the notes of
+   * `instrumentId` (steps from the start of the take), placed on the arrangement at `startBar`.
+   */
+  | { type: "addLiveTake"; instrumentId: string; startBar: number; bars: number; notes: Omit<Note, "id">[]; name: string; patternId?: string }
+  /**
+   * Section length typed in bars. `shift`: what follows moves (bars inserted / removed at the end
+   * of the section), and the clips that ended with the section are stretched with it.
+   */
+  | { type: "resizeSection"; sectionId: string; length: number; shift: boolean }
   // Vocals
   | { type: "addVocalTrack"; role: VocalRole; name?: string; /** Fixed id (several actions in one batch). */ id?: string }
   | { type: "removeVocalTrack"; trackId: string }
@@ -272,7 +282,7 @@ export function reduce(p: Project, a: Action): Project {
       };
     }
     case "setStepCount":
-      if (!STEP_COUNTS.includes(a.stepCount)) return p;
+      if (!ALL_STEP_COUNTS.includes(a.stepCount)) return p;
       return withPattern(p, undefined, (pat) =>
         pat.stepCount === a.stepCount
           ? pat
@@ -708,6 +718,37 @@ export function reduce(p: Project, a: Action): Project {
         return [{ ...c, length: left }, right];
       });
       return changed ? { ...p, arrangement: { ...p.arrangement, clips } } : p;
+    }
+    case "addLiveTake": {
+      if (!p.instruments.some((i) => i.id === a.instrumentId) || !a.notes.length) return p;
+      const bars = Math.max(1, Math.min(32, Math.ceil(a.bars)));
+      const steps = ALL_STEP_COUNTS.find((n) => n >= bars * 16) ?? 512;
+      const pat = createPattern(p, a.name.slice(0, 40), steps, p.patterns.length);
+      if (a.patternId && !p.patterns.some((x) => x.id === a.patternId)) pat.id = a.patternId;
+      pat.notes[a.instrumentId] = a.notes.filter((n) => n.start < steps).map((n) => ({ id: newId("n"), ...cleanNote(n, steps) }));
+      const startBar = Math.max(0, Math.round(a.startBar * 4) / 4);
+      // First lane free over the take's bars (a new lane when they are all busy).
+      const busy = (lane: number) => p.arrangement.clips.some((c) => c.lane === lane && c.start < startBar + bars && c.start + c.length > startBar);
+      let lane = 0;
+      while (lane < p.arrangement.lanes && busy(lane)) lane++;
+      const lanes = Math.min(32, Math.max(p.arrangement.lanes, lane + 1));
+      const clip: PatternClip = { id: newId("clip"), patternId: pat.id, lane: Math.min(lane, 31), start: startBar, length: bars };
+      return { ...p, patterns: [...p.patterns, pat], arrangement: { ...p.arrangement, lanes, clips: [...p.arrangement.clips, clip] } };
+    }
+    case "resizeSection": {
+      const sec = p.arrangement.sections.find((s) => s.id === a.sectionId);
+      if (!sec) return p;
+      const len = Math.max(1, Math.min(256, Math.round(a.length)));
+      const delta = len - sec.length;
+      if (!delta) return p;
+      const setLen = (q: Project): Project => ({ ...q, arrangement: { ...q.arrangement, sections: q.arrangement.sections.map((s) => (s.id === sec.id ? { ...s, length: len } : s)) } });
+      if (!a.shift) return setLen(p);
+      const end = sec.start + sec.length;
+      if (delta < 0) return setLen(deleteTime(p, end + delta, -delta));
+      const q = insertTime(p, end, delta);
+      // The music of the section keeps going (a clip loops its pattern).
+      const clips = q.arrangement.clips.map((c) => (c.start >= sec.start && c.start < end && c.start + c.length === end ? { ...c, length: c.length + delta } : c));
+      return setLen({ ...q, arrangement: { ...q.arrangement, clips } });
     }
     case "insertBars": {
       const at = Math.max(0, Math.round(a.at * 4) / 4);

@@ -10,6 +10,7 @@ import type { Project } from "../core/types.ts";
 import { MixerGraph } from "./mixer.ts";
 import { Sequencer, songEndStep, type PlayMode } from "./sequencer.ts";
 import { samplesLoading } from "./sampler.ts";
+import { calibrateCycleLatency } from "./effects.ts";
 
 export type LatencyHint = AudioContextLatencyCategory | number;
 
@@ -139,6 +140,8 @@ export class AudioEngine {
       this.workletReady = false;
       this.workletError = (e as Error).message;
     }
+    // Echo repeats on the tempo: measure this browser's feedback-loop latency once.
+    await calibrateCycleLatency(ctx.sampleRate);
     this.mixer = new MixerGraph(ctx, ctx.destination, {
       bpm: () => this.getProject().bpm,
       key: () => this.getProject().key,
@@ -361,6 +364,20 @@ export class AudioEngine {
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
     await this.seq!.prepareInstrument(this.getProject(), instrumentId, [pitch]);
     this.seq!.previewNote(instrumentId, pitch, velocity, duration);
+  }
+
+  /** Live key down: the note sounds until the returned function is called (key up). */
+  liveNoteOn(instrumentId: string, pitch: number, velocity: number): () => void {
+    if (!this.seq || !this.ctx) return () => {};
+    if (this.ctx.state === "suspended") void this.ctx.resume();
+    this.seq.syncInstruments(this.getProject());
+    return this.seq.liveNoteOn(instrumentId, pitch, velocity);
+  }
+
+  /** Load what an instrument needs before live playing (all its recorded notes). */
+  async prepareLive(instrumentId: string): Promise<void> {
+    if (!this.ctx) await this.init();
+    await this.seq!.prepareInstrument(this.getProject(), instrumentId, [], true);
   }
 
   /** Play an AudioBuffer directly (take preview, generator preview). Returns a stop function. */

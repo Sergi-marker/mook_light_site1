@@ -26,7 +26,7 @@ import type { GeneratedSong } from "../core/ai/beat.ts";
 import { emptyMemory, learn, type MemoryEvent, type SoundRole, type TasteMemory } from "../core/ai/memory.ts";
 import { ProjectStore } from "../core/store.ts";
 import { projectFromTemplate } from "../core/templates.ts";
-import type { AudioAsset, AudioClip, Project, Take, Track } from "../core/types.ts";
+import type { AudioAsset, AudioClip, Note, Project, Take, Track } from "../core/types.ts";
 import { confirmDialog, h, readFileBytes, toast } from "./dom.ts";
 import {
   clearAutosave, forgetFileHandle, loadSettings, markSessionClosed, markSessionOpen, pickFile, pruneMedia,
@@ -858,6 +858,118 @@ export class App {
     this.stopPreviewBuffer = null;
   }
 
+  // --- LIVE PLAYING (🎹 JOUER, computer keyboard, MIDI keyboard) -----------------------------
+
+  /** Sustain pedal: released keys keep sounding until it is lifted. */
+  sustain = false;
+  private liveHeld = new Map<number, { release: () => void; instrumentId: string }>();
+  private sustained = new Map<number, () => void>();
+  /** Take being recorded on the arrangement (notes in steps from the take's start). */
+  liveRec: { instrumentId: string; startStep: number; notes: Omit<Note, "id">[]; open: Map<number, { start: number; velocity: number }> } | null = null;
+  /** Called on every live note (the 🎹 view lights its keys). */
+  onLiveNote: ((pitch: number, down: boolean) => void) | null = null;
+
+  /** Instrument played live: the one selected in MELODY / JOUER, else the first one. */
+  liveInstrument(): string | null {
+    const p = this.store.getState();
+    return p.instruments.find((i) => i.id === this.selectedInstrumentId)?.id ?? p.instruments[0]?.id ?? null;
+  }
+
+  /** Key down: the note sounds until liveUp (or the sustain pedal is lifted). */
+  liveDown(pitch: number, velocity: number, instrumentId = this.liveInstrument()): void {
+    if (!instrumentId) return;
+    if (!this.engine.isReady) {
+      void this.ensureAudio(); // first key: start the audio, the next keys sound
+      return;
+    }
+    this.sustained.get(pitch)?.();
+    this.sustained.delete(pitch);
+    this.liveHeld.get(pitch)?.release();
+    this.closeRecNote(pitch);
+    const release = this.engine.liveNoteOn(instrumentId, pitch, velocity);
+    this.liveHeld.set(pitch, { release, instrumentId });
+    const rec = this.liveRec;
+    if (rec && rec.instrumentId === instrumentId && this.engine.isPlaying) {
+      const pos = this.engine.currentPosition() - rec.startStep;
+      if (pos >= -0.5) rec.open.set(pitch, { start: Math.max(0, pos), velocity });
+    }
+    this.onLiveNote?.(pitch, true);
+  }
+
+  liveUp(pitch: number): void {
+    const held = this.liveHeld.get(pitch);
+    if (!held) return;
+    this.liveHeld.delete(pitch);
+    this.onLiveNote?.(pitch, false);
+    const end = () => {
+      held.release();
+      this.closeRecNote(pitch);
+    };
+    if (this.sustain) this.sustained.set(pitch, end);
+    else end();
+  }
+
+  setSustain(on: boolean): void {
+    this.sustain = on;
+    if (on) return;
+    for (const end of this.sustained.values()) end();
+    this.sustained.clear();
+    this.emit();
+  }
+
+  private closeRecNote(pitch: number): void {
+    const rec = this.liveRec;
+    const o = rec?.open.get(pitch);
+    if (!rec || !o) return;
+    rec.open.delete(pitch);
+    const end = this.engine.currentPosition() - rec.startStep;
+    rec.notes.push({ pitch, start: o.start, length: Math.max(0.25, end - o.start), velocity: o.velocity });
+  }
+
+  /**
+   * Record a take played live: the song plays from the cursor's bar after a 1-bar count-in,
+   * everything played on `instrumentId` is kept as it was played (no loop), up to 32 bars.
+   */
+  async startLiveRecording(instrumentId: string): Promise<boolean> {
+    if (this.liveRec || this.recorder.isRecording || !(await this.ensureAudio())) return false;
+    await this.engine.prepareLive(instrumentId);
+    const p = this.store.getState();
+    const spb = stepsPerBarOf(p);
+    const startStep = Math.floor(this.engine.cursor / spb) * spb;
+    this.engine.stop();
+    this.engine.setMode("song");
+    this.engine.holdAtSongEnd = true;
+    this.liveRec = { instrumentId, startStep, notes: [], open: new Map() };
+    await this.engine.play(startStep - spb);
+    this.emit();
+    return true;
+  }
+
+  /** Stop the live take: its notes become a pattern placed on the arrangement (Ctrl+Z undoes it). */
+  stopLiveRecording(quantize: 0 | 0.5 | 1 | 2 = 0): { notes: number; bars: number; startBar: number } | null {
+    const rec = this.liveRec;
+    if (!rec) return null;
+    for (const pitch of [...rec.open.keys()]) this.closeRecNote(pitch);
+    this.liveRec = null;
+    this.engine.stop();
+    this.engine.holdAtSongEnd = false;
+    const p = this.store.getState();
+    const spb = stepsPerBarOf(p);
+    // Optional quantize of the starts (the default keeps the feel of the performance).
+    const notes = rec.notes.map((n) => (quantize ? { ...n, start: Math.round(n.start / quantize) * quantize } : n)).filter((n) => n.start < 32 * spb);
+    const startBar = rec.startStep / spb;
+    if (!notes.length) {
+      this.emit();
+      return { notes: 0, bars: 0, startBar };
+    }
+    const bars = Math.min(32, Math.max(1, Math.ceil(Math.max(...notes.map((n) => n.start + n.length)) / spb)));
+    const ins = p.instruments.find((i) => i.id === rec.instrumentId);
+    const n = p.patterns.filter((x) => x.name.startsWith(`${ins?.name ?? "Live"} live`)).length + 1;
+    this.dispatch({ type: "addLiveTake", instrumentId: rec.instrumentId, startBar, bars, notes, name: `${ins?.name ?? "Live"} live ${n}` });
+    this.emit();
+    return { notes: notes.length, bars, startBar };
+  }
+
   // --- MIDI ---------------------------------------------------------------------------
 
   private midiHeld = new Map<number, { t: number; vel: number; step: number }>();
@@ -880,14 +992,15 @@ export class App {
       }
       const ins = this.selectedInstrumentId ?? p.instruments[0]?.id;
       if (!ins) return;
+      // Real held notes (the key up used to silence every instrument, the beat included).
       if (e.type === "noteon") {
-        void this.engine.previewNote(ins, e.note, e.velocity, 4);
+        this.liveDown(e.note, e.velocity, ins);
         this.midiHeld.set(e.note, { t: performance.now(), vel: e.velocity, step: this.engine.isPlaying ? this.engine.currentPosition() : -1 });
       } else {
         const held = this.midiHeld.get(e.note);
         this.midiHeld.delete(e.note);
-        this.engine.seq?.stopAll();
-        if (held && this.midiRecord && held.step >= 0 && this.engine.mode === "pattern") {
+        this.liveUp(e.note);
+        if (held && this.midiRecord && !this.liveRec && held.step >= 0 && this.engine.mode === "pattern") {
           const pat = currentPattern(p);
           const lenSteps = secondsToSteps((performance.now() - held.t) / 1000, p.bpm);
           const start = Math.round((held.step % pat.stepCount) * 4) / 4;
@@ -897,6 +1010,11 @@ export class App {
       this.emit();
     });
     this.midi.onCC((e) => {
+      // Sustain pedal (CC 64).
+      if (e.controller === 64) {
+        this.setSustain(e.value >= 64);
+        return;
+      }
       const p = this.store.getState();
       const map = p.midiMappings.find((m) => m.source === e.source);
       if (!map) return;

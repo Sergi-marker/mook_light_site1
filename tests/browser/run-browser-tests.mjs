@@ -142,6 +142,18 @@ await check("synth: mono legato glides; stereo width 0 folds to mono", async () 
   assert.ok(near(r.narrowed[0], r.narrowed[1], r.narrowed[0] * 0.02), `width 0 ${r.narrowed}`);
 });
 
+await check("delay echo: every repeat on time (mono and ping-pong), no drift", async () => {
+  const r = await run("delayRepeats");
+  console.log("      boucle de retour mesurée :", r.cycleFrames, "échantillons");
+  console.log("     ", JSON.stringify({ mono: r.mono.left.map((x) => `${x.ms}/${x.level}`), monoR: r.mono.right.map((x) => `${x.ms}/${x.level}`), pp: r.pingPong.left.map((x) => `${x.ms}/${x.level}`), ppR: r.pingPong.right.map((x) => `${x.ms}/${x.level}`) }));
+  // Mono: repeats every 300 ms on both sides, ±1 ms (a 128-sample loop used to add ~3 ms per repeat).
+  for (const x of r.mono.left) assert.ok(Math.abs(x.ms) <= 1 && x.level > 0.01, `mono repeat ${x.n}: ${x.ms} ms ${JSON.stringify(r)}`);
+  assert.ok(r.mono.right.every((x, i) => Math.abs(x.level - r.mono.left[i].level) < 1e-3), "mono: same echo both sides");
+  // Ping-pong: odd repeats left, even repeats right, on time.
+  for (const x of r.pingPong.left) if (x.n % 2 === 1) assert.ok(Math.abs(x.ms) <= 1 && x.level > 0.01, `pp L ${x.n}: ${x.ms}`);
+  for (const x of r.pingPong.right) if (x.n % 2 === 0) assert.ok(Math.abs(x.ms) <= 1 && x.level > 0.01, `pp R ${x.n}: ${x.ms}`);
+});
+
 await check("effects & routing: reverb send, compressor, master limiter, delay echo, mute, solo", async () => {
   const r = await run("effectsAndRouting");
   console.log("     ", JSON.stringify({ ...r, delayOnsets: r.delayOnsets.slice(0, 4) }));

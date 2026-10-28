@@ -9,18 +9,20 @@ import { createAiView } from "./views/ai.ts";
 import { createArrangementView } from "./views/arrangement.ts";
 import { createBeatView } from "./views/beat.ts";
 import { createHomeView } from "./views/home.ts";
+import { createLiveView } from "./views/live.ts";
 import { createMelodyView } from "./views/melody.ts";
 import { createMixerView } from "./views/mixer.ts";
 import { createProjectsView } from "./views/projects.ts";
 import { createSettingsView } from "./views/settings.ts";
 import { createVocalsView } from "./views/vocals.ts";
 
-export type Route = "home" | "beat" | "melody" | "vocals" | "mixer" | "arrangement" | "ai" | "projects" | "settings";
+export type Route = "home" | "beat" | "melody" | "live" | "vocals" | "mixer" | "arrangement" | "ai" | "projects" | "settings";
 
 const NAV: { route: Route; label: string; icon: string; key: string }[] = [
   { route: "home", label: "HOME", icon: "⌂", key: "1" },
   { route: "beat", label: "BEAT", icon: "▦", key: "2" },
   { route: "melody", label: "MELODY", icon: "♪", key: "3" },
+  { route: "live", label: "JOUER", icon: "🎹", key: "0" },
   { route: "vocals", label: "VOCALS", icon: "🎙", key: "4" },
   { route: "mixer", label: "MIXER", icon: "☰", key: "5" },
   { route: "arrangement", label: "ARRANGEMENT", icon: "▤", key: "6" },
@@ -34,6 +36,7 @@ function createView(app: App, route: Route, navigate: (r: Route) => void): View 
     case "home": return createHomeView(app, navigate);
     case "beat": return createBeatView(app);
     case "melody": return createMelodyView(app);
+    case "live": return createLiveView(app);
     case "vocals": return createVocalsView(app);
     case "mixer": return createMixerView(app);
     case "arrangement": return createArrangementView(app);
