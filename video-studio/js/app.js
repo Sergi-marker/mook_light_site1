@@ -3,8 +3,8 @@
 
 import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";
-import { drawFigure, PRESETS, SKIN_TONES, morphFrom, drawSketchFigure } from "./figure.js";
-import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS, EFFECTS, TRANSITIONS, sketchMorph, setLipSync } from "./renderer.js";
+import { drawFigure, PRESETS, SKIN_TONES, morphFrom, drawSketchFigure, EXPRESSIONS, TOPS, BOTTOMS, HATS, HAIRS, ACCESSORIES } from "./figure.js";
+import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS, EFFECTS, TRANSITIONS, WEATHERS, TIMES_OF_DAY, sketchMorph, setLipSync } from "./renderer.js";
 import { BUILTIN_STYLES, styleFrom, applyStyle } from "./styles.js";
 import { MusicPlayer, MOODS, LANGS, voicesFor, speak, stopSpeaking } from "./audio.js";
 import { recordVideo, bestMimeType } from "./export.js";
@@ -40,7 +40,7 @@ function defaultProject() {
       voiceLang: "fr", voice: "", rate: 1, pitch: 1,
       music: "melancolie", musicVol: 0.35, mic: false,
       // Décor, sous-titres et marque.
-      backdrop: "none", transition: "auto", bgImage: "", captionFont: "montserrat", captionPos: "top", captionBox: "none", captionColor: "#ffffff",
+      backdrop: "none", transition: "auto", bgImage: "", autoPlace: true, timeOfDay: "auto", weather: "auto", emotionCloseups: true, captionFont: "montserrat", captionPos: "top", captionBox: "none", captionColor: "#ffffff",
       speakerLabels: true, hook: "", outro: "", logo: "", logoPos: "tr", logoSize: 0.14,
     },
   };
@@ -436,6 +436,7 @@ function scenesPanel() {
     return it ? `${fmtTime(it.start)} · ${it.duration.toFixed(1)}${t("seconds")}` : "";
   };
   const opts = (obj) => Object.entries(obj).map(([k, v]) => [k, pick(v)]);
+  const exprOptions = [["auto", t("exprAuto")], ...Object.entries(EXPRESSIONS).filter(([k]) => k !== "talk").map(([k, v]) => [k, pick(v)])];
   const bgOptions = [["auto", t("bgStyle")], ...Object.entries(BACKDROPS).filter(([k]) => k !== "image" || project.settings.bgImage).map(([k, v]) => [k, `${t("decor")} · ${pick(v)}`]), ...Object.entries(THEMES).map(([k, v]) => [k, `${t("color")} · ${pick(v.label)}`])];
   project.scenes.forEach((s, i) => {
     const update = (patch) => {
@@ -460,7 +461,11 @@ function scenesPanel() {
         h("label", { class: "mini-field" }, h("span", {}, "🖼"), select(s.bg ?? "auto", bgOptions, (v) => update({ bg: v }))),
         duo ? null : h("label", { class: "mini-field" }, h("span", {}, "↔"), select(s.pos ?? "auto", opts(POSITIONS), (v) => update({ pos: v }))),
         h("label", { class: "mini-field" }, h("span", {}, "✨"), select(s.fx ?? "auto", opts(EFFECTS), (v) => update({ fx: v }))),
-        h("label", { class: "mini-field" }, h("span", {}, "⇄"), select(s.transition ?? "auto", opts(TRANSITIONS), (v) => update({ transition: v })))),
+        h("label", { class: "mini-field" }, h("span", {}, "⇄"), select(s.transition ?? "auto", opts(TRANSITIONS), (v) => update({ transition: v }))),
+        h("label", { class: "mini-field" }, h("span", {}, "🌦"), select(s.weather ?? "auto", opts(WEATHERS), (v) => update({ weather: v })))),
+      s.kind === "pause" ? null : h("div", { class: "row wrap" },
+        h("label", { class: "mini-field" }, h("span", {}, duo ? "🙂 1" : "🙂"), select(s.expr ?? "auto", exprOptions, (v) => update({ expr: v }))),
+        duo ? h("label", { class: "mini-field" }, h("span", {}, "🙂 2"), select(s.expr2 ?? "auto", exprOptions, (v) => update({ expr2: v }))) : null),
       mode === "dub" ? null : h("div", { class: "row wrap" },
         h("input", { type: "number", min: "0.5", max: "30", step: "0.5", class: "num", placeholder: t("auto"), value: s.duration ?? "", title: t("duration"),
           onchange: (e) => update({ duration: e.target.value ? Math.max(0.5, Number(e.target.value)) : undefined }) }),
@@ -533,6 +538,7 @@ function charEditor(index) {
   const slider = (key, min, max) => field(t(key === "build" ? "bodyBuild" : key), range(m[key], min, max, 0.01, (v) => set({ [key]: v })));
   const color = (key) => h("input", { type: "color", value: m[key], oninput: (e) => set({ [key]: e.target.value }) });
   const mine = loadList(MY_CHARS);
+  const opts = (obj) => Object.entries(obj).map(([k, v]) => [k, pick(v)]);
   return h("section", { class: "card" },
     h("h3", {}, mode === "dub" ? dubNames()[index] : t(index === 0 ? "charMain" : "charSecond")),
     h("div", { class: "char" },
@@ -557,12 +563,14 @@ function charEditor(index) {
           ...SKIN_TONES.map((c) => h("button", { class: `swatch ${m.color === c ? "on" : ""}`, style: `background:${c}`, "aria-label": c, onclick: () => set({ color: c }, true) })),
           color("color")),
         h("div", { class: "grid2" },
-          field(t("top"), h("div", { class: "row" }, select(m.top, [["none", t("none")], ["tshirt", t("tshirt")], ["hoodie", t("hoodie")], ["shirt", t("shirt")], ["dress", t("dress")]], (v) => set({ top: v })), color("topColor"))),
-          field(t("bottom"), h("div", { class: "row" }, select(m.bottom, [["none", t("none")], ["pants", t("pants")], ["shorts", t("shorts")]], (v) => set({ bottom: v })), color("bottomColor"))),
-          field(t("hair"), h("div", { class: "row" }, select(m.hair, [["none", t("hairNone")], ["short", t("hairShort")], ["long", t("hairLong")], ["bun", t("hairBun")], ["curly", t("hairCurly")], ["ponytail", t("hairPonytail")], ["spiky", t("hairSpiky")]], (v) => set({ hair: v })), color("detail"))),
-          field(t("eyes"), select(m.eyes, [["dots", t("eyesDots")], ["big", t("eyesBig")], ["lashes", t("eyesLashes")], ["sleepy", t("eyesSleepy")]], (v) => set({ eyes: v })))),
+          field(t("top"), h("div", { class: "row" }, select(m.top, opts(TOPS), (v) => set({ top: v })), color("topColor"))),
+          field(t("bottom"), h("div", { class: "row" }, select(m.skirt && m.bottom === "none" ? "skirt" : m.bottom, opts(BOTTOMS), (v) => set({ bottom: v, skirt: false })), color("bottomColor"))),
+          field(t("hair"), h("div", { class: "row" }, select(m.hair, opts(HAIRS), (v) => set({ hair: v })), color("detail"))),
+          field(t("hat"), select(m.cap && (m.hat ?? "none") === "none" ? "cap" : m.hat ?? "none", opts(HATS), (v) => set({ hat: v, cap: false }))),
+          field(t("eyes"), select(m.eyes, [["dots", t("eyesDots")], ["big", t("eyesBig")], ["lashes", t("eyesLashes")], ["sleepy", t("eyesSleepy")]], (v) => set({ eyes: v }))),
+          field(t("shoes"), color("shoeColor"))),
         h("div", { class: "row wrap" },
-          ...["glasses", "beard", "cap", "headband", "skirt", "tie"].map((k) => toggle(t(k), m[k], (v) => set({ [k]: v })))),
+          ...Object.entries(ACCESSORIES).map(([k, v]) => toggle(pick(v), m[k], (on) => set({ [k]: on })))),
         h("details", {},
           h("summary", {}, t("bodyShape")),
           h("div", { class: "stack" },
@@ -574,7 +582,7 @@ function charsPanel() {
   const s = project.settings;
   const styleSel = field(t("figureStyle"), select(s.figureStyle ?? "clean", [["clean", t("figClean")], ["sketch", t("figSketch")], ["outline", t("figOutline")]], (v) => {
     s.figureStyle = v;
-    if (v === "sketch" && !["cartoon", "cartoonBlue", "image"].includes(s.backdrop)) s.backdrop = "cartoon";
+    if (v === "sketch" && (s.backdrop ?? "none") === "none") s.backdrop = "cartoon";
     if (v !== "sketch" && (s.backdrop === "cartoon" || s.backdrop === "cartoonBlue")) s.backdrop = "none";
     save();
     draw();
@@ -657,7 +665,12 @@ function stylePanel() {
         field(t("format"), select(s.format, Object.entries(FORMATS).map(([k, v]) => [k, v.label]), (v) => set({ format: v }))),
         field(t("bgColors"), select(s.theme, Object.entries(THEMES).map(([k, v]) => [k, pick(v.label)]), (v) => set({ theme: v }))),
         field("⇄", select(s.transition ?? "auto", Object.entries(TRANSITIONS).map(([k, v]) => [k, pick(v)]), (v) => set({ transition: v }))),
-        field(t("decor"), select(s.backdrop ?? "none", Object.entries(BACKDROPS).filter(([k]) => k !== "image" || s.bgImage).map(([k, v]) => [k, pick(v)]), (v) => set({ backdrop: v })))),
+        field(t("decor"), select(s.backdrop ?? "none", Object.entries(BACKDROPS).filter(([k]) => k !== "image" || s.bgImage).map(([k, v]) => [k, pick(v)]), (v) => set({ backdrop: v }))),
+        field(t("timeOfDay"), select(s.timeOfDay ?? "auto", Object.entries(TIMES_OF_DAY).map(([k, v]) => [k, pick(v)]), (v) => set({ timeOfDay: v }))),
+        field(t("weather"), select(s.weather ?? "auto", Object.entries(WEATHERS).map(([k, v]) => [k, pick(v)]), (v) => set({ weather: v })))),
+      h("div", { class: "row wrap" },
+        toggle(t("autoPlace"), s.autoPlace !== false, (v) => set({ autoPlace: v })),
+        toggle(t("emotionCloseups"), s.emotionCloseups !== false, (v) => set({ emotionCloseups: v }))),
       h("div", { class: "row wrap" },
         imagePicker(t("bgImport"), (url) => setAndRender({ bgImage: url, backdrop: "image" }), 1920, "image/jpeg"),
         s.bgImage ? h("button", { class: "btn sm ghost", onclick: () => setAndRender({ bgImage: "", backdrop: "none" }) }, t("bgRemove")) : null)),

@@ -6,7 +6,7 @@ import { PRESETS } from "./figure.js";
 
 /** Réglages qui font partie d'un style (le texte, l'accroche et la langue n'en font pas partie). */
 export const STYLE_KEYS = [
-  "theme", "backdrop", "bgImage", "format", "figureStyle", "transition", "voiceFx", "voicePitch",
+  "theme", "backdrop", "bgImage", "autoPlace", "timeOfDay", "weather", "emotionCloseups", "format", "figureStyle", "transition", "voiceFx", "voicePitch",
   "captionFont", "captionPos", "captionBox", "captionStyle", "captionColor", "captionScale", "accent", "uppercase", "speakerLabels", "progressBar",
   "characters", "music", "musicVol", "neuralVoice", "charVoice0", "charVoice1", "voiceRate",
   "handle", "logo", "logoPos", "logoSize", "outro",
