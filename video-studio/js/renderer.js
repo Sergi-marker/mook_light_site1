@@ -2211,7 +2211,7 @@ function withFace(p, expr, manual, action) {
 }
 
 /** Poses des deux personnages pour un élément de la timeline à son temps local. */
-function scenePoses(item, localIn, detected = null) {
+function scenePoses(item, localIn, detected = null, gap = undefined) {
   const s = item.scene;
   // Ralenti : les gestes vont deux fois moins vite.
   const local = sceneFx(s) === "slow" ? localIn * 0.45 : localIn;
@@ -2221,8 +2221,8 @@ function scenePoses(item, localIn, detected = null) {
   const pos = s.pos && s.pos !== "auto" ? s.pos : null;
   const flip = !duo && !pos && s.kind !== "title" && rng(s.seed + 11)() < 0.35 && !["walk", "run", "alone"].includes(action);
   // L'acteur joue l'action ; l'autre personnage réagit (rôle 2 des actions à deux) ou écoute.
-  const actor = livelyPose(action, local, r, 0);
-  const other = duo ? livelyPose(DUO_ACTIONS.has(action) || action === "speak" ? action : "listen", local + 0.37, (r * 7.3) % 1, 1) : null;
+  const actor = livelyPose(action, local, r, 0, gap);
+  const other = duo ? livelyPose(DUO_ACTIONS.has(action) || action === "speak" ? action : "listen", local + 0.37, (r * 7.3) % 1, 1, gap) : null;
   let p0 = actor, p1 = other;
   if (duo && s.speaker === 1) { p0 = other; p1 = actor; }
   // Expressions du visage (choisies dans l'éditeur ou déduites du texte).
@@ -2245,10 +2245,10 @@ function scenePoses(item, localIn, detected = null) {
  * Pose avec mouvement secondaire : la tête et les bras suivent le buste avec un petit retard
  * (inertie), et le corps s'étire en montant / s'écrase en retombant.
  */
-function livelyPose(action, local, r, role) {
-  const p = poseAt(action, local, r, role);
+function livelyPose(action, local, r, role, gap) {
+  const p = poseAt(action, local, r, role, gap);
   const DT = 0.1;
-  const q = poseAt(action, local - DT, r, role);
+  const q = poseAt(action, local - DT, r, role, gap);
   const dLean = p.lean - q.lean;
   const vLift = (p.lift - q.lift) / DT;
   return {
@@ -2567,13 +2567,16 @@ function drawScene(ctx, project, tl, t) {
   }
   const { item, index, local } = at;
   const plan = planOf(tl);
-  const cur = scenePoses(item, local, plan.expr[index]);
+  // Écart entre les deux personnages (en hauteurs de personnage) : les gestes à deux se rejoignent.
+  const duoGap = Math.min(W * 0.17, L.figH * 0.62);
+  const gap = (2 * duoGap) / L.figH;
+  const cur = scenePoses(item, local, plan.expr[index], gap);
   // Transition douce depuis la fin de la scène précédente.
   const BLEND = 0.55;
   let k = 1, prev = null;
   if (index > 0 && local < BLEND) {
     const pi = tl.items[index - 1];
-    prev = scenePoses(pi, pi.duration, plan.expr[index - 1]);
+    prev = scenePoses(pi, pi.duration, plan.expr[index - 1], gap);
     k = easeOutBack(local / BLEND);
   }
 
@@ -2584,7 +2587,6 @@ function drawScene(ctx, project, tl, t) {
   const castOf = (sc) => (Array.isArray(sc?.cast) && sc.cast.length ? sc.cast : [0, 1]);
   const cast = castOf(item.scene);
   const chars = [allChars[cast[0]] ?? allChars[0] ?? {}, allChars[cast[1]] ?? allChars[1] ?? allChars[0] ?? {}];
-  const duoGap = Math.min(W * 0.17, L.figH * 0.62);
   const duoNow = cur.duo, duoPrev = prev?.duo ?? duoNow;
   const duoAmt = Math.min(1, Math.max(0, prev ? (duoPrev ? 1 : 0) + ((duoNow ? 1 : 0) - (duoPrev ? 1 : 0)) * k : duoNow ? 1 : 0));
   const kk = Math.min(1, Math.max(0, k));

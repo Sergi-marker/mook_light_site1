@@ -46,10 +46,10 @@ const blink = (t, r) => ((t * (0.9 + r * 0.4) + r * 3) % 3.4 < 0.12 ? "closed" :
  */
 function armIK(rot, lean, fx, fy) {
   const L1 = 0.14, L2 = 0.133;
-  const D = Math.min(L1 + L2 - 1e-4, Math.hypot(fx, fy));
+  const D = Math.min(L1 + L2 - 1e-4, Math.max(0.02, Math.hypot(fx, fy)));
   const th = Math.atan2(fx, fy); // 0 = vers le bas, > 0 = vers l'avant
-  const a = Math.acos((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D));
-  const b = Math.acos((L2 * L2 + D * D - L1 * L1) / (2 * L2 * D));
+  const a = Math.acos(Math.min(1, (L1 * L1 + D * D - L2 * L2) / (2 * L1 * D)));
+  const b = Math.acos(Math.min(1, (L2 * L2 + D * D - L1 * L1) / (2 * L2 * D)));
   const upper = th - a, lower = th + b; // coude vers l'arrière
   return { sh: upper + rot - lean, el: lower - upper };
 }
@@ -63,6 +63,39 @@ function breathe(t, r) {
     hipF: 0.05 + wave(t, 0.12, 0.03), hipB: -0.05 + wave(t, 0.12, 0.03),
   };
 }
+
+/**
+ * Distance par défaut entre les hanches des deux personnages (en hauteurs de personnage) : format 9:16,
+ * style épuré. Les actions à deux qui se touchent (poignée de main, câlin…) la reçoivent en 4e argument
+ * (poseAt(…, gap)) pour que les mains se rejoignent quel que soit l'écart choisi par le moteur de rendu.
+ */
+export const DUO_GAP = 0.765;
+/** Le second personnage est animé avec 0,37 s d'avance (renderer.js) : on le recale pour les gestes à deux. */
+const SYNC = 0.37;
+const sync = (t, role) => (role === 1 ? max(0, t - SYNC) : t);
+const clamp = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+/** Mélange de deux jeux d'angles (k = 0 → a, 1 → b). */
+const mix = (a, b, k) => {
+  const o = {};
+  for (const key in a) o[key] = a[key] + (b[key] - a[key]) * k;
+  return o;
+};
+const SH = 0.248; // hauteur des épaules au-dessus des hanches
+const shX = (lean) => SH * sin(lean); // avancée des épaules quand le buste penche
+/** Bras avant / arrière dont la main va au point (fx, fy) depuis l'épaule (fx vers l'avant, fy vers le bas). */
+const armF = (lean, fx, fy) => { const a = armIK(0, lean, fx, fy); return { shF: a.sh, elF: a.el }; };
+const armB = (lean, fx, fy) => { const a = armIK(0, lean, fx, fy); return { shB: a.sh, elB: a.el }; };
+/** Jambe dont le pied va au point (fx, fy) depuis la hanche (genou vers l'avant). */
+function legIK(fx, fy) {
+  const L = 0.21, D = min(2 * L - 1e-4, max(0.02, Math.hypot(fx, fy)));
+  const a = Math.acos(D / (2 * L)), th = Math.atan2(fx, fy);
+  return { hip: th + a, kn: -2 * a };
+}
+const F0 = { shF: 0.14, elF: -0.15 }, B0 = { shB: -0.14, elB: -0.15 }; // bras au repos
+const CROSSED = { shF: 0.6, elF: 1.9, shB: 0.6, elB: 1.95 }; // bras croisés
+const KNEEL = { hipF: 1.45, knF: -1.5, hipB: -0.25, knB: -1.35 }; // un genou à terre
+const SEATED = { hipF: PI / 2, knF: -PI / 2, hipB: PI / 2 - 0.1, knB: -PI / 2 + 0.1, sit: 1 }; // assis sur une chaise
+const HIP_HAND = { shB: -0.3, elB: -1.6 }; // main sur la hanche
 
 /** Cycle de marche. speed = cycles par seconde, amp = amplitude des pas. */
 function walkCycle(t, speed, amp, armAmp = amp) {
@@ -729,10 +762,864 @@ export const ACTIONS = {
     hipF: 1.5, knF: -0.05, hipB: 1.35, knB: -0.6, sit: 1, lie: 1,
     face: blink(t, r) ?? "happy", set: "sky", setK: t,
   }),
+
+  // ——— Trahison, confiance, relations (à deux). G : écart entre les deux personnages (voir DUO_GAP) ———
+
+  betray: (t, r, role, G = DUO_GAP) => {
+    if (role === 1) {
+      // La victime, de dos, confiante… le coup dans le dos, puis elle se retourne, le cœur brisé.
+      const u = sync(t, 1);
+      if (u < 1.5) return pose({ ...breathe(u, r), dir: -1, dx: 0.1, head: wave(u, 0.3, 0.05), face: blink(u, r) ?? "happy" });
+      if (u < 2.7) {
+        const k = ease((u - 1.5) / 0.2);
+        return pose({
+          dir: -1, dx: 0.1 - 0.04 * k, lean: -0.28 * k + wave(u, 8, 0.012), head: -0.3 * k, look: 0.6,
+          shF: 0.12 + 1.0 * k, elF: 0.5 * k, shB: -0.12 - 1.0 * k, elB: -0.5 * k, hipF: 0.04, hipB: -0.12,
+          face: "shocked", mouthOpen: 0.9, symbol: "!?",
+        });
+      }
+      const b = ease((u - 2.7) / 0.6);
+      return pose({
+        ...breathe(u, r), dx: 0.06, lean: 0.12 * b, head: 0.15 + 0.25 * b, look: -0.4 * b,
+        ...armF(0.12 * b, 0.05, 0.1), shB: -0.05, elB: -0.1,
+        face: u > 3.8 ? "cry" : "pain", symbol: u > 3.8 ? "tear" : "broken",
+      });
+    }
+    // Le traître : s'approche en souriant, couteau caché dans le dos, recule le bras (anticipation), frappe,
+    // puis recache le couteau en sifflotant.
+    const D = max(0, G - 0.56), P = G - D - 0.1, sl = 0.24;
+    const stab = armF(sl, P - 0.15 - shX(sl), 0.09);
+    const hidden = { shF: -0.7, elF: -0.6 }, wind = { shF: -1.15, elF: -0.9 };
+    let arm = hidden, l = 0.1;
+    if (t >= 1.15 && t < 1.4) arm = mix(hidden, wind, ease((t - 1.15) / 0.25));
+    else if (t >= 1.4 && t < 1.55) { const k = ease((t - 1.4) / 0.15); arm = mix(wind, stab, k); l += (sl - 0.1) * k; }
+    else if (t >= 1.55 && t < 2.5) { arm = stab; l = sl; }
+    else if (t >= 2.5) { const k = ease((t - 2.5) / 0.5); arm = mix(stab, hidden, k); l = sl + (0.1 - sl) * k; }
+    const w = t < 1.1 ? walkCycle(t, 1.1, 0.2, 0) : {};
+    return pose({
+      ...breathe(t, r), ...w, dx: D * ease(t / 1.1), lean: l, head: 0.05, ...arm, shB: w.shB ?? -0.15, elB: -0.3,
+      hipF: t >= 1.4 && t < 2.6 ? 0.3 : w.hipF ?? 0.05, knF: t >= 1.4 && t < 2.6 ? -0.2 : w.knF ?? 0,
+      face: t < 1.55 ? "happy" : t < 2.6 ? "suspicious" : "happy", symbol: t > 2.9 ? "music" : null, set: "knife",
+    });
+  },
+
+  gossip: (t, r, role) => {
+    // Parle dans le dos : l'un glisse des ragots à un voisin (au second plan) ; l'autre, de dos, ne voit rien.
+    if (role === 1) return pose({ ...ACTIONS.phone(t, r), dir: -1, dx: -0.12, symbol: t % 5 > 3.6 ? "?" : null });
+    const laugh = t % 3.2 > 2.2;
+    const lean = 0.1 + (laugh ? wave(t, 5, 0.03) : 0);
+    return pose({
+      ...breathe(t, r), dx: -0.14, lean, head: laugh ? -0.15 : 0.05,
+      ...armF(lean, 0.06, -0.08), ...(laugh ? HIP_HAND : armB(lean, 0.25, -0.06)), // main en cornet, l'autre montre la victime
+      face: laugh ? "laugh" : "suspicious", mouthOpen: laugh ? 0.8 : abs(wave(t, 4, 0.4)), symbol: laugh ? "haha" : "...", set: "gossip",
+    });
+  },
+
+  trust: (t, r, role, G = DUO_GAP) => {
+    // Chute de confiance : l'un se laisse tomber en arrière, l'autre le rattrape.
+    const u = sync(t, role);
+    const f = clamp((u - 1.0) / 0.65);
+    const a = 0.75 * f * f + (u > 1.65 ? 0.05 * Math.exp(-5 * (u - 1.65)) * sin((u - 1.65) * 14) : 0);
+    if (role === 1) {
+      const dx = G - 0.766, lean = 0.25 * ease(u / 0.6);
+      const legs = mix({ hipF: 0.04, knF: 0, hipB: -0.04, knB: 0 }, { hipF: 0.5, knF: -0.6, hipB: -0.3, knB: -0.2 }, ease((u - 0.3) / 0.6));
+      const fx = (G - dx - 0.061) - (0.08 + 0.42 * sin(a) + SH * sin(a)) - 0.02, fy = 0.633 - (0.42 + SH) * cos(a) + 0.02;
+      const k = ease((u - 0.8) / 0.6);
+      return pose({
+        ...breathe(u, r), dx, lean, head: -0.1, look: 0.2, ...legs,
+        ...mix({ ...armF(lean, 0.16, 0.14), ...armB(lean, 0.13, 0.15) }, { ...armF(lean, fx, fy), ...armB(lean, fx - 0.03, fy + 0.02) }, k),
+        face: u > 1.8 ? "happy" : "determined", symbol: u > 2.2 ? "sparkle" : null,
+      });
+    }
+    return pose({
+      dir: -1, rot: -a, dx: 0.08 + 0.42 * sin(a), lean: 0, head: -0.1 * f + wave(u, 0.3, 0.03) * (1 - f),
+      ...CROSSED, hipF: 0.02, hipB: -0.02,
+      face: u < 0.5 ? "neutral" : u < 1.75 ? (f > 0.2 ? "fear" : "closed") : "joy", symbol: u > 2.3 ? "heart" : u < 0.9 ? "..." : null,
+    });
+  },
+
+  handshake: (t, r, role, G = DUO_GAP) => {
+    const u = sync(t, role);
+    const reach = 0.25, D = (G - 2 * reach) / 2;
+    const arm = ease((u - 0.5) / 0.5) * (1 - ease((u - 3.0) / 0.5));
+    const shake = u > 1.0 && u < 2.6 ? wave(u, 2.4, 0.035) : 0;
+    const w = u < 0.9 && abs(D) > 0.04 ? walkCycle(u, 1.1, 0.25, 0) : {};
+    return pose({
+      ...breathe(u, r), ...w, dx: D * ease(u / 0.9), lean: 0.05,
+      ...mix(F0, armF(0.05, reach - shX(0.05), 0.16 + shake), arm), shB: -0.12, elB: -0.2,
+      face: u > 1 ? (role ? "happy" : "joy") : "neutral", symbol: role === 0 && u > 1.2 && u < 3 ? "sparkle" : null,
+    });
+  },
+
+  promise: (t, r, role, G = DUO_GAP) => {
+    // Promesse « petit doigt » : les mains se rejoignent à hauteur de poitrine, puis on hoche la tête.
+    const u = sync(t, role);
+    const reach = 0.23, D = (G - 2 * reach) / 2;
+    const arm = ease((u - 0.4) / 0.5);
+    const nod = u > 1.6 && u < 2.8 ? max(0, sin((u - 1.6) * PI * 2.5)) : 0;
+    return pose({
+      ...breathe(u, r), dx: D * ease(u / 0.8), lean: 0.06, head: 0.05 + 0.2 * nod, look: 0.1,
+      ...mix(F0, armF(0.06, reach - shX(0.06), 0.02 + wave(u, 1.2, 0.01)), arm), ...HIP_HAND,
+      face: u < 1.6 ? "determined" : "happy", symbol: u > 2 ? (role ? "heart" : "sparkle") : null,
+      set: role === 0 ? "twinkle" : null, setK: arm,
+    });
+  },
+
+  gift: (t, r, role, G = DUO_GAP) => {
+    const u = sync(t, role);
+    const reach = 0.2, D = (G - 0.52) / 2, T = 2.0;
+    const hold = (lean, x, y) => ({ ...armF(lean, x - shX(lean), y), ...armB(lean, x - shX(lean) - 0.02, y + 0.01) });
+    if (role === 1) {
+      if (u < 1.5) {
+        const k = ease((u - 0.6) / 0.3);
+        return pose({ ...breathe(u, r), ...mix({ ...F0, ...B0 }, { ...armF(0, 0.07, -0.08), ...armB(0, 0.04, -0.08) }, k), face: k > 0.3 ? "surprised" : "neutral", mouthOpen: 0.5 * k, symbol: k > 0.5 ? "!?" : null });
+      }
+      const k = ease((u - 1.5) / 0.5), w = u < 2 ? walkCycle(u, 1, 0.22, 0) : {};
+      const back = ease((u - 2.3) / 0.6);
+      return pose({
+        ...breathe(u, r), ...w, dx: D * k - 0.1 * back, lean: 0.05,
+        ...mix(hold(0.05, reach, 0.1), hold(0.05, 0.12, 0.07), back),
+        lift: u > 2.6 ? abs(sin((u - 2.6) * PI * 1.6)) * 0.03 : 0,
+        face: u < 2 ? "happy" : "joy", mouthOpen: 0.5, symbol: u > 2.2 ? "heart" : null, set: u >= T ? "gift" : null,
+      });
+    }
+    const w = t < 1 ? walkCycle(t, 1, 0.25, 0) : {};
+    const after = ease((t - T) / 0.5);
+    return pose({
+      ...breathe(t, r), ...w, dx: D * ease(t / 1) - 0.12 * after, lean: 0.05,
+      ...mix(hold(0.05, reach, 0.1), { ...armF(0.05, 0.08, 0.04), ...armB(0.05, 0.06, 0.05) }, after),
+      face: t < T ? "happy" : "joy", symbol: t > T + 0.3 ? "sparkle" : null, set: t < T ? "gift" : null,
+    });
+  },
+
+  propose: (t, r, role, G = DUO_GAP) => {
+    // Demande en mariage : un genou à terre, l'écrin s'ouvre ; l'autre est surpris, puis saute de joie.
+    const u = sync(t, role);
+    if (role === 1) {
+      if (u < 2.6) {
+        const k = ease((u - 0.9) / 0.4);
+        return pose({
+          ...breathe(u, r), dx: 0.03, lean: -0.08 * k, head: -0.1 * k, look: -0.3,
+          ...mix({ ...F0, ...B0 }, { ...armF(-0.08 * k, 0.07, -0.08), ...armB(-0.08 * k, 0.04, -0.08) }, k),
+          face: k > 0.3 ? "surprised" : "neutral", mouthOpen: 0.6 * k, symbol: k > 0.5 ? "!?" : null,
+        });
+      }
+      return pose({ ...ACTIONS.celebrate(u, r), dx: 0.03, face: "love", symbol: "heart" });
+    }
+    const D = max(0, G - 0.62);
+    const stand = pose({ ...breathe(t, r), dx: D, lean: 0.05, ...F0, ...B0, face: "shy" });
+    const knee = pose({
+      ...KNEEL, dx: D + 0.04, lean: 0.06, head: -0.12, look: 0.6,
+      ...armF(0.06, 0.21, -0.04 + wave(t, 0.6, 0.008)), shB: 0.25, elB: 1.4,
+      face: "love", symbol: t > 1.9 ? "heart" : null, set: "ring", setK: ease((t - 1.2) / 0.35),
+    });
+    return lerpPose(stand, knee, ease((t - 0.2) / 0.8));
+  },
+
+  kiss: (t, r, role, G = DUO_GAP) => {
+    // Bisou sur la joue : l'un se penche, l'autre rougit ; des cœurs s'envolent.
+    const u = sync(t, role);
+    if (role === 1) {
+      const k = ease((u - 1.1) / 0.3);
+      return pose({
+        ...breathe(u, r), dx: 0.05, head: -0.05 + 0.18 * k, look: 0.2 - 0.6 * k,
+        ...armF(0, 0.08, 0.14), ...armB(0, 0.06, 0.15),
+        face: u < 1.1 ? "happy" : "shy", symbol: u > 1.6 ? "heart" : null,
+      });
+    }
+    const D = G - 0.35;
+    const lk = ease((t - 0.7) / 0.4) * (1 - ease((t - 2.4) / 0.4));
+    const w = t < 0.8 ? walkCycle(t, 1, 0.22, 0) : {};
+    return pose({
+      ...breathe(t, r), ...w, dx: D * ease(t / 0.8), lean: 0.06 + 0.22 * lk, head: -0.12 * lk,
+      shF: -0.45, elF: -0.9, shB: -0.55, elB: -0.9, // mains derrière le dos
+      hipF: 0.05 + 0.15 * lk, knF: 0, hipB: -0.05 - 0.15 * lk,
+      face: lk > 0.5 ? "closed" : "happy", symbol: t > 2.5 ? "heart" : null, set: "hearts", setK: ease((t - 1) / 0.3),
+    });
+  },
+
+  comfort: (t, r, role, G = DUO_GAP) => {
+    // Réconforte : main sur l'épaule de l'autre, qui pleure, puis relève la tête.
+    const u = sync(t, role);
+    if (role === 1) {
+      const up = ease((u - 3.2) / 0.8);
+      return pose({
+        lean: 0.2 - 0.08 * up + wave(u, 2.6, 0.02) * (1 - up), head: 0.45 - 0.3 * up, look: -1 + up,
+        ...mix({ shF: 1.75, elF: 1.75, shB: 1.55, elB: 1.85 }, { shF: 0.1, elF: 0.1, shB: -0.05, elB: 0.1 }, up),
+        dx: 0.05, hipF: 0.06, knF: -0.08,
+        face: up > 0.5 ? (u > 4.5 ? "happy" : "sad") : "cry", symbol: up > 0.5 ? (u > 4.5 ? "heart" : null) : "tear",
+      });
+    }
+    const D = G - 0.42, dx = D * ease(t / 0.8), P = G - dx - 0.05;
+    const k = ease((t - 0.6) / 0.5);
+    const w = t < 0.8 && abs(D) > 0.05 ? walkCycle(t, 1, 0.22, 0) : {};
+    return pose({
+      ...breathe(t, r), ...w, dx, lean: 0.1, head: 0.15, look: -0.2,
+      ...mix(F0, armF(0.1, P - SH * sin(0.2) - shX(0.1) - 0.02, 0.01 + max(0, wave(t, 1.2, 0.012))), k),
+      shB: -0.1, elB: -0.2,
+      face: t > 3.6 ? "happy" : "worried", symbol: t > 4 ? "heart" : null,
+    });
+  },
+
+  reject: (t, r, role, G = DUO_GAP) => {
+    // L'un vient les bras ouverts, l'autre le repousse puis lui tourne le dos.
+    const u = sync(t, role);
+    if (role === 1) {
+      if (u < 1.25) {
+        const w = walkCycle(u, 1, 0.3, 0);
+        return pose({ ...w, dx: 0.15 * ease(u / 1.1), lean: 0.1, shF: 1.6, elF: 0.3, shB: 1.3, elB: 0.4, face: "happy", symbol: "heart" });
+      }
+      const b = ease((u - 1.25) / 0.35);
+      if (u < 2.3) {
+        return pose({
+          dx: 0.15 - 0.32 * b, lean: 0.1 - 0.35 * b, head: -0.2 * b, look: 0.2,
+          shF: 1.6 + 0.5 * b, elF: 0.3, shB: 1.3 - 2.4 * b, elB: 0.4, hipF: 0.04 + 0.3 * b, knF: -0.2 * b, hipB: -0.2,
+          face: "shocked", mouthOpen: 0.8, symbol: "!?",
+        });
+      }
+      return pose({ ...ACTIONS.sad(u, r), dx: -0.17, symbol: "broken" });
+    }
+    const dx = G - 0.5;
+    const push = ease((u - 1.0) / 0.2) * (1 - ease((u - 1.7) / 0.4));
+    const lean = 0.05 + 0.12 * push;
+    if (u > 2.3) return pose({ ...breathe(u, r), dir: -1, dx, ...CROSSED, head: -0.12, face: "angry", symbol: u < 3.2 ? "anger" : null });
+    return pose({
+      ...breathe(u, r), dx, lean,
+      ...mix(CROSSED, { ...armF(lean, 0.25, 0.08), ...armB(lean, 0.23, 0.1) }, push),
+      hipF: 0.04 + 0.3 * push, knF: -0.2 * push, hipB: -0.04 - 0.15 * push,
+      face: u > 0.8 ? "angry" : "suspicious", mouthOpen: push * 0.7, symbol: push > 0.5 ? "anger" : null,
+    });
+  },
+
+  fight: (t, r, role, G = DUO_GAP) => {
+    // Bagarre de dessin animé : ils se jettent l'un sur l'autre, puis tout disparaît dans un nuage de poussière.
+    const u = sync(t, role);
+    const D = max(0, G / 2 - 0.1);
+    if (u < 0.7) {
+      const w = walkCycle(u, 1.8, 0.7, 1);
+      return pose({ ...w, dx: D * ease(u / 0.7), lean: 0.3, elF: -1.5, elB: -1.5, lift: w.lift * 3, face: "angry", symbol: "anger" });
+    }
+    return pose({
+      dx: D + wave(u, 1.3, 0.04), lean: 0.2 + wave(u, 2.1, 0.15), head: wave(u, 3.3, 0.2),
+      shF: 1.5 + wave(u, 3.1, 1.2), elF: wave(u, 2.3, 1), shB: wave(u, 2.7, 1.5), elB: wave(u, 1.9, 1),
+      hipF: 0.3 + wave(u, 2.9, 0.6), knF: -abs(wave(u, 2.9, 0.6)), hipB: -0.3 + wave(u, 2.4, 0.4), knB: -0.3,
+      lift: abs(wave(u, 3, 0.03)), face: "angry", symbol: "anger", set: role === 0 ? "brawl" : null, setK: G / 2,
+    });
+  },
+
+  forgive: (t, r, role, G = DUO_GAP) => {
+    // Pardonne : ouvre les bras ; l'autre hésite, s'approche, et ils s'étreignent.
+    const u = sync(t, role);
+    const D = (G - 0.3) / 2, hug = ease((u - 2.2) / 0.5);
+    const hugArms = { shF: 0.2 + 1.2 * hug, elF: 1.1 * hug, shB: 0.1 + 1.0 * hug, elB: 1.2 * hug };
+    if (role === 1) {
+      if (u < 1.4) return pose({ ...ACTIONS.sad(u, r), symbol: u > 0.6 ? "..." : null });
+      const k = ease((u - 1.4) / 0.8), w = u < 2.2 ? walkCycle(u, 1, 0.25, 0) : {};
+      return pose({
+        ...breathe(u, r), ...w, dx: D * k, lean: 0.1 * hug, head: 0.3 * (1 - k) + 0.15 * hug, look: -0.3 * (1 - k),
+        ...hugArms, face: hug > 0.6 ? "closed" : "worried", symbol: u > 2.8 ? "heart" : null,
+      });
+    }
+    const open = ease((u - 0.9) / 0.5) * (1 - hug);
+    return pose({
+      ...breathe(u, r), dx: D * ease((u - 2.0) / 0.5), lean: 0.1 * hug - 0.05 * open, head: 0.2 * (1 - open) * (1 - hug) + 0.15 * hug,
+      ...mix(hug > 0 ? hugArms : { ...F0, ...B0 }, { shF: 1.9, elF: 0.3, shB: 1.5, elB: 0.5 }, open),
+      face: hug > 0.6 ? "closed" : open > 0.3 ? "happy" : "sad", symbol: u > 2.8 ? "sparkle" : null,
+    });
+  },
+
+  dance: (t, r, role, G = DUO_GAP) => {
+    // Danse à deux : mains jointes en l'air, balancement en rythme ; de temps en temps l'un tourne sur lui-même.
+    const u = sync(t, role);
+    const reach = 0.27, D = (G - 2 * reach) / 2;
+    const s = sin(u * 2 * PI);
+    const twirl = role === 1 && u % 4 > 2.2 && u % 4 < 2.8;
+    const lean = 0.04 + s * 0.05;
+    return pose({
+      dx: D * ease(u / 0.6) + s * 0.03, lean, head: -s * 0.1, lift: abs(s) * 0.012,
+      ...(twirl ? { shF: 2.9, elF: 0.1 } : armF(lean, reach - shX(lean), -0.13)), ...HIP_HAND,
+      hipF: 0.1 + 0.15 * max(0, s), knF: -0.3 * max(0, s), hipB: -0.1 + 0.1 * max(0, -s), knB: -0.3 * max(0, -s),
+      dir: twirl ? -1 : 1, face: "joy", mouthOpen: 0.4, symbol: role === 0 ? "music" : null,
+    });
+  },
+
+  confront: (t, r, role, G = DUO_GAP) => {
+    // Confrontation : l'un brandit la preuve (téléphone), l'autre est pris sur le fait.
+    const u = sync(t, role);
+    if (role === 1) {
+      const k = ease((u - 1.0) / 0.3);
+      return pose({
+        ...breathe(u, r), dx: 0.05 - 0.12 * k, lean: -0.12 * k, head: -0.1 * k,
+        ...mix({ ...F0, ...B0 }, { ...armF(-0.12, 0.12, -0.06), ...armB(-0.12, 0.1, -0.04) }, k),
+        hipF: 0.04 + 0.15 * k, hipB: -0.04 - 0.1 * k,
+        face: k > 0.5 ? (u > 2.6 ? "worried" : "shocked") : "neutral", mouthOpen: 0.5 * k, symbol: k > 0.5 ? (u > 2.6 ? "sweat" : "!?") : null,
+      });
+    }
+    const D = max(0, G - 0.62), k = ease((t - 0.4) / 0.5);
+    return pose({
+      ...breathe(t, r), dx: D * ease(t / 0.8), lean: 0.06, head: -0.05,
+      ...mix(F0, armF(0.06, 0.2, -0.1 + wave(t, 1.5, 0.01)), k), ...HIP_HAND,
+      face: "angry", mouthOpen: abs(wave(t, 3, 0.6)), symbol: t > 1.2 && t % 3 < 1.2 ? "anger" : null, set: "proof", setK: k,
+    });
+  },
+
+  friends: (t, r, role, G = DUO_GAP) => {
+    // Meilleurs amis : main sur l'épaule, ils rient ensemble.
+    const u = sync(t, role);
+    const sh = wave(u, 4.5, 1), j = abs(sh), fun = u % 3.4 < 2.2;
+    if (role === 1) {
+      return pose({
+        dx: 0.12, lean: -0.08 + sh * 0.03 * fun, head: -0.2, shF: 0.5, elF: 1.5, shB: -0.4 + sh * 0.15, elB: -1.3,
+        hipF: 0.06, hipB: -0.06, lift: fun ? j * 0.008 : 0,
+        face: fun ? "laugh" : "happy", mouthOpen: fun ? 0.6 + 0.4 * j : 0.3, symbol: fun ? "haha" : null,
+      });
+    }
+    const D = G - 0.43, k = ease((u - 0.4) / 0.5);
+    return pose({
+      ...breathe(u, r), dx: D * ease(u / 0.8), lean: 0.05 + (fun ? sh * 0.025 : 0), head: -0.12,
+      ...mix(F0, armF(0.05, 0.3, 0.0), k), shB: -0.3 + (fun ? sh * 0.2 : 0), elB: -1.2,
+      lift: fun ? j * 0.008 : 0, face: fun ? "laugh" : "happy", mouthOpen: fun ? 0.5 + 0.4 * j : 0.3, symbol: fun ? null : "heart",
+    });
+  },
+
+  // ——— Émotions (seul) ———
+
+  shock: (t, r) => {
+    // Choc : sursaut en arrière, mains au visage, bouche ouverte ; le corps tremble puis se fige.
+    const k = ease((t - 0.12) / 0.22), settle = ease((t - 2.6) / 0.8);
+    const lean = -0.18 * k + wave(t, 10, 0.012) * (1 - ease((t - 1.5) / 1));
+    return pose({
+      dx: -0.07 * k, lean, head: -0.2 * k + 0.1 * settle, look: 0.2,
+      ...mix(F0, armF(lean, 0.07, -0.09), k * (1 - 0.6 * settle)), ...mix(B0, armB(lean, 0.03, -0.1), k * (1 - settle)),
+      hipF: 0.04 + 0.2 * k, knF: -0.1 * k, hipB: -0.04 - 0.1 * k, lift: 0.02 * sin(clamp((t - 0.12) / 0.3) * PI),
+      face: k > 0.3 ? "shocked" : "neutral", mouthOpen: k, symbol: t < 2 ? "!?" : "...", set: "burst", setK: 1 - ease((t - 0.3) / 0.9),
+    });
+  },
+
+  doubt: (t, r) => {
+    // Doute / méfiance : bras croisés, regarde par-dessus son épaule ; un petit nuage gris tourne au-dessus de la tête.
+    const c = t % 4, glance = c > 2.2 && c < 3.0;
+    return pose({
+      ...breathe(t, r), ...CROSSED, head: 0.2 + wave(t, 0.4, 0.06), look: glance ? 0.2 : -0.4, dir: glance ? -1 : 1,
+      hipF: 0.12, knF: -0.05, hipB: -0.08,
+      face: glance ? "suspicious" : blink(t, r) ?? "worried", symbol: glance ? "?" : c < 1.4 ? "..." : null, set: "doubt",
+    });
+  },
+
+  proud: (t, r) => {
+    // Fier / sait ce qu'il vaut : se redresse, menton levé, main sur le cœur, halo doré.
+    const k = ease(t / 0.9), lean = -0.06 * k + wave(t, 0.25, 0.015);
+    return pose({
+      ...breathe(t, r), lean, head: -0.18 * k, look: 0.3 * k,
+      ...mix(F0, armF(lean, 0.06, 0.1), k), shB: -0.3, elB: -1.6 * k, hipF: 0.12, hipB: -0.12, lift: 0.004 * k,
+      face: k > 0.5 ? "proud" : "neutral", symbol: t > 1 ? "sparkle" : null, set: "glow", setK: k,
+    });
+  },
+
+  scared: (t, r) => {
+    // Peur : recule en tremblant, se protège le visage ; une ombre menaçante grandit devant lui.
+    const tr = wave(t, 9, 1), k = ease(t / 0.4), lean = -0.1 * k + tr * 0.012;
+    return pose({
+      dx: -0.08 * k + tr * 0.004, lean, head: 0.15 + tr * 0.03, look: 0.2,
+      ...mix({ ...F0, ...B0 }, { ...armF(lean, 0.1, -0.05), ...armB(lean, 0.07, -0.02) }, k),
+      hipF: 0.04 + 0.3 * k, knF: -0.6 * k, hipB: -0.04 + 0.2 * k, knB: -0.5 * k,
+      face: "fear", mouthOpen: 0.4, symbol: t % 2 < 1 ? "sweat" : "!?", set: "shadow", setK: ease(t / 2),
+    });
+  },
+
+  hide: (t, r) => {
+    // Se cache derrière un buisson, sort la tête pour regarder, puis replonge.
+    const c = (t + 0.4) % 3.4;
+    const up = ease((c - 1.0) / 0.35) * (1 - ease((c - 2.6) / 0.3));
+    const low = { lean: 0.45, hipF: 1.75, knF: -2.45, hipB: 1.6, knB: -2.4, shF: 0.9, elF: 1.3, shB: 0.8, elB: 1.4, head: 0.2 };
+    const peek = { lean: 0.2, hipF: 0.9, knF: -1.4, hipB: 0.75, knB: -1.3, ...armF(0.2, 0.16, 0.12), ...armB(0.2, 0.14, 0.13), head: -0.05 };
+    const lookAround = c > 1.6 && c < 2.3 ? -0.6 : 0.2;
+    return pose({ ...mix(low, peek, up), look: up > 0.5 ? lookAround : -0.3, face: up > 0.5 ? "suspicious" : "fear", symbol: up > 0.5 ? null : "...", set: "bush", setK: up });
+  },
+
+  pray: (t, r) => {
+    // Prière : se met à genoux, mains jointes, tête baissée ; une lumière descend.
+    const k = ease((t - 0.2) / 0.8), lean = 0.08 + wave(t, 0.25, 0.015);
+    const stand = pose({ ...breathe(t, r), head: 0.2, face: "neutral", set: "light", setK: 0 });
+    const kneel = pose({
+      ...KNEEL, lean, head: 0.35 + wave(t, 0.2, 0.03), look: -0.5, ...armF(lean, 0.1, -0.03), ...armB(lean, 0.085, -0.02),
+      face: "closed", symbol: t > 2.4 ? "sparkle" : null, set: "light", setK: ease((t - 0.8) / 1.5),
+    });
+    return lerpPose(stand, kneel, k);
+  },
+
+  hope: (t, r) => {
+    // Espoir : lève les yeux vers la lumière, mains jointes sur la poitrine, se hisse sur la pointe des pieds.
+    const k = ease(t / 1.2), lean = -0.1 * k + wave(t, 0.25, 0.015);
+    return pose({
+      ...breathe(t, r), lean, head: -0.3 * k, look: k,
+      ...mix({ ...F0, ...B0 }, { ...armF(lean, 0.09, 0.06), ...armB(lean, 0.07, 0.07) }, k),
+      lift: 0.006 * k + max(0, wave(t, 0.5, 0.004)), face: k > 0.5 ? "happy" : "neutral", symbol: t > 1.5 ? "sparkle" : null, set: "light", setK: k,
+    });
+  },
+
+  facepalm: (t, r) => {
+    // La main claque sur le front, la tête tombe dedans et secoue doucement.
+    const k = ease((t - 0.35) / 0.2), lean = 0.08 + 0.1 * k;
+    const hit = t > 0.55 && t < 0.85;
+    return pose({
+      ...breathe(t, r), lean, head: -0.12 * (1 - k) + (0.3 + wave(t, 0.6, 0.06)) * k, look: -0.3,
+      ...mix({ shF: 0.3, elF: 0.4 }, armF(lean, 0.09, -0.11), k), shB: -0.1, elB: -0.2,
+      face: k > 0.5 ? "closed" : "bored", symbol: t > 1 ? (t % 3 < 1.5 ? "sweat" : "...") : null, set: "clap", setK: hit ? 1 - (t - 0.55) / 0.3 : 0,
+    });
+  },
+
+  nod: (t, r) => {
+    // Dit oui : hoche la tête par séries, pouce levé.
+    const c = t % 2.6, n = c < 1.2 ? sin(c * 2 * PI * 2.2) * (1 - c / 1.2) : 0;
+    const k = ease(t / 0.4);
+    return pose({
+      ...breathe(t, r), head: 0.06 + 0.22 * n, look: 0.1, ...mix(F0, armF(0.03, 0.14, 0.02), k),
+      face: "happy", symbol: null, set: "yes", setK: k,
+    });
+  },
+
+  refuse: (t, r) => {
+    // Dit non : agite l'index, secoue la tête.
+    const wag = wave(t, 2.6, 1), lean = -0.04, a = armF(lean, 0.12, -0.1);
+    return pose({
+      ...breathe(t, r), lean, head: 0.05 + wave(t, 1.3, 0.1), shF: a.shF, elF: a.elF + wag * 0.3, ...HIP_HAND,
+      face: "determined", mouthOpen: abs(wave(t, 2, 0.4)), set: "nope", setK: ease(t / 0.4),
+    });
+  },
+
+  bow: (t, r) => {
+    // Révérence / merci : s'incline lentement, main sur le ventre, puis se redresse.
+    const c = t % 4.2, k = ease((c - 0.3) / 0.7) * (1 - ease((c - 2.6) / 0.7));
+    return pose({
+      ...breathe(t, r), lean: 0.55 * k, head: 0.4 * k, look: -0.3 * k,
+      shF: 0.3 + 0.1 * k, elF: 1.3, shB: -0.5, elB: 1.2,
+      face: k > 0.4 ? "closed" : "happy", symbol: c > 3.1 ? "sparkle" : null,
+    });
+  },
+
+  apologize: (t, r) => {
+    // S'excuse : s'incline, mains jointes ; puis se gratte la tête, gêné.
+    const c = t % 4.6, k = ease((c - 0.2) / 0.5) * (1 - ease((c - 2.4) / 0.5));
+    const sc = ease((c - 2.6) / 0.4) * (1 - ease((c - 4.2) / 0.3));
+    const arms = mix(mix({ ...F0, ...B0 }, { shF: 0.9, elF: 1.0, shB: 0.8, elB: 1.1 }, k), { shF: 2.7, elF: 1.5 + wave(t, 3, 0.2), shB: -0.15, elB: -0.2 }, sc);
+    return pose({
+      ...breathe(t, r), lean: 0.45 * k, head: 0.35 * k + 0.15 * sc, look: -0.4 * k, ...arms,
+      face: k > 0.4 ? "worried" : sc > 0.3 ? "shy" : "worried", symbol: "sweat",
+    });
+  },
+
+  wakeup: (t, r) => {
+    // Réveil : grand étirement en bâillant sur la pointe des pieds, le soleil se lève, puis se frotte l'œil.
+    const s = ease((t - 0.3) / 0.8) * (1 - ease((t - 2.6) / 0.7)), rub = ease((t - 3.3) / 0.4);
+    const lean = -0.12 * s;
+    return pose({
+      ...breathe(t, r), lean, head: -0.3 * s + 0.12 * (1 - s), look: 0.3 * s,
+      ...mix(mix(F0, { shF: 2.95, elF: 0.05 }, s), armF(lean, 0.08, -0.1 + wave(t, 2.5, 0.01)), rub * (1 - s)),
+      ...mix(B0, { shB: 2.8, elB: 0.1 }, s), lift: 0.012 * s,
+      face: s > 0.4 ? "surprised" : rub > 0.5 ? "closed" : t > 4 ? "happy" : "bored", mouthOpen: s, symbol: s > 0.4 ? "zzz" : null,
+      set: "sunrise", setK: ease(t / 4),
+    });
+  },
+
+  dizzy: (t, r) => {
+    // Étourdi : vacille en rond, bras écartés pour l'équilibre ; des étoiles tournent autour de la tête.
+    const a = t * 2 * PI * 0.55, s = sin(a);
+    return pose({
+      dx: cos(a) * 0.05, lean: s * 0.16, head: -sin(a + 0.8) * 0.25, look: cos(a * 1.3) * 0.5,
+      shF: 0.6 + sin(a + 1) * 0.4, elF: 0.3, shB: -0.6 + sin(a + 2) * 0.4, elB: -0.3,
+      hipF: 0.12 + s * 0.12, knF: -0.15 - max(0, s) * 0.2, hipB: -0.12 + s * 0.12, knB: -0.15 - max(0, -s) * 0.2,
+      face: "dizzy", set: "stars",
+    });
+  },
+
+  jealous: (t, r) => {
+    // Jaloux : bras croisés, regard noir, tape du pied ; une aura verte ondule autour de lui.
+    const c = t % 2.8, stomp = c > 2.3 ? sin(((c - 2.3) / 0.5) * PI) : 0;
+    return pose({
+      ...breathe(t, r), ...CROSSED, lean: 0.06, head: 0.12 + wave(t, 0.3, 0.04), look: -0.2,
+      hipF: 0.04 + 0.35 * stomp, knF: -0.5 * stomp,
+      face: t % 5 > 3.5 ? "angry" : "suspicious", symbol: t % 4 < 1 ? "anger" : null, set: "envy",
+    });
+  },
+
+  sick: (t, r) => {
+    // Malade : grelotte, thermomètre dans la bouche… et éternue (« Atchoum ! »).
+    const c = t % 3.8, pre = ease((c - 2.2) / 0.6);
+    const sk = c > 2.8 && c < 3.6 ? ease((c - 2.8) / 0.12) * (1 - ease((c - 3.0) / 0.5)) : 0;
+    const lean = 0.18 - 0.2 * pre * (1 - sk) + 0.35 * sk + wave(t, 7, 0.01);
+    return pose({
+      lean, head: 0.25 - 0.4 * pre * (1 - sk) + 0.3 * sk, look: -0.3,
+      shF: 0.7, elF: 1.95, shB: 0.6, elB: 2.0, hipF: 0.06, knF: -0.12, hipB: -0.06, knB: -0.08,
+      face: sk > 0.3 ? "closed" : pre > 0.3 ? "surprised" : "pain", mouthOpen: pre * 0.6 * (1 - sk) + sk,
+      symbol: c < 2 ? "sweat" : null, set: "sick", setK: sk > 0.05 ? sk : pre > 0.3 ? 0.01 : 0,
+    });
+  },
+
+  scheme: (t, r) => {
+    // Prépare sa vengeance : se frotte les mains, sourire en coin, puis rire diabolique.
+    const rub = wave(t, 3.2, 1), cackle = t % 4 > 2.6;
+    const lean = 0.2 + (cackle ? -0.25 + wave(t, 6, 0.03) : 0);
+    return pose({
+      ...breathe(t, r), lean, head: cackle ? -0.3 : 0.25, look: cackle ? 0.5 : 0.4,
+      ...armF(lean, 0.12 + rub * 0.025, 0.08), ...armB(lean, 0.1 - rub * 0.025, 0.09),
+      hipF: 0.15, knF: -0.15, hipB: -0.12, knB: -0.1,
+      face: cackle ? "laugh" : "suspicious", mouthOpen: cackle ? 0.8 : 0, symbol: cackle ? "haha" : null, set: "evil",
+    });
+  },
+
+  eavesdrop: (t, r) => {
+    // Écoute aux portes : l'oreille collée au mur, la main en cornet ; des bulles de l'autre côté.
+    const c = t % 4.2, gasp = c > 2.8 && c < 3.8, lean = 0.3 + (gasp ? -0.12 : 0);
+    return pose({
+      dx: 0.07 - (gasp ? 0.04 : 0), lean, head: 0.35 + wave(t, 0.4, 0.03), look: 0,
+      ...armF(lean, 0.3 - 0.07 - shX(lean), -0.03), ...armB(lean, 0.06, -0.1),
+      hipF: 0.2, knF: -0.15, hipB: -0.15, knB: -0.05,
+      face: gasp ? "shocked" : blink(t, r) ?? "suspicious", mouthOpen: gasp ? 0.6 : 0, symbol: gasp ? "!?" : null, set: "listenwall",
+    });
+  },
+
+  // ——— Vie quotidienne ———
+
+  work: (t, r) => {
+    // Travaille sur un ordinateur portable, assis à un bureau.
+    const lean = 0.15, ty = (k) => abs(sin(t * (7 + k) + k)) * 0.012;
+    return pose({
+      ...SEATED, lean: lean + wave(t, 0.25, 0.01), head: 0.18 + wave(t, 0.3, 0.03), look: -0.1,
+      ...armF(lean, 0.2, 0.1 - ty(0)), ...armB(lean, 0.17, 0.1 - ty(1.7)),
+      face: blink(t, r) ?? "neutral", symbol: t % 6 > 4.6 ? "idea" : t % 6 > 3 ? "..." : null, set: "desk",
+    });
+  },
+
+  study: (t, r) => {
+    // Étudie : écrit dans un cahier, assis au bureau sous une lampe.
+    const lean = 0.25;
+    return pose({
+      ...SEATED, lean, head: 0.35 + wave(t, 0.3, 0.03), look: -0.8,
+      ...armF(lean, 0.18 + wave(t, 1.6, 0.025), 0.12 + wave(t, 4.5, 0.006)), ...armB(lean, 0.15, 0.13),
+      face: blink(t, r) ?? "pensive", symbol: t % 5 > 3.8 ? "idea" : null, set: "study",
+    });
+  },
+
+  teach: (t, r) => {
+    // Enseigne : montre le tableau avec une baguette, puis explique en faisant des gestes.
+    const c = t % 5, show = c < 3;
+    const lean = 0.02;
+    return pose({
+      ...breathe(t, r), lean, head: show ? -0.1 : 0.05, look: show ? 0.3 : 0,
+      ...(show ? armF(lean, 0.24, -0.16 + wave(t, 0.8, 0.05)) : { shF: 0.9 + wave(t, 1, 0.3), elF: 0.9 }),
+      ...(show ? HIP_HAND : { shB: 0.5 + wave(t, 1.3, 0.3), elB: 1.2 }),
+      face: "talk", mouthOpen: abs(wave(t, 3.3, 0.7)), set: "board",
+    });
+  },
+
+  cook: (t, r) => {
+    // Cuisine : poêle sur le feu, fait sauter la crêpe de temps en temps.
+    const c = t % 2.4, toss = c > 1.4 && c < 1.8 ? sin(((c - 1.4) / 0.4) * PI) : 0;
+    const lean = 0.08;
+    return pose({
+      ...breathe(t, r), lean, head: 0.25, look: -0.5 + toss * 0.8,
+      ...armF(lean, 0.17, 0.2 - 0.06 * toss), ...HIP_HAND,
+      face: toss > 0.3 ? "joy" : blink(t, r) ?? "happy", symbol: t > 3 && t % 5 < 1.5 ? "sparkle" : null, set: "stove", setK: c,
+    });
+  },
+
+  eat: (t, r) => {
+    // Mange un burger : le porte à la bouche, croque, mâche.
+    const c = t % 2.4, bite = ease((c - 0.2) / 0.35) * (1 - ease((c - 0.9) / 0.35));
+    const chew = c > 1.1 ? abs(wave(t, 2.5, 1)) : 0;
+    return pose({
+      ...breathe(t, r), head: 0.05 - 0.05 * bite, look: -0.2,
+      ...mix(armF(0.03, 0.12, 0.09), armF(0.03, 0.08, -0.08), bite), ...armB(0.03, 0.1, 0.1),
+      face: chew ? "happy" : "neutral", mouthOpen: bite > 0.6 ? 0.8 : chew * 0.35, symbol: c > 1.6 && t > 2 ? "heart" : null,
+      set: "burger", setK: Math.floor((t + 1.5) / 2.4),
+    });
+  },
+
+  coffee: (t, r) => {
+    // Boit un café : tasse fumante, gorgée de temps en temps.
+    const c = t % 3.2, sip = ease((c - 1.6) / 0.4) * (1 - ease((c - 2.6) / 0.4));
+    return pose({
+      ...breathe(t, r), head: 0.12 - 0.22 * sip, look: -0.3 + 0.3 * sip,
+      ...mix(armF(0.02, 0.12, 0.08), armF(-0.02, 0.08, -0.07), sip), shB: -0.15, elB: 0.6,
+      face: sip > 0.5 ? "closed" : blink(t, r) ?? "happy", symbol: sip > 0.5 ? null : t % 6.4 > 4 ? "heart" : null, set: "cup", setK: sip,
+    });
+  },
+
+  drive: (t, r) => {
+    // Conduit : assis dans la voiture, mains au volant ; la route défile.
+    const steer = wave(t, 0.4, 0.02), lean = 0.06;
+    return pose({
+      ...SEATED, lean, head: -0.05 + wave(t, 0.5, 0.04), look: 0.1, lift: abs(wave(t, 1.7, 0.004)),
+      ...armF(lean, 0.19, 0.06 + steer), ...armB(lean, 0.17, 0.08 - steer),
+      face: blink(t, r) ?? "happy", symbol: t % 7 > 5.5 ? "music" : null, set: "car", setK: t,
+    });
+  },
+
+  travel: (t, r) => {
+    // Voyage : marche en tirant sa valise à roulettes ; un avion passe dans le ciel.
+    const w = walkCycle(t, 0.9, 0.38);
+    return pose({
+      ...w, dx: -0.3 + 0.6 * clamp(t / 7), lean: 0.06, head: -0.05, look: 0.2,
+      shB: -0.42 + w.shB * 0.1, elB: 0.05, face: blink(t, r) ?? "happy", set: "suitcase", setK: t,
+    });
+  },
+
+  bike: (t, r) => {
+    // Fait du vélo : pédale (les pieds tournent avec le pédalier), le décor défile.
+    const th = t * 2 * PI * 1.1, R = 0.075, cx = 0.07, cy = 0.33;
+    const fF = legIK(cx + R * sin(th), cy + R * cos(th)), fB = legIK(cx - R * sin(th), cy - R * cos(th));
+    const lean = 0.42;
+    return pose({
+      lean, head: -0.32, look: 0.3, ...armF(lean, 0.2, 0.12), ...armB(lean, 0.19, 0.125),
+      hipF: fF.hip, knF: fF.kn, hipB: fB.hip, knB: fB.kn, lift: 0.05 + R * (1 - abs(cos(th))),
+      face: "happy", set: "bike", setK: th,
+    });
+  },
+
+  shopping: (t, r) => {
+    // Shopping : marche, un sac dans chaque main.
+    const w = walkCycle(t, 0.9, 0.36, 0.12);
+    return pose({
+      ...w, dx: -0.3 + 0.6 * clamp(t / 7), lean: 0.04, head: -0.08, elF: -0.08, elB: -0.08,
+      face: "joy", mouthOpen: 0.3, symbol: t % 4 > 2.8 ? "heart" : null, set: "bags", setK: t,
+    });
+  },
+
+  clean: (t, r) => {
+    // Fait le ménage : balaie, la poussière s'envole.
+    const s = sin(t * 2 * PI * 0.9), lean = 0.22;
+    return pose({
+      ...breathe(t, r), lean, head: 0.3, look: -0.6,
+      ...armF(lean, 0.13 + 0.07 * s, 0.2), ...armB(lean, 0.06 + 0.05 * s, 0.03),
+      hipF: 0.2, knF: -0.15, hipB: -0.15, knB: -0.05,
+      face: t > 3 ? "happy" : "neutral", symbol: t > 3.4 ? "sparkle" : null, set: "broom", setK: s,
+    });
+  },
+
+  money: (t, r) => {
+    // Argent : compte ses billets ; il en pleut tout autour.
+    const flick = abs(sin(t * PI * 2.2));
+    return pose({
+      ...breathe(t, r), head: 0.2, look: -0.5,
+      ...armF(0.03, 0.15 + 0.03 * flick, 0.05 - 0.02 * flick), ...armB(0.03, 0.12, 0.08),
+      face: "joy", mouthOpen: 0.4, symbol: t % 4 < 2 ? "sparkle" : null, set: "cash", setK: t,
+    });
+  },
+
+  late: (t, r) => {
+    // En retard : regarde sa montre, sursaute, puis court ; la grande horloge s'affole.
+    if (t < 1.4) {
+      const k = ease(t / 0.4), s = ease((t - 0.8) / 0.15);
+      return pose({
+        ...breathe(t, r), head: 0.3 * k - 0.2 * s, look: -0.6 * k, ...mix(F0, armF(0.03, 0.13, 0.05), k * (1 - s * 0.5)),
+        face: s > 0.5 ? "shocked" : "neutral", mouthOpen: s, symbol: s > 0.5 ? "!?" : null, set: "clock", setK: 0,
+      });
+    }
+    const w = walkCycle(t, 1.8, 0.75, 1);
+    return pose({
+      ...w, dx: wave(t, 0.25, 0.06), lean: 0.3, head: -0.05, elF: -1.5, elB: -1.5, lift: w.lift * 3,
+      face: "fear", symbol: "sweat", set: "clock", setK: ease((t - 1.4) / 0.3),
+    });
+  },
+
+  knock: (t, r) => {
+    // Frappe à la porte (toc toc), attend… la porte s'ouvre.
+    const open = ease((t - 3.0) / 0.9), c = t % 1.5;
+    const tap = t < 2.8 && c < 0.75 ? abs(sin(c * PI * 4)) : 0;
+    const lean = 0.05 - 0.08 * open;
+    return pose({
+      ...breathe(t, r), dx: -0.15 - 0.05 * open, lean, head: -0.05 * open, look: 0.3 * open,
+      ...mix(armF(lean, 0.2 - 0.05 * tap, -0.02), F0, open), shB: -0.1, elB: -0.2,
+      face: open > 0.5 ? "happy" : t > 1.6 ? blink(t, r) ?? "neutral" : "neutral", symbol: open > 0.8 ? "sparkle" : t > 1.6 && t < 3 ? "..." : null,
+      set: "knock", setK: open,
+    });
+  },
+
+  selfie: (t, r) => {
+    // Selfie : téléphone à bout de bras, signe « V », sourire… flash !
+    const c = t % 2.2, lean = -0.05;
+    return pose({
+      ...breathe(t, r), lean, head: -0.15 + (t % 4.4 < 2.2 ? 0.1 : -0.1), look: 0.4,
+      ...armF(lean, 0.2, -0.18), ...armB(lean, 0.05, -0.13),
+      face: c < 1.4 ? "happy" : "joy", set: "selfie", setK: c > 1.6 && c < 1.8 ? 1 - (c - 1.6) / 0.2 : 0,
+    });
+  },
+
+  sing: (t, r) => {
+    // Chante au micro : l'autre bras s'envole sur les notes tenues.
+    const held = t % 3 > 1.8, lean = held ? -0.1 : 0.03;
+    return pose({
+      ...breathe(t, r), lean, head: held ? -0.25 : 0.05 + wave(t, 1.2, 0.05), look: held ? 0.5 : 0,
+      ...armF(lean, 0.09, -0.06), shB: held ? 2.2 : 0.4 + wave(t, 0.6, 0.3), elB: held ? 0.3 : 0.6,
+      face: held ? "closed" : "talk", mouthOpen: held ? 0.9 : abs(wave(t, 3, 0.8)), symbol: "music", set: "mic", setK: t,
+    });
+  },
+
+  guitar: (t, r) => {
+    // Joue de la guitare : gratte les cordes, tape du pied, hoche la tête.
+    const strum = wave(t, 2.4, 1), lean = 0.05;
+    return pose({
+      ...breathe(t, r), lean, head: 0.15 + abs(strum) * 0.08, look: -0.4,
+      ...armF(lean, 0.22, 0.13 + wave(t, 0.7, 0.01)), ...armB(lean, 0.07, 0.19 + strum * 0.035),
+      hipF: 0.12 + max(0, wave(t, 1.2, 0.12)), knF: -0.1,
+      face: t % 4 > 2.5 ? "closed" : "joy", symbol: "music", set: "guitar", setK: t,
+    });
+  },
+
+  paint: (t, r) => {
+    // Peint sur une toile : le tableau se remplit peu à peu.
+    const lean = 0.06;
+    return pose({
+      ...breathe(t, r), lean, head: 0.05, look: 0.1,
+      ...armF(lean, 0.2 + wave(t, 0.7, 0.03), -0.06 + wave(t, 1.3, 0.04)), shB: 0.5, elB: 1.2,
+      face: blink(t, r) ?? "happy", symbol: t > 3.5 ? "sparkle" : null, set: "easel", setK: clamp(t / 5),
+    });
+  },
+
+  plant: (t, r) => {
+    // Arrose une plante qui pousse et fleurit.
+    const lean = 0.15;
+    return pose({
+      ...breathe(t, r), lean, head: 0.3, look: -0.6, ...armF(lean, 0.17, 0.13), ...HIP_HAND,
+      face: t > 3 ? "joy" : "happy", symbol: t > 3.4 ? "sparkle" : null, set: "plant", setK: ease((t - 0.4) / 3),
+    });
+  },
+
+  peak: (t, r) => {
+    // Au sommet de la montagne : brandit le drapeau, le plante, lève les bras.
+    const T = 1.5, k = ease((t - T) / 0.4);
+    const raise = { ...armF(-0.02, 0.1, -0.14), ...armB(-0.02, 0.09, -0.04) };
+    return pose({
+      ...breathe(t, r), lean: -0.04, head: -0.15, look: 0.6, lift: 0.3,
+      ...mix(raise, { shF: 2.6 + wave(t, 1.2, 0.1), elF: 0.4, shB: -2.5, elB: -0.4 }, k),
+      face: t > T ? "joy" : "determined", mouthOpen: 0.4 * k, symbol: t > T + 0.3 ? "sparkle" : null, set: "peak", setK: t < T ? 0 : 1,
+    });
+  },
+
+  swim: (t, r) => {
+    // Nage le crawl (les jambes restent sous l'eau : le corps ne monte ni ne descend).
+    const th = t * 2 * PI * 0.65;
+    return pose({
+      rot: 1.1, lean: 0, head: -0.45, look: 0.4,
+      shF: th, elF: 0.25, shB: th + PI, elB: 0.25,
+      hipF: -0.05 + wave(t, 2.2, 0.15), knF: -0.1, hipB: 0.15, knB: 0,
+      face: "happy", set: "water", setK: t,
+    });
+  },
+
+  fish: (t, r) => {
+    // Pêche : attend, le bouchon plonge, il ferre et sort un poisson.
+    const c = t % 6, pull = ease((c - 3.6) / 0.3) * (1 - ease((c - 5.6) / 0.4));
+    const lean = 0.05 - 0.15 * pull;
+    return pose({
+      ...breathe(t, r), lean, head: 0.15 - 0.3 * pull, look: -0.2 + 0.6 * pull,
+      ...mix({ ...armF(0.05, 0.14, 0.08), ...armB(0.05, 0.04, 0.17) }, { ...armF(lean, 0.1, -0.06), ...armB(lean, 0.02, 0.08) }, pull),
+      hipF: 0.1 + 0.15 * pull, hipB: -0.1 - 0.1 * pull,
+      face: pull > 0.5 ? "joy" : c > 3.2 ? "surprised" : blink(t, r) ?? "neutral",
+      symbol: c > 3.2 && c < 3.7 ? "!?" : pull > 0.5 ? "sparkle" : null, set: "fishing", setK: c,
+    });
+  },
+
+  applause: (t, r) => {
+    // Applaudit avec enthousiasme.
+    const open = abs(sin(t * PI * 2.6)), lean = 0.03;
+    return pose({
+      ...breathe(t, r), lean, head: -0.08, look: 0.3,
+      ...armF(lean, 0.16, 0.05), ...armB(lean, 0.16 - 0.09 * open, 0.06),
+      face: "joy", mouthOpen: 0.5, symbol: t % 3 < 1.5 ? "sparkle" : null, set: "clap", setK: max(0, 1 - open * 4),
+    });
+  },
+
+  graduate: (t, r) => {
+    // Diplômé : s'accroupit, saute et lance sa toque en l'air ; elle retombe sur sa tête.
+    const c = t % 4.2;
+    const crouch = ease((c - 0.9) / 0.3) * (1 - ease((c - 1.2) / 0.12));
+    const air = c > 1.3 && c < 1.9 ? sin(((c - 1.3) / 0.6) * PI) : 0;
+    const up = ease((c - 1.2) / 0.2) * (1 - ease((c - 3.2) / 0.5));
+    return pose({
+      lean: 0.15 * crouch - 0.05 * up, head: -0.25 * up, look: up,
+      shF: 0.14 + 2.7 * up, elF: 0.3 - 0.45 * crouch, ...armB(0.05, 0.1, 0.1),
+      hipF: 0.04 + 0.9 * crouch, knF: -1.3 * crouch, hipB: -0.04 + 0.8 * crouch, knB: -1.2 * crouch, lift: air * 0.09,
+      face: up > 0.3 ? "joy" : "proud", mouthOpen: up * 0.6, symbol: up > 0.5 ? "sparkle" : null, set: "gradcap", setK: c,
+    });
+  },
+
+  birthday: (t, r) => {
+    // Anniversaire : fait un vœu, souffle les bougies, puis fait la fête.
+    const blow = ease((t - 1.6) / 0.3) * (1 - ease((t - 2.4) / 0.3));
+    const party = ease((t - 2.7) / 0.4);
+    const j = party ? abs(sin((t - 2.7) * PI * 1.5)) * party : 0;
+    const wish = t > 0.5 && t < 1.5;
+    return pose({
+      ...breathe(t, r), lean: 0.3 * blow - 0.05 * party, head: 0.15 * blow - 0.15 * party, look: party,
+      ...mix(mix({ ...F0, ...B0 }, { ...armF(0.03, 0.1, 0.05), ...armB(0.03, 0.08, 0.06) }, wish ? 1 : 0), { shF: 2.7, elF: 0.25, shB: -2.7, elB: -0.25 }, party),
+      lift: j * 0.05, knF: -j * 0.3, knB: -j * 0.3,
+      face: blow > 0.3 ? "surprised" : wish ? "closed" : party > 0.5 ? "joy" : "happy", mouthOpen: blow ? 0.9 : party * 0.6,
+      symbol: party > 0.5 ? "sparkle" : null, set: "cake", setK: ease((t - 1.8) / 0.4),
+    });
+  },
+
+  grave: (t, r) => {
+    // Deuil : dépose des fleurs devant la tombe, à genoux, tête baissée.
+    const k = ease((t - 0.9) / 0.9), place = ease((t - 1.6) / 0.5) * (1 - ease((t - 2.3) / 0.5));
+    const lean = 0.08 + 0.25 * place;
+    const stand = pose({ ...breathe(t, r), head: 0.35, look: -0.6, ...armF(0.03, 0.12, 0.08), shB: -0.05, elB: -0.1, face: "sad" });
+    const kneel = pose({
+      ...KNEEL, lean, head: 0.5 - 0.2 * place, look: -0.8,
+      ...mix({ shF: 0.9, elF: 1.1 }, armF(lean, 0.27, 0.25), place), shB: 0.1, elB: 0.3,
+      face: "sad", symbol: t > 3.2 ? "tear" : null,
+    });
+    return { ...lerpPose(stand, kneel, k), set: "grave", setK: t > 2.05 ? 1 : 0 };
+  },
+
+  freedom: (t, r) => {
+    // Liberté : tire sur ses chaînes, les brise, et lève les bras au ciel.
+    const T = 1.5;
+    if (t < T) {
+      const lean = 0.15 + wave(t, 7, 0.012);
+      return pose({
+        lean, head: 0.15, look: -0.3, ...armF(lean, 0.12, 0.17 + wave(t, 6, 0.01)), ...armB(lean, 0.11, 0.18),
+        hipF: 0.25, knF: -0.3, hipB: -0.2, knB: -0.15,
+        face: "determined", symbol: "sweat", set: "chains", setK: t / T,
+      });
+    }
+    const k = ease((t - T) / 0.25), j = abs(sin((t - T) * PI * 1.3)) * ease((t - T) / 0.3) * (t < T + 2.4 ? 1 : 0);
+    return pose({
+      lean: 0.15 - 0.2 * k, head: -0.25 * k, look: k,
+      shF: 0.5 + 2.3 * k, elF: 0.25, shB: -0.5 - 2.3 * k, elB: -0.25, hipF: 0.1, knF: -j * 0.3, hipB: -0.1, knB: -j * 0.3,
+      lift: j * 0.05, face: "joy", mouthOpen: 0.6, symbol: "sparkle", set: "chains", setK: 1 + (t - T),
+    });
+  },
+
+  trapped: (t, r) => {
+    // Enfermé dans une cage : secoue les barreaux, puis s'affaisse.
+    const c = t % 5, slump = ease((c - 3.2) / 0.5) * (1 - ease((c - 4.6) / 0.4));
+    const sh = wave(t, 3, 1) * (1 - slump);
+    const lean = 0.08 + 0.2 * slump + sh * 0.03;
+    return pose({
+      dx: 0.02 + sh * 0.012, lean, head: 0.05 + 0.4 * slump, look: -0.6 * slump,
+      ...armF(lean, 0.27 - shX(lean), 0.02 + 0.1 * slump), ...armB(lean, 0.25 - shX(lean), -0.04 + 0.1 * slump),
+      hipF: 0.15, knF: -0.1 - 0.2 * slump, hipB: -0.12, knB: -0.1 * slump,
+      face: slump > 0.5 ? "sad" : "fear", mouthOpen: slump > 0.5 ? 0 : abs(sh) * 0.5, symbol: slump > 0.5 ? "..." : "sweat", set: "cage",
+    });
+  },
+
+  announce: (t, r) => {
+    // Annonce au mégaphone : les ondes sonores partent devant.
+    const lean = -0.03 + wave(t, 1.6, 0.03);
+    return pose({
+      ...breathe(t, r), lean, head: -0.05, look: 0.2, ...armF(lean, 0.09, -0.05), ...HIP_HAND,
+      hipF: 0.15, hipB: -0.12, face: "talk", mouthOpen: 0.5 + abs(wave(t, 3, 0.5)), set: "megaphone", setK: t,
+    });
+  },
 };
 
 /** Nombre de personnages par défaut selon l'action. */
-export const DUO_ACTIONS = new Set(["mock", "argue", "talk", "point", "ignore", "hug", "reach", "leave", "backtoback", "highfive", "whisper", "puppet"]);
+export const DUO_ACTIONS = new Set([
+  "mock", "argue", "talk", "point", "ignore", "hug", "reach", "leave", "backtoback", "highfive", "whisper", "puppet",
+  "betray", "gossip", "trust", "handshake", "promise", "gift", "propose", "kiss", "comfort", "reject", "fight", "forgive", "dance", "confront", "friends",
+]);
 
 /** Libellés (fr / de / en) pour l'éditeur de scènes. */
 export const ACTION_LABELS = {
@@ -761,6 +1648,35 @@ export const ACTION_LABELS = {
   sleep: ["Dort / rêve", "Schläft / träumt", "Sleeps / dreams"], door: ["Ouvre une porte", "Öffnet eine Tür", "Opens a door"],
   stairs: ["Monte l'escalier", "Steigt die Treppe", "Climbs stairs"], lamppost: ["Attend sous un lampadaire", "Wartet unter der Laterne", "Waits under a streetlight"],
   chase: ["Court après un rêve", "Jagt einem Traum nach", "Chases a dream"], stargaze: ["Regarde les étoiles", "Schaut in die Sterne", "Stargazing"],
+  betray: ["Trahison, coup dans le dos (2)", "Verrat, Messer in den Rücken (2)", "Betrayal, stab in the back (2)"],
+  gossip: ["Parle dans le dos (2)", "Lästert hinter dem Rücken (2)", "Talks behind the back (2)"],
+  trust: ["Confiance (se laisse tomber) (2)", "Vertrauen (lässt sich fallen) (2)", "Trust fall (2)"],
+  handshake: ["Poignée de main (2)", "Händedruck (2)", "Handshake (2)"], promise: ["Promesse (2)", "Versprechen (2)", "Pinky promise (2)"],
+  gift: ["Offre un cadeau (2)", "Schenkt etwas (2)", "Gives a gift (2)"], propose: ["Demande en mariage (2)", "Heiratsantrag (2)", "Proposal (2)"],
+  kiss: ["Bisou (2)", "Küsschen (2)", "Kiss (2)"], comfort: ["Réconforte (2)", "Tröstet (2)", "Comforts (2)"],
+  reject: ["Repousse (2)", "Stößt weg (2)", "Rejects (2)"], fight: ["Bagarre (2)", "Prügelei (2)", "Fight (2)"],
+  forgive: ["Pardonne (2)", "Verzeiht (2)", "Forgives (2)"], dance: ["Danse à deux (2)", "Tanzt zu zweit (2)", "Dance (2)"],
+  confront: ["Confronte avec une preuve (2)", "Konfrontiert mit Beweis (2)", "Confronts with proof (2)"],
+  friends: ["Meilleurs amis (2)", "Beste Freunde (2)", "Best friends (2)"],
+  shock: ["Sous le choc", "Schockiert", "Shocked"], doubt: ["Doute / méfiance", "Zweifel / Misstrauen", "Doubt / distrust"],
+  proud: ["Fier / sa valeur", "Stolz / sein Wert", "Proud / self-worth"], scared: ["A peur", "Hat Angst", "Scared"],
+  hide: ["Se cache", "Versteckt sich", "Hides"], pray: ["Prie", "Betet", "Prays"], hope: ["Espoir", "Hoffnung", "Hope"],
+  facepalm: ["Se tape le front", "Facepalm", "Facepalm"], nod: ["Dit oui", "Sagt ja", "Says yes"], refuse: ["Dit non", "Sagt nein", "Says no"],
+  bow: ["S'incline / merci", "Verbeugt sich / danke", "Bows / thanks"], apologize: ["S'excuse", "Entschuldigt sich", "Apologizes"],
+  wakeup: ["Se réveille / s'étire", "Wacht auf / streckt sich", "Wakes up / stretches"], dizzy: ["Étourdi", "Schwindelig", "Dizzy"],
+  jealous: ["Jaloux", "Eifersüchtig", "Jealous"], sick: ["Malade", "Krank", "Sick"], scheme: ["Prépare sa vengeance", "Plant Rache", "Plots revenge"],
+  eavesdrop: ["Écoute aux portes", "Lauscht an der Wand", "Eavesdrops"],
+  work: ["Travaille (ordinateur)", "Arbeitet (Laptop)", "Works (laptop)"], study: ["Étudie / écrit", "Lernt / schreibt", "Studies / writes"],
+  teach: ["Enseigne au tableau", "Unterrichtet an der Tafel", "Teaches"], cook: ["Cuisine", "Kocht", "Cooks"], eat: ["Mange", "Isst", "Eats"],
+  coffee: ["Boit un café", "Trinkt Kaffee", "Drinks coffee"], drive: ["Conduit", "Fährt Auto", "Drives"], travel: ["Voyage (valise)", "Reist (Koffer)", "Travels (suitcase)"],
+  bike: ["Fait du vélo", "Fährt Fahrrad", "Rides a bike"], shopping: ["Shopping", "Shopping", "Shopping"], clean: ["Fait le ménage", "Putzt", "Cleans"],
+  money: ["Argent", "Geld", "Money"], late: ["En retard", "Zu spät", "Running late"], knock: ["Frappe à la porte", "Klopft an die Tür", "Knocks on the door"],
+  selfie: ["Selfie", "Selfie", "Selfie"], sing: ["Chante", "Singt", "Sings"], guitar: ["Guitare", "Gitarre", "Plays guitar"], paint: ["Peint", "Malt", "Paints"],
+  plant: ["Arrose une plante", "Gießt eine Pflanze", "Waters a plant"], peak: ["Au sommet (drapeau)", "Auf dem Gipfel (Fahne)", "On the summit (flag)"],
+  swim: ["Nage", "Schwimmt", "Swims"], fish: ["Pêche", "Angelt", "Fishes"], applause: ["Applaudit", "Applaudiert", "Applauds"],
+  graduate: ["Diplômé", "Abschluss", "Graduates"], birthday: ["Anniversaire", "Geburtstag", "Birthday"], grave: ["Deuil / tombe", "Trauer / Grab", "Mourning / grave"],
+  freedom: ["Brise ses chaînes", "Sprengt die Ketten", "Breaks free"], trapped: ["Enfermé (cage)", "Gefangen (Käfig)", "Trapped (cage)"],
+  announce: ["Annonce (mégaphone)", "Verkündet (Megafon)", "Announces (megaphone)"],
 };
 
 const NUM_KEYS = ["dx", "lift", "lean", "head", "shF", "elF", "shB", "elB", "hipF", "knF", "hipB", "knB", "mouthOpen", "look", "sit", "lie", "rot", "setK"];
@@ -774,10 +1690,13 @@ export function lerpPose(a, b, k) {
   return out;
 }
 
-/** Pose à l'instant t d'une action, avec repli sur « idle » pour un id inconnu. */
-export function poseAt(action, t, r = 0.5, role = 0) {
+/**
+ * Pose à l'instant t d'une action, avec repli sur « idle » pour un id inconnu.
+ * gap : écart entre les hanches des deux personnages, en hauteurs de personnage (actions à deux).
+ */
+export function poseAt(action, t, r = 0.5, role = 0, gap = DUO_GAP) {
   const fn = ACTIONS[action] ?? ACTIONS.idle;
-  return fn(Math.max(0, t), r, role);
+  return fn(Math.max(0, t), r, role, gap);
 }
 
 /**
