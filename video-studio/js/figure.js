@@ -703,11 +703,13 @@ function workCanvas(key, w, hgt) {
  * Position à l'écran (pixels) des articulations d'un personnage dessiné par drawFigure avec les mêmes
  * paramètres : sert aux décors liés au personnage (pluie au-dessus de la tête, fils de marionnette, corde…).
  */
-export function figureJoints(p, morphIn, x, groundY, H) {
+export function figureJoints(p, morphIn, x, groundY, H, sketch = false) {
   const m = morphFrom(morphIn);
   const h = H * m.height;
   const sk = skeleton(p, m);
   const low = lowestPoint(sk, p);
+  // Style dessin : mains et pieds sont déplacés sur les côtés (vue de face), les objets doivent les suivre.
+  if (sketch) sketchFrontView(sk, p, m);
   const ox = x + (p.dx ?? 0) * H, oy = groundY - (low + (p.lift ?? 0)) * h;
   const out = { h, d: p.dir ?? 1, headR: sk.headR * h, base: [x, groundY] };
   for (const k of ["hip", "neck", "shoulder", "headC", "elbowF", "handF", "elbowB", "handB", "kneeF", "footF", "kneeB", "footB"]) {
@@ -2266,6 +2268,40 @@ function drawSketchHead(ctx, p, m, sk, d) {
 }
 
 /**
+ * Style dessin, vue de face (comme les dessins animés de référence) : chaque bras part d'un côté du t-shirt,
+ * chaque jambe d'un côté du bassin ; le bras et la jambe « arrière » sont en miroir. Modifie sk.
+ */
+function sketchFrontView(sk, p, m) {
+  const build = m.build ?? 1, d = p.dir ?? 1;
+  const off = 0.075 * build, legOff = 0.035 * build;
+  const N0 = sk.neck, H0 = sk.hip;
+  let ax0 = H0[0] - N0[0], ay0 = H0[1] - N0[1];
+  const al = Math.hypot(ax0, ay0) || 1;
+  ax0 /= al; ay0 /= al;
+  const px0 = ay0 * d, py0 = -ax0 * d; // perpendiculaire au buste, vers l'avant du personnage (côté où il regarde)
+  // axis = [ax, ay, px, py] : axe du buste pour les bras, verticale pour les jambes (sinon une jambe part
+  // à l'horizontale dès que le personnage se penche).
+  const side = (pts, base, s, mirror, [ax, ay, px, py] = [ax0, ay0, px0, py0]) => pts.map((q) => {
+    const rx = q[0] - base[0], ry = q[1] - base[1];
+    // Composante perpendiculaire à l'axe : en miroir pour le côté arrière.
+    const along = rx * ax + ry * ay, across = rx * px + ry * py;
+    const ac = mirror ? -Math.abs(across) - 0.004 : Math.abs(across) + 0.004;
+    return [base[0] + px * s + ax * along + px * ac, base[1] + py * s + ay * along + py * ac];
+  });
+  const vertical = [0, 1, d, 0];
+  const front = side([sk.shoulder, sk.elbowF, sk.handF], sk.shoulder, off, false);
+  const back = side([sk.shoulder, sk.elbowB, sk.handB], sk.shoulder, -off, true);
+  [sk.shoulderF, sk.elbowF, sk.handF] = front;
+  [sk.shoulderB, sk.elbowB, sk.handB] = back;
+  const legF = side([sk.hip, sk.kneeF, sk.footF], sk.hip, legOff, false, vertical);
+  const legB = side([sk.hip, sk.kneeB, sk.footB], sk.hip, -legOff, true, vertical);
+  if (!p.rot && !p.sit) {
+    [sk.hipF, sk.kneeF, sk.footF] = legF;
+    [sk.hipB, sk.kneeB, sk.footB] = legB;
+  } else { sk.hipF = sk.hip; sk.hipB = sk.hip; }
+}
+
+/**
  * Dessine le personnage en style « dessin » (BD : contour noir, tête couleur peau, t-shirt, membres fins).
  * Mêmes paramètres et même repère que drawFigure.
  */
@@ -2284,36 +2320,7 @@ export function drawSketchFigure(ctx, p, morphIn, x, groundY, H) {
 
   const build = m.build ?? 1;
   const limbW = 0.028 * Math.sqrt(build);
-  // Vue de face (comme les dessins animés de référence) : chaque bras part d'un côté du t-shirt,
-  // chaque jambe d'un côté du bassin ; le bras et la jambe « arrière » sont en miroir.
-  {
-    const off = 0.075 * build, legOff = 0.035 * build;
-    const N0 = sk.neck, H0 = sk.hip;
-    let ax0 = H0[0] - N0[0], ay0 = H0[1] - N0[1];
-    const al = Math.hypot(ax0, ay0) || 1;
-    ax0 /= al; ay0 /= al;
-    const px0 = ay0 * d, py0 = -ax0 * d; // perpendiculaire au buste, vers l'avant du personnage (côté où il regarde)
-    // axis = [ax, ay, px, py] : axe du buste pour les bras, verticale pour les jambes (sinon une jambe part
-    // à l'horizontale dès que le personnage se penche).
-    const side = (pts, base, s, mirror, [ax, ay, px, py] = [ax0, ay0, px0, py0]) => pts.map((q) => {
-      const rx = q[0] - base[0], ry = q[1] - base[1];
-      // Composante perpendiculaire à l'axe : en miroir pour le côté arrière.
-      const along = rx * ax + ry * ay, across = rx * px + ry * py;
-      const ac = mirror ? -Math.abs(across) - 0.004 : Math.abs(across) + 0.004;
-      return [base[0] + px * s + ax * along + px * ac, base[1] + py * s + ay * along + py * ac];
-    });
-    const vertical = [0, 1, d, 0];
-    const front = side([sk.shoulder, sk.elbowF, sk.handF], sk.shoulder, off, false);
-    const back = side([sk.shoulder, sk.elbowB, sk.handB], sk.shoulder, -off, true);
-    [sk.shoulderF, sk.elbowF, sk.handF] = front;
-    [sk.shoulderB, sk.elbowB, sk.handB] = back;
-    const legF = side([sk.hip, sk.kneeF, sk.footF], sk.hip, legOff, false, vertical);
-    const legB = side([sk.hip, sk.kneeB, sk.footB], sk.hip, -legOff, true, vertical);
-    if (!p.rot && !p.sit) {
-      [sk.hipF, sk.kneeF, sk.footF] = legF;
-      [sk.hipB, sk.kneeB, sk.footB] = legB;
-    } else { sk.hipF = sk.hip; sk.hipB = sk.hip; }
-  }
+  sketchFrontView(sk, p, m);
   const top = TOPS[m.top] ? m.top : "none", bottom = BOTTOMS[m.bottom] ? m.bottom : "none";
   const legFill = bottom === "pants" ? m.bottomColor : SKETCH_LIMB;
   const shade = (c) => shadeColor(c, 0.9);

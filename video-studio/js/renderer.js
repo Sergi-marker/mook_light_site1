@@ -1954,7 +1954,8 @@ function drawCaption(ctx, scene, local, duration, W, H, L, settings, alpha, voic
     starts.push(Math.max(starts[n - 1] + 0.05, timed[m - 1].e));
   }
   const space = ctx.measureText(" ").width;
-  const top = L.captionY - total / 2;
+  // Le bloc reste entier dans l'image, même long et placé en bas (aucune ligne coupée).
+  const top = Math.max(H * 0.02, Math.min(L.captionY - total / 2, H * 0.975 - total));
 
   // Nom de celui qui parle (dialogues).
   if (scene.speakerName && settings.speakerLabels !== false) {
@@ -2606,8 +2607,8 @@ function drawScene(ctx, project, tl, t) {
     p1 = prev && cur.p1 && prev.p1 ? lerpPose(orient(prev1, -1), orient(cur.p1, -1), k) : orient(src1, -1);
     p1 = { ...p1, time: t };
   }
-  const J0 = figureJoints(p0, chars[0], x0, L.groundY, L.figH);
-  const J1 = p1 ? figureJoints(p1, chars[1], x1, L.groundY, L.figH) : null;
+  const J0 = figureJoints(p0, chars[0], x0, L.groundY, L.figH, sketch);
+  const J1 = p1 ? figureJoints(p1, chars[1], x1, L.groundY, L.figH, sketch) : null;
 
   // Caméra (vise celui qui parle en gros plan ; gros plan doux sur le visage quand la scène a une émotion).
   const focusX = item.scene.speaker === 1 ? x1 : x0;
