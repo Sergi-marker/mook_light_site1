@@ -5,3 +5,9 @@ release/
 build/
 *.log
 .DS_Store
+data/
+.env
+dist-free/
+dist-free-test/
+tests/.cache/
+video-studio/__*/
