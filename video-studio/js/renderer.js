@@ -135,7 +135,7 @@ export function fontCss(id, size) {
 }
 
 /** Couleur d'étiquette de chaque personnage (nom au-dessus de sa réplique). */
-const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7", "#9be7a4", "#ffd27a"];
+const SPEAKER_COLORS = ["#8fd0ff", "#ffb3c7", "#9be7a4", "#ffd27a", "#c9a7ff", "#ff9f7a"];
 
 /** Géométrie de la mise en page selon le format et la position des sous-titres. */
 /** big : style « dessin », personnages plus grands et plus bas (comme les dessins animés de référence). */
@@ -2211,6 +2211,44 @@ function withFace(p, expr, manual, action) {
   return { ...p, face: expr, expr };
 }
 
+/** Nombre de personnages d'une scène de groupe (3 à 6), ou 0 pour une scène à un ou deux personnages. */
+export function groupSize(s, count) {
+  if (!s || s.kind !== "scene") return 0;
+  if (s.figures >= 3) return Math.min(6, s.figures);
+  if (s.figures == null && s.group && s.speaker == null && count >= 3) return Math.min(4, count);
+  return 0;
+}
+
+/**
+ * Scène de groupe : tout le monde joue l'action, avec un léger décalage ; pour une action à deux, les deux
+ * personnages du milieu la jouent et les autres écoutent. Renvoie les poses dans l'ordre de gauche à droite.
+ */
+function groupPoses(item, localIn, n, detected, gap) {
+  const s = item.scene;
+  const local = sceneFx(s) === "slow" ? localIn * 0.45 : localIn;
+  const r = rng(s.seed)();
+  const action = s.action;
+  const pair = DUO_ACTIONS.has(action) || action === "speak";
+  const fc = sceneFaces(s, detected, action, false);
+  const mid = (n - 1) / 2, a = Math.floor(mid), b = a + 1;
+  return Array.from({ length: n }, (_, i) => {
+    const ri = (r + i * 0.37) % 1;
+    let p;
+    if (pair && (i === a || i === b)) {
+      p = livelyPose(action, local + (i === b ? 0.37 : 0), ri, i === b ? 1 : 0, gap);
+      p = { ...p, dx: Math.min(p.dx ?? 0, gap * 0.4) }; // les deux du milieu se rapprochent sans se chevaucher
+    }
+    else {
+      p = livelyPose(pair ? "listen" : action, local + i * 0.23, ri, 0);
+      p = { ...p, dx: (p.dx ?? 0) * 0.25 }; // en groupe, on bouge sur place pour ne pas se marcher dessus
+    }
+    p = withFace(p, fc.faces[0], fc.manual[0], action);
+    // Chacun regarde vers le milieu du groupe (les deux du milieu se font face).
+    const facing = pair ? (i <= a ? 1 : -1) : i < mid ? 1 : i > mid ? -1 : (s.seed & 1 ? 1 : -1);
+    return orient(p, facing);
+  });
+}
+
 /** Poses des deux personnages pour un élément de la timeline à son temps local. */
 function scenePoses(item, localIn, detected = null, gap = undefined) {
   const s = item.scene;
@@ -2610,10 +2648,12 @@ function drawScene(ctx, project, tl, t) {
   const J0 = figureJoints(p0, chars[0], x0, L.groundY, L.figH, sketch);
   const J1 = p1 ? figureJoints(p1, chars[1], x1, L.groundY, L.figH, sketch) : null;
 
+  // Scène de groupe (3 personnages ou plus).
+  const gN = groupSize(item.scene, allChars.length);
   // Caméra (vise celui qui parle en gros plan ; gros plan doux sur le visage quand la scène a une émotion).
-  const focusX = item.scene.speaker === 1 ? x1 : x0;
+  const focusX = gN ? W / 2 : item.scene.speaker === 1 ? x1 : x0;
   let push = null;
-  if (plan.push[index] && settings.emotionCloseups !== false) {
+  if (plan.push[index] && settings.emotionCloseups !== false && !gN) {
     const s = item.scene;
     const who = J1 && cur.duo && (s.speaker === 1 || (s.speaker == null && !(s.expr && s.expr !== "auto") && s.expr2 && s.expr2 !== "auto")) ? J1 : J0;
     push = { x: who.headC[0], y: who.headC[1] + who.headR * 0.9 };
@@ -2644,26 +2684,48 @@ function drawScene(ctx, project, tl, t) {
 
   // Décors de l'action (mur, porte, escalier, lit…), dans le temps de la scène.
   const setT = fx === "slow" ? local * 0.45 : local;
-  if (p0.set) drawSetBehind(ctx, p0, J0, setT);
-  if (p1?.set) drawSetBehind(ctx, p1, J1, setT);
-  if (p0.set === "mirror") drawMirror(ctx, p0, chars[0], x0, L, look, J0);
-  shadow(x0 + (p0.dx ?? 0) * L.figH, L.figH * 0.16);
-  // Second personnage (apparaît / disparaît en fondu).
-  if (p1) {
+  if (gN) {
+    // Groupe : 3 à 6 personnages côte à côte, un peu plus petits, qui apparaissent en fondu.
+    // Tout le groupe tient dans l'image : l'écart dépend de la largeur, la taille de l'écart (les têtes du
+    // style dessin sont grosses).
+    const spacing = (W * 0.8) / gN;
+    const gh = Math.min(L.figH * (gN === 3 ? 0.82 : gN === 4 ? 0.72 : 0.6), spacing * (sketch ? 1.75 : 2.8));
+    const poses = groupPoses(item, local, gN, plan.expr[index], spacing / gh);
     ctx.save();
-    ctx.globalAlpha = duoAmt;
-    shadow(x1 + (p1.dx ?? 0) * L.figH, L.figH * 0.16);
-    if (sketch) drawSketchFigure(ctx, p1, chars[1], x1, L.groundY, L.figH);
-    else drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH, look);
+    ctx.globalAlpha = index > 0 && local < BLEND && !groupSize(tl.items[index - 1].scene, allChars.length) ? Math.min(1, local / BLEND) : 1;
+    poses.forEach((p, i) => {
+      const x = W / 2 + (i - (gN - 1) / 2) * spacing, ch = allChars[i % allChars.length] ?? {};
+      const q = { ...p, time: t };
+      const J = figureJoints(q, ch, x, L.groundY, gh, sketch);
+      if (q.set && i === 0) drawSetBehind(ctx, q, J, setT);
+      shadow(x + (q.dx ?? 0) * gh, gh * 0.16);
+      if (sketch) drawSketchFigure(ctx, q, ch, x, L.groundY, gh);
+      else drawFigure(ctx, q, ch, x, L.groundY, gh, look);
+      if (q.set && i === 0) drawSetFront(ctx, q, J, setT);
+    });
     ctx.restore();
-  }
-  if (sketch) drawSketchFigure(ctx, p0, chars[0], x0, L.groundY, L.figH);
-  else drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
-  if (p0.set) drawSetFront(ctx, p0, J0, setT);
-  if (p1?.set) drawSetFront(ctx, p1, J1, setT);
-  if (p1 && duoAmt > 0.5) {
-    if (p0.set === "strings") drawStrings(ctx, J0, J1, setT);
-    else if (p1.set === "strings") drawStrings(ctx, J1, J0, setT);
+  } else {
+    if (p0.set) drawSetBehind(ctx, p0, J0, setT);
+    if (p1?.set) drawSetBehind(ctx, p1, J1, setT);
+    if (p0.set === "mirror") drawMirror(ctx, p0, chars[0], x0, L, look, J0);
+    shadow(x0 + (p0.dx ?? 0) * L.figH, L.figH * 0.16);
+    // Second personnage (apparaît / disparaît en fondu).
+    if (p1) {
+      ctx.save();
+      ctx.globalAlpha = duoAmt;
+      shadow(x1 + (p1.dx ?? 0) * L.figH, L.figH * 0.16);
+      if (sketch) drawSketchFigure(ctx, p1, chars[1], x1, L.groundY, L.figH);
+      else drawFigure(ctx, p1, chars[1], x1, L.groundY, L.figH, look);
+      ctx.restore();
+    }
+    if (sketch) drawSketchFigure(ctx, p0, chars[0], x0, L.groundY, L.figH);
+    else drawFigure(ctx, p0, chars[0], x0, L.groundY, L.figH, look);
+    if (p0.set) drawSetFront(ctx, p0, J0, setT);
+    if (p1?.set) drawSetFront(ctx, p1, J1, setT);
+    if (p1 && duoAmt > 0.5) {
+      if (p0.set === "strings") drawStrings(ctx, J0, J1, setT);
+      else if (p1.set === "strings") drawStrings(ctx, J1, J0, setT);
+    }
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);

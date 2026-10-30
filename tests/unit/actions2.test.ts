@@ -205,3 +205,24 @@ test("décors : chaque décor se dessine sans erreur ni coordonnée invalide", (
     }
   }
 });
+
+test("dialogue à 3 personnages ou plus : chacun sa place, deux à l'écran, groupe détecté", async () => {
+  // @ts-ignore
+  const { parseScript, MAX_CHARACTERS } = await import("../../video-studio/js/script.js");
+  // @ts-ignore
+  const { groupSize } = await import("../../video-studio/js/renderer.js");
+  const s = parseScript("Léa : Salut !\nTom : Ça va ?\nMax : Moi aussi.\nLéa : Super.\nIls partent tous ensemble.\nRègle numéro un : rien.");
+  assert.deepEqual(s.slice(0, 4).map((x: any) => x.person), [0, 1, 2, 0]);
+  assert.deepEqual(s.slice(0, 4).map((x: any) => x.speakerName), ["Léa", "Tom", "Max", "Léa"]);
+  for (const x of s.slice(0, 4)) assert.equal(x.cast[x.speaker], x.person);
+  assert.equal(s[4].group, true);
+  assert.equal(s[5].speaker, undefined);
+  assert.equal(MAX_CHARACTERS, 6);
+  assert.equal(groupSize(s[4], 2), 0);
+  assert.equal(groupSize(s[4], 3), 3);
+  assert.equal(groupSize(s[4], 6), 4);
+  assert.equal(groupSize({ ...s[4], figures: 5 }, 2), 5);
+  // Deux personnages : comme avant (pas de distribution).
+  const two = parseScript("Lui : Salut.\nElle : Bonjour.\nLui : Ça va ?\nElle : Oui.");
+  assert.deepEqual(two.map((x: any) => [x.speaker, x.cast]), [[0, undefined], [1, undefined], [0, undefined], [1, undefined]]);
+});

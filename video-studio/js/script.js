@@ -278,6 +278,14 @@ function hashString(s) {
   return h >>> 0;
 }
 
+/** Nombre maximal de personnages (texte → vidéo). */
+export const MAX_CHARACTERS = 6;
+
+/** Mots qui désignent un groupe : la scène montre tous les personnages (quand il y en a 3 ou plus). */
+const GROUP_WORDS = [" ils ", " elles ", " tous ", " toutes ", "ensemble", " groupe", " equipe", " famille", " les amis", " nous ",
+  " sie alle", " alle ", "zusammen", " gruppe", " familie", " freunde", " wir ", " they ", " together", " group", " team", " family", " friends", " we ",
+  " ellos ", " ellas ", " todos ", " juntos", " grupo ", " familia", " amigos", " nosotros "];
+
 /** Quand rien n'est détecté : alterne des animations neutres pour que la vidéo ne soit jamais figée. */
 const NEUTRAL_CYCLE = ["think", "walk", "idle", "talk", "sit", "think", "walk"];
 
@@ -321,13 +329,21 @@ export function parseScript(text, opts = {}) {
     const sp = !l.startsWith("#") && splitSpeaker(l.replace(/^\[[^\]]+\]\s*/, ""));
     if (sp) counts.set(normalize(sp.name).trim(), (counts.get(normalize(sp.name).trim()) ?? 0) + 1);
   }
+  // Dans un vrai dialogue (au moins un nom qui ouvre deux lignes), un prénom qui ne parle qu'une fois compte
+  // aussi : un ou deux mots commençant par une majuscule (« Tom : Ça va ? »).
+  const dialogue = [...counts.values()].some((n) => n >= 2);
+  const isSpeaker = (name) => {
+    const k = normalize(name).trim();
+    if ((counts.get(k) ?? 0) >= 2 || NARRATOR_NAMES.has(k)) return true;
+    return dialogue && name.split(/\s+/).length <= 2 && /^\p{Lu}/u.test(name);
+  };
   const speakers = [];
   const speakerIndex = (name) => {
     const k = normalize(name).trim();
     if (NARRATOR_NAMES.has(k)) return null;
     let i = speakers.findIndex((s) => normalize(s).trim() === k);
     if (i < 0) { speakers.push(name); i = speakers.length - 1; }
-    return i % 2;
+    return i % MAX_CHARACTERS;
   };
 
   for (const rawLine of lines) {
@@ -347,7 +363,7 @@ export function parseScript(text, opts = {}) {
     let speaker = null, speakerName = null;
     const lead = /^\[[^\]]+\]\s*/.exec(line)?.[0] ?? "";
     const sp = splitSpeaker(line.slice(lead.length));
-    if (sp && ((counts.get(normalize(sp.name).trim()) ?? 0) >= 2 || NARRATOR_NAMES.has(normalize(sp.name).trim()))) {
+    if (sp && isSpeaker(sp.name)) {
       speaker = speakerIndex(sp.name);
       speakerName = speaker == null ? null : sp.name;
       line = lead + sp.text;
@@ -379,6 +395,7 @@ export function parseScript(text, opts = {}) {
       for (const c of chunks) {
         const sc = { kind: "scene", text: c, action, auto };
         if (speaker != null) Object.assign(sc, { speaker, speakerName, figures: 2 });
+        else if (GROUP_WORDS.some((w) => normalize(c).includes(w))) sc.group = true;
         scenes.push(sc);
       }
       prevAction = action;
@@ -388,6 +405,24 @@ export function parseScript(text, opts = {}) {
   scenes.forEach((sc, i) => {
     if (sc.kind === "pause" && scenes[i - 1]?.figures === 2) sc.figures = 2;
   });
+  // Plus de deux personnages : à l'écran, celui qui parle et celui à qui il répond (person = qui parle,
+  // cast = les deux personnes à l'écran, speaker = sa place dans cast).
+  if (speakers.length > 2) {
+    const order = scenes.filter((sc) => sc.speaker != null).map((sc) => sc.speaker);
+    let cast = [order[0], order.find((x) => x !== order[0])];
+    let last = null;
+    for (const sc of scenes) {
+      if (sc.speaker == null) { if (sc.figures === 2) sc.cast = [...cast]; continue; }
+      const who = sc.speaker;
+      if (!cast.includes(who)) {
+        // Celui qui vient de parler reste à sa place ; le nouveau prend la place de l'autre.
+        const keep = cast.includes(last) ? last : cast[0];
+        cast = cast[0] === keep ? [keep, who] : [who, keep];
+      }
+      Object.assign(sc, { person: who, cast: [...cast], speaker: cast.indexOf(who) });
+      last = who;
+    }
+  }
   return scenes.map((sc, i) => ({ id: `s${i + 1}`, ...sc, seed: (hashString(sc.text) ^ Math.imul(baseSeed, 2654435761) ^ i) >>> 0 }));
 }
 

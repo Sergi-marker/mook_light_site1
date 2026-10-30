@@ -1,7 +1,7 @@
 // © la triche — Animots
 // Interface de Animots.
 
-import { parseScript, timeline, sceneAt, withBrand, plainText } from "./script.js";
+import { parseScript, timeline, sceneAt, withBrand, plainText, MAX_CHARACTERS } from "./script.js";
 import { ACTIONS, ACTION_LABELS, DUO_ACTIONS, poseAt } from "./poses.js";
 import { drawFigure, PRESETS, SKIN_TONES, morphFrom, drawSketchFigure, EXPRESSIONS, TOPS, BOTTOMS, HATS, HAIRS, ACCESSORIES } from "./figure.js";
 import { renderFrame, preloadImage, fontCss, FORMATS, THEMES, BACKDROPS, CAMERAS, POSITIONS, FONTS, EFFECTS, TRANSITIONS, WEATHERS, TIMES_OF_DAY, sketchMorph, setLipSync } from "./renderer.js";
@@ -91,8 +91,17 @@ let project = load(mode);
 const voiceId = () => project.settings.neuralVoice || defaultVoice(project.settings.voiceLang);
 const neuralOn = () => project.settings.voiceMode === "neural" && !!voiceId();
 /** Voix qui lit une scène : celle du personnage qui parle (dialogue), sinon celle du narrateur. */
-const charVoice = (i) => project.settings[`charVoice${i}`] || voiceByGender(project.settings.voiceLang, i === 0 ? "m" : "f");
-const voiceOf = (sc) => (sc.speaker === 0 || sc.speaker === 1 ? charVoice(sc.speaker) : voiceId());
+const charVoice = (i) => project.settings[`charVoice${i}`] || voiceByGender(project.settings.voiceLang, looksFeminine(project.settings.characters[i]) ?? i % 2 === 1 ? "f" : "m");
+/** Personne qui parle dans une scène (sa place dans la liste des personnages), ou null pour le narrateur. */
+const personOf = (sc) => sc.person ?? (sc.speaker === 0 || sc.speaker === 1 ? sc.speaker : null);
+const voiceOf = (sc) => (personOf(sc) != null ? charVoice(personOf(sc)) : voiceId());
+/** Voix par défaut d'après l'allure du personnage (cheveux longs, jupe, robe), null si on ne sait pas. */
+function looksFeminine(c) {
+  if (!c) return null;
+  if (c.skirt || ["dress"].includes(c.top) || ["skirt", "longskirt"].includes(c.bottom) || ["long", "ponytail", "bun", "bob", "braids"].includes(c.hair)) return true;
+  if (c.beard || c.mustache || c.tie) return false;
+  return null;
+}
 /** Scènes de la vidéo : accroche + scènes du texte + écran de fin. */
 // Mode dessin animé : pas d'accroche ni d'écran de fin, les scènes sont calées sur le son importé.
 const allScenes = () => (mode === "dub" ? project.scenes : withBrand(project.scenes, project.settings));
@@ -324,6 +333,8 @@ const langOptions = () => Object.entries(LANGS).map(([k, v]) => [k, v.name]);
 
 function buildFromText() {
   project.scenes = parseScript(project.text);
+  // Un personnage par nom du dialogue (jusqu'à 6).
+  ensureTextCharacters(Math.max(0, ...project.scenes.map((sc) => (personOf(sc) ?? -1) + 1)));
   pos = 0;
   rebuildTimeline();
   toast(`${project.scenes.length} ${t("tabScenes").toLowerCase()} · ${fmtTime(tl.total)}`);
@@ -382,7 +393,7 @@ function textPanel() {
     project.textLang = target;
     project.settings.voiceLang = target;
     project.settings.voice = "";
-    project.settings.neuralVoice = ""; project.settings.charVoice0 = ""; project.settings.charVoice1 = "";
+    project.settings.neuralVoice = ""; resetCharVoices();
     ta.value = project.text;
     rebuildTimeline();
   }) }, t("translate"));
@@ -399,7 +410,7 @@ function textPanel() {
     field(t("textLabel"), ta, t("textHelp")),
     h("div", { class: "row" },
       h("button", { class: "btn primary", onclick: buildFromText }, t("build")),
-      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; project.settings.neuralVoice = ""; project.settings.charVoice0 = ""; project.settings.charVoice1 = ""; rebuildTimeline(); }))),
+      field(t("textLang"), select(project.textLang, langOptions(), (v) => { project.textLang = v; project.settings.voiceLang = v; project.settings.voice = ""; project.settings.neuralVoice = ""; resetCharVoices(); rebuildTimeline(); }))),
     h("div", { class: "row wrap" }, h("span", { class: "lbl" }, t("examples")), ex("psy"), ex("sport"), ex("story"), ex("dialogue")),
     h("div", { class: "row wrap" },
       h("label", { class: "btn sm" }, `📄 ${t("importScript")}`, h("input", { type: "file", accept: ".txt,.md,.srt,.docx,text/plain", hidden: true, onchange: async (e) => {
@@ -436,6 +447,7 @@ function scenesPanel() {
     return it ? `${fmtTime(it.start)} · ${it.duration.toFixed(1)}${t("seconds")}` : "";
   };
   const opts = (obj) => Object.entries(obj).map(([k, v]) => [k, pick(v)]);
+  const names = mode === "dub" ? dubNames() : textNames();
   const exprOptions = [["auto", t("exprAuto")], ...Object.entries(EXPRESSIONS).filter(([k]) => k !== "talk").map(([k, v]) => [k, pick(v)])];
   const bgOptions = [["auto", t("bgStyle")], ...Object.entries(BACKDROPS).filter(([k]) => k !== "image" || project.settings.bgImage).map(([k, v]) => [k, `${t("decor")} · ${pick(v)}`]), ...Object.entries(THEMES).map(([k, v]) => [k, `${t("color")} · ${pick(v.label)}`])];
   project.scenes.forEach((s, i) => {
@@ -454,8 +466,11 @@ function scenesPanel() {
       s.kind === "pause" ? null : ta,
       s.kind === "pause" ? null : h("div", { class: "row wrap" },
         select(s.action, actionOptions(), (v) => update({ action: v, auto: false })),
-        select(String(duo ? 2 : 1), [["1", `1 ${t("figures").toLowerCase()}`], ["2", `2 ${t("figures").toLowerCase()}`]], (v) => update({ figures: Number(v) })),
-        s.figures === 2 || s.speaker != null ? select(String(s.speaker ?? ""), [["", t("speakerNone")], ["0", `${t("speaker")} 1`], ["1", `${t("speaker")} 2`]], (v) => update({ speaker: v === "" ? undefined : Number(v), speakerName: v === "" ? undefined : s.speakerName ?? `${t("speaker")} ${Number(v) + 1}` })) : null),
+        select(String(s.figures ?? (s.group && project.settings.characters.length >= 3 && s.speaker == null ? "group" : duo ? 2 : 1)), [
+          ...Array.from({ length: Math.max(2, project.settings.characters.length) }, (_, k) => [String(k + 1), `${k + 1} ${t("figures").toLowerCase()}`]),
+          ...(s.figures == null && s.group ? [["group", t("groupAuto")]] : []),
+        ], (v) => { if (v !== "group") update({ figures: Number(v) }); }),
+        s.figures === 2 || s.speaker != null ? select(String(personOf(s) ?? ""), [["", t("speakerNone")], ...names.map((n, k) => [String(k), n])], (v) => update(speakerPatch(s, v === "" ? null : Number(v), names))) : null),
       s.kind === "pause" ? null : h("div", { class: "row wrap" },
         h("label", { class: "mini-field" }, h("span", {}, "🎥"), select(s.camera ?? "auto", opts(CAMERAS), (v) => update({ camera: v }))),
         h("label", { class: "mini-field" }, h("span", {}, "🖼"), select(s.bg ?? "auto", bgOptions, (v) => update({ bg: v }))),
@@ -484,6 +499,15 @@ function scenesPanel() {
       renderPanel();
     } }, t("addPause"))));
   return h("div", { class: "stack" }, h("p", { class: "help" }, t(mode === "dub" ? "scenesHelpDub" : "scenesHelp")), list);
+}
+
+/** Changer qui parle dans une scène : la personne passe à l'écran, à côté de son interlocuteur. */
+function speakerPatch(s, who, names) {
+  if (who == null) return { speaker: undefined, speakerName: undefined, person: undefined };
+  const cast = Array.isArray(s.cast) && s.cast.length === 2 ? s.cast : [0, 1];
+  const next = cast.includes(who) ? cast : [who, cast[1] !== who ? cast[1] : cast[0]];
+  if (who < 2 && !s.cast) return { speaker: who, speakerName: names[who], person: undefined };
+  return { person: who, cast: next, speaker: next.indexOf(who), speakerName: names[who], figures: 2 };
 }
 
 // ---------- Personnages ----------
@@ -540,7 +564,9 @@ function charEditor(index) {
   const mine = loadList(MY_CHARS);
   const opts = (obj) => Object.entries(obj).map(([k, v]) => [k, pick(v)]);
   return h("section", { class: "card" },
-    h("h3", {}, mode === "dub" ? dubNames()[index] : t(index === 0 ? "charMain" : "charSecond")),
+    h("div", { class: "row between" },
+      h("h3", {}, mode === "dub" ? dubNames()[index] : textNames()[index]),
+      mode !== "dub" && index >= 2 ? h("button", { class: "btn sm ghost", onclick: () => removeCharacter(index) }, t("removeCharacter")) : null),
     h("div", { class: "char" },
       mini,
       h("div", { class: "stack" },
@@ -578,6 +604,23 @@ function charEditor(index) {
             slider("legs", 0.75, 1.25), slider("arms", 0.8, 1.25), slider("torso", 0.85, 1.2))))));
 }
 
+/** Retire un personnage (à partir du 3e) : ses répliques passent au narrateur, les suivants remontent d'une place. */
+function removeCharacter(index) {
+  const s = project.settings;
+  s.characters.splice(index, 1);
+  for (let i = index; i < MAX_CHARACTERS; i++) s[`charVoice${i}`] = s[`charVoice${i + 1}`] ?? "";
+  project.scenes = project.scenes.map((sc) => {
+    const out = { ...sc };
+    if (Array.isArray(out.cast)) out.cast = out.cast.map((c) => (c > index ? c - 1 : c === index ? (index === 0 ? 1 : 0) : c));
+    if (out.person === index) Object.assign(out, { person: undefined, speaker: undefined, speakerName: undefined });
+    else if (out.person > index) out.person -= 1;
+    if (out.figures > s.characters.length) out.figures = s.characters.length;
+    return out;
+  });
+  rebuildTimeline();
+  renderPanel();
+}
+
 function charsPanel() {
   const s = project.settings;
   const styleSel = field(t("figureStyle"), select(s.figureStyle ?? "clean", [["clean", t("figClean")], ["sketch", t("figSketch")], ["outline", t("figOutline")]], (v) => {
@@ -587,9 +630,12 @@ function charsPanel() {
     save();
     draw();
   }));
-  const count = mode === "dub" ? Math.min(4, Math.max(2, project.dubInfo?.persons ?? 2)) : 2;
+  const count = mode === "dub" ? Math.min(4, Math.max(2, project.dubInfo?.persons ?? 2)) : Math.max(2, s.characters.length);
   if (mode === "dub") ensureDubCharacters(count);
-  const el = h("div", { class: "stack" }, h("section", { class: "card" }, styleSel), ...Array.from({ length: count }, (_, i) => charEditor(i)));
+  const add = mode === "dub" || count >= MAX_CHARACTERS ? null : h("section", { class: "card" },
+    h("button", { class: "btn primary", onclick: () => { ensureTextCharacters(count + 1); save(); draw(); renderPanel(); } }, `+ ${t("addCharacter")}`),
+    h("p", { class: "help" }, t("addCharacterHelp")));
+  const el = h("div", { class: "stack" }, h("section", { class: "card" }, styleSel), ...Array.from({ length: count }, (_, i) => charEditor(i)), add);
   requestAnimationFrame(runMiniPreviews);
   return el;
 }
@@ -758,6 +804,33 @@ function dubNames() {
 }
 
 /** Un personnage par personne (jusqu'à 4), chacun avec son allure. */
+/** Voix des personnages remises à celles par défaut (changement de langue). */
+function resetCharVoices() {
+  for (let i = 0; i < MAX_CHARACTERS; i++) project.settings[`charVoice${i}`] = "";
+}
+
+/** Personnages proposés quand on en ajoute (tous différents). */
+const EXTRA_CHARS = ["etudiante", "pro", "urbain", "coach", "elegante", "ancien"];
+
+/** Complète la liste des personnages (mode texte) jusqu'à count, sans jamais en retirer. */
+function ensureTextCharacters(count) {
+  const s = project.settings;
+  while (s.characters.length < Math.min(MAX_CHARACTERS, count)) {
+    const id = EXTRA_CHARS[(s.characters.length - 2) % EXTRA_CHARS.length];
+    s.characters.push({ ...(PRESETS[id]?.morph ?? {}) });
+  }
+}
+
+/** Noms des personnages en mode texte : ceux du dialogue, sinon « Personnage 3 »… */
+function textNames() {
+  const names = [];
+  for (const sc of project.scenes) {
+    const p = personOf(sc);
+    if (p != null && sc.speakerName && !names[p]) names[p] = sc.speakerName;
+  }
+  return project.settings.characters.map((_, i) => names[i] || `${t("speaker")} ${i + 1}`);
+}
+
 function ensureDubCharacters(count) {
   const s = project.settings;
   const extra = [{ ...PRESETS.etudiante.morph }, { ...PRESETS.pro.morph, color: "#c68b5e" }];
@@ -1110,8 +1183,7 @@ function soundPanel() {
       list
         ? h("div", { class: "grid2" },
           field(t("voiceNarrator"), select(voiceId(), list, (v) => { set({ neuralVoice: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
-          field(`${t("voiceOfChar")} 1`, select(charVoice(0), list, (v) => { set({ charVoice0: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
-          field(`${t("voiceOfChar")} 2`, select(charVoice(1), list, (v) => { set({ charVoice1: v }); rebuildTimeline(); status.textContent = voiceStatusText(); })),
+          ...textNames().map((n, i) => field(`${t("voiceOfChar")} : ${n}`, select(charVoice(i), list, (v) => { set({ [`charVoice${i}`]: v }); rebuildTimeline(); status.textContent = voiceStatusText(); }))),
           field(t("voiceSpeed"), range(s.voiceRate, 0.6, 1.6, 0.05, (v) => { set({ voiceRate: v }); restyle(); })),
           field(t("voiceEffect"), select(s.voiceFx ?? "natural", Object.entries(VOICE_FX).map(([k, v]) => [k, pick(v.label)]), (v) => { set({ voiceFx: v }); restyle(); })),
           field(t("voicePitch"), range(s.voicePitch ?? 0, -12, 12, 1, (v) => { set({ voicePitch: v }); restyle(); })),
@@ -1168,7 +1240,8 @@ function soundPanel() {
           rebuildTimeline();
         })),
         field(t("voiceLang"), select(s.voiceLang, langOptions(), (v) => {
-          set({ voiceLang: v, voice: "", neuralVoice: "", charVoice0: "", charVoice1: "" });
+          set({ voiceLang: v, voice: "", neuralVoice: "" });
+          resetCharVoices();
           fillVoices();
           fillNeural();
           rebuildTimeline();

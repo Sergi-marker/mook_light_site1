@@ -270,6 +270,23 @@ await step("export d'une vraie vidéo 16:9 avec la voix dans le fichier", async 
   console.log(`  ${info.name} · ${info.type} · ${(info.size / 1024).toFixed(0)} Ko · niveau voix ${info.rms.toFixed(3)}`);
 });
 
+await step("plus de 2 personnages : dialogue à 3, ajout d'un 4e, une voix chacun, scène de groupe repérée", async () => {
+  await page.getByRole("tab", { name: "Texte" }).click();
+  await page.fill("#script", "Léa : Salut tout le monde !\nTom : Ça va ?\nMax : Moi je suis content.\nLéa : On fait la fête ?\nIls dansent tous ensemble.");
+  await page.getByRole("button", { name: "Créer la vidéo" }).click();
+  const info = await page.evaluate(() => ({ n: window.__videoStudio.project.settings.characters.length, persons: window.__videoStudio.project.scenes.map((s) => s.person ?? s.speaker ?? null) }));
+  assert.equal(info.n, 3);
+  assert.deepEqual(info.persons, [0, 1, 2, 0, null]);
+  assert.equal(await page.evaluate(() => window.__videoStudio.project.scenes[4].group), true);
+  await page.getByRole("tab", { name: "Personnages" }).click();
+  assert.ok(await page.getByRole("heading", { name: "Max" }).isVisible());
+  await page.getByRole("button", { name: "+ Ajouter un personnage" }).click();
+  assert.equal(await page.evaluate(() => window.__videoStudio.project.settings.characters.length), 4);
+  assert.equal(await page.getByRole("button", { name: "Retirer" }).count(), 2);
+  await page.getByRole("tab", { name: "Voix & musique" }).click();
+  assert.equal(await page.getByText(/^Voix du personnage : (Léa|Tom|Max|Personnage 4)$/).count(), 4);
+});
+
 await step("aucune erreur JavaScript", async () => assert.deepEqual(errors, []));
 
 await browser.close();

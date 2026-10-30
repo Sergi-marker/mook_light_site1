@@ -8,7 +8,7 @@ import { PRESETS } from "./figure.js";
 export const STYLE_KEYS = [
   "theme", "backdrop", "bgImage", "autoPlace", "timeOfDay", "weather", "emotionCloseups", "format", "figureStyle", "transition", "voiceFx", "voicePitch",
   "captionFont", "captionPos", "captionBox", "captionStyle", "captionColor", "captionScale", "accent", "uppercase", "speakerLabels", "progressBar",
-  "characters", "music", "musicVol", "neuralVoice", "charVoice0", "charVoice1", "voiceRate",
+  "characters", "music", "musicVol", "neuralVoice", "charVoice0", "charVoice1", "charVoice2", "charVoice3", "charVoice4", "charVoice5", "voiceRate",
   "handle", "logo", "logoPos", "logoSize", "outro",
 ];
 
