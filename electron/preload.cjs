@@ -7,4 +7,8 @@ contextBridge.exposeInMainWorld("beatmakerDesktop", {
   chatClaude: (req) => ipcRenderer.invoke("ai:chat", req),
   /** CPU / memory of the app processes (audio service included). */
   metrics: () => ipcRenderer.invoke("app:metrics"),
+  /** One-click update from GitHub (Git checkout only), then restart. */
+  checkUpdate: () => ipcRenderer.invoke("app:update-check"),
+  update: () => ipcRenderer.invoke("app:update"),
+  relaunch: () => ipcRenderer.invoke("app:relaunch"),
 });

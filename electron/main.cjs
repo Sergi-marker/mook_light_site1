@@ -131,6 +131,16 @@ ipcMain.handle("ai:chat", async (_e, req) => {
   }
 });
 
+// One-click update (app run from its Git checkout with npm start). See electron/updater.cjs.
+const updater = require("./updater.cjs");
+const repoDir = path.join(__dirname, "..");
+ipcMain.handle("app:update-check", () => updater.checkUpdate(repoDir));
+ipcMain.handle("app:update", () => updater.applyUpdate(repoDir));
+ipcMain.handle("app:relaunch", () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 ipcMain.handle("app:metrics", () => {
   const metrics = app.getAppMetrics();
   const cpuPercent = metrics.reduce((s, m) => s + (m.cpu ? m.cpu.percentCPUUsage : 0), 0);

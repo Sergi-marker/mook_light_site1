@@ -1,7 +1,53 @@
 import { Recorder, type InputInfo } from "../../audio/recorder.ts";
 import type { App, View } from "../app.ts";
 import { desktop } from "../app.ts";
-import { h } from "../dom.ts";
+import { confirmDialog, h, toast } from "../dom.ts";
+
+/** One-click update (desktop app run from its Git checkout). */
+function updateCard(): HTMLElement {
+  const d = desktop();
+  const status = h("p", { class: "hint update-status" });
+  const log = h("ul", { class: "update-log" });
+  const card = h("div", { class: "card update-card" }, h("h3", {}, "Mise à jour"));
+  if (!d?.update || !d.checkUpdate) {
+    card.append(h("p", { class: "muted small" }, "La mise à jour en un clic est disponible dans l'application desktop."));
+    return card;
+  }
+  const btn = h("button", { class: "btn btn-primary", onclick: async () => {
+    btn.setAttribute("disabled", "");
+    log.textContent = "";
+    status.textContent = "Recherche d'une nouvelle version…";
+    const c = await d.checkUpdate!();
+    if (!c.ok) {
+      status.textContent = `❌ ${c.error}`;
+      btn.removeAttribute("disabled");
+      return;
+    }
+    if (!c.behind) {
+      status.textContent = "✅ Tu as déjà la dernière version.";
+      btn.removeAttribute("disabled");
+      return;
+    }
+    if (!(await confirmDialog("Installer la mise à jour ?", `${c.behind} nouveauté(s) disponible(s). Enregistre ton projet avant (Ctrl+S) : l'application redémarrera à la fin. Tes projets et tes réglages ne sont pas touchés.`, "Installer", "Plus tard"))) {
+      status.textContent = `${c.behind} nouveauté(s) disponible(s).`;
+      btn.removeAttribute("disabled");
+      return;
+    }
+    status.textContent = "Installation… (jusqu'à une minute)";
+    const r = await d.update!();
+    log.replaceChildren(...r.steps.map((s) => h("li", {}, `✓ ${s}`)));
+    if (!r.ok) {
+      status.textContent = `❌ ${r.error}`;
+      btn.removeAttribute("disabled");
+      return;
+    }
+    status.textContent = "✅ Mise à jour installée : redémarrage…";
+    toast("Mise à jour installée : redémarrage de l'application…", "ok");
+    setTimeout(() => void d.relaunch?.(), 1500);
+  } }, "Rechercher et installer la mise à jour");
+  card.append(h("p", { class: "muted small" }, "Télécharge la dernière version depuis GitHub, l'installe et redémarre l'application. Tes projets, tes réglages et ta mémoire IA ne sont pas touchés."), btn, status, log);
+  return card;
+}
 import { SAMPLED_INSTRUMENTS } from "../../core/sampleLibrary.ts";
 import { DRUM_SAMPLES } from "../../core/drumSamples.ts";
 import type { AppSettings } from "../persistence.ts";
@@ -94,6 +140,7 @@ export function createSettingsView(app: App): View {
       h("p", { class: "muted small" }, "Toutes les fonctions IA marchent hors ligne. Une clé API Anthropic active en plus l'assistant en ligne (questions libres) dans l'application desktop. La clé reste sur cet ordinateur ; seul un résumé texte du projet est envoyé, après votre accord — jamais d'audio."),
       h("div", { class: "form-row" }, h("label", {}, "Clé API"), apiKey),
       h("div", { class: "form-row" }, h("label", {}, "Modèle"), model)),
+    updateCard(),
     h("div", { class: "card" }, h("h3", {}, "Interface"), h("div", { class: "form-row" }, h("label", {}, "Mode"), mode)),
     h("div", { class: "card" }, h("h3", {}, "Raccourcis"),
       h("ul", { class: "shortcuts" }, ...[["Espace", "Play / Stop"], ["R", "Record / Stop record"], ["Entrée", "Retour au début"], ["Ctrl+S", "Sauvegarder"], ["Ctrl+Shift+S", "Sauvegarder sous"], ["Ctrl+O", "Ouvrir"], ["Ctrl+Z", "Annuler"], ["Ctrl+Shift+Z / Ctrl+Y", "Rétablir"], ["M / S", "Mute / Solo de la piste sélectionnée"], ["Alt+1…9", "Changer de page"], ["Piano roll", "Suppr, Ctrl+C/V/D/A, ↑↓←→, L = slide"]].map(([k, v]) => h("li", {}, h("kbd", {}, k), " ", v)))),

@@ -84,7 +84,7 @@ await step("window opens on app://, 10 modules, no errors", async () => {
 
 await step("preload API: desktop bridge + process metrics", async () => {
   const m = await evalApp(async () => ({ keys: Object.keys(window.beatmakerDesktop ?? {}), metrics: await window.beatmakerDesktop.metrics(), node: typeof window.require }));
-  assert.deepEqual(m.keys.sort(), ["askClaude", "chatClaude", "metrics"]);
+  assert.deepEqual(m.keys.sort(), ["askClaude", "chatClaude", "checkUpdate", "metrics", "relaunch", "update"]);
   assert.ok(m.metrics.memoryMB > 10, `memory ${m.metrics.memoryMB}`);
   assert.equal(m.node, "undefined", "no Node access in the page");
 });
@@ -539,6 +539,16 @@ await step("arrangement: a section length typed in bars moves the rest of the so
   assert.deepEqual(after, [["TestRefrain", 100, 16], ["TestApres", 116, 4]]);
   assert.ok(rulerMax >= 120, "the ruler reaches past the last section");
   assert.ok(r.kept, "delay not rebuilt when another effect is added");
+});
+
+await step("one-click update: SETTINGS button checks GitHub for a new version of this checkout (read-only)", async () => {
+  await page.click('.nav-item:has-text("SETTINGS")');
+  await page.click('.update-card button:has-text("Rechercher")');
+  await page.waitForFunction(() => /✅|❌|nouveauté/.test(document.querySelector(".update-status")?.textContent ?? ""), null, { timeout: 60000 });
+  const status = await page.textContent(".update-status");
+  // In this checkout (just pushed) there is nothing to install; the dialog never opens.
+  console.log(`  # ${status}`);
+  assert.match(status, /déjà la dernière version|nouveauté/);
 });
 
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));

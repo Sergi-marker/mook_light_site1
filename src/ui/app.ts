@@ -50,6 +50,9 @@ export interface View {
 export interface DesktopBridge {
   askClaude(req: { apiKey: string; model: string; system: string; messages: { role: "user" | "assistant"; content: string }[] }): Promise<{ text?: string; error?: string; refusal?: boolean }>;
   /** One turn of the AI producer conversation (tools run in the renderer). */
+  checkUpdate?(): Promise<{ ok: boolean; error?: string; branch?: string; behind?: number; ahead?: number }>;
+  update?(): Promise<{ ok: boolean; error?: string; steps: string[]; updated?: boolean }>;
+  relaunch?(): Promise<void>;
   chatClaude?(req: { apiKey: string; model: string; system: string; tools: unknown[]; messages: ChatMessage[]; webSearch: boolean }): Promise<{ content?: ChatBlock[]; stop_reason?: string; error?: string }>;
   metrics(): Promise<{ cpuPercent: number; memoryMB: number }>;
 }
