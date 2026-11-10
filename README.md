@@ -55,6 +55,10 @@ L'IA tourne **hors ligne, sur votre machine**. Elle produit des patterns, des no
 - **Entrée de la carte son** : Auto n'enregistre que l'entrée où est branché le micro (plus de souffle de l'entrée vide).
 - **Nettoyage automatique** de chaque prise avec le bruit mesuré de votre pièce (la prise brute reste disponible).
 
+## Mise à jour
+
+Dans l'application : **PARAMÈTRES → Mise à jour → « Rechercher et installer la mise à jour »**. Elle télécharge la dernière version depuis GitHub, garde vos modifications locales (par exemple la version d'Electron dans `package.json`), reconstruit l'application et redémarre. Vos projets, réglages et la mémoire de l'IA ne sont pas touchés. Si votre copie contient vos propres commits, ou si une modification locale entre en conflit avec la nouvelle version, la mise à jour s'arrête sans rien perdre et explique pourquoi.
+
 ## Installation (Windows)
 
 Prérequis : [Node.js 22 LTS](https://nodejs.org) (≥ 22.18).
@@ -115,10 +119,10 @@ Dans l'arrangement : S = couper au curseur · Ctrl+C / Ctrl+V = copier / coller 
 | Commande | Contenu | Résultat |
 |---|---|---|
 | `npm run typecheck` | TypeScript strict sur tout `src/` | ✅ |
-| `npm test` | 174 tests unitaires (Node) | ✅ 174/174 |
+| `npm test` | 176 tests unitaires (Node) | ✅ 176/176 |
 | `npm run test:browser` | 16 tests du moteur audio dans Chromium | ✅ 16/16 |
 | `npm run test:e2e` | 29 étapes pilotant l'interface comme un utilisateur | ✅ 29/29 |
-| `npm run test:electron` | 20 vérifications de l'application desktop réelle (Electron) | ✅ 20/20 (Linux) |
+| `npm run test:electron` | 21 vérifications de l'application desktop réelle (Electron) | ✅ 21/21 (Linux) |
 
 Le test Electron ouvre la vraie fenêtre et vérifie : démarrage sans erreur, API du preload, AudioContext actif avec les worklets chargés, son audible, instruments enregistrés chargés via app:// et joués juste, micro (autorisation, monitoring, prise enregistrée au curseur, nettoyage automatique), correction de pitch STUDIO mesurée, test du micro, export MP3 192 kbps via l'interface (fichier décodé sans erreur), l'appel à l'assistant et au producteur en ligne (le SDK Anthropic répond « clé API invalide » avec une fausse clé), les doubles et harmonies (tierce mesurée sur le bon degré), le fredonnement transcrit par le vrai chemin micro, les transitions (riser qui monte vers le refrain, batterie coupée sur le dernier temps, mesurés), le sample flip (boucle à 92 BPM en la mineur → 140 BPM en fa mineur, vérifié par analyse), l'aide à l'écriture (dictionnaire chargé, grille, rimes insérées) et les sons hybrides (couche entendue dans le rendu, bouton de MELODY). Sous Linux sans écran : `xvfb-run -a npm run test:electron`.
 
