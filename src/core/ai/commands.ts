@@ -5,6 +5,7 @@
 // understood are reported, never guessed silently.
 
 import { DRUM_KITS } from "../drumSamples.ts";
+import { SOUND_WORDS } from "./soundWords.ts";
 import { NOTE_NAMES, snapToScale, type Key, type ScaleId } from "../music.ts";
 import { BUS_DRUMS, currentPattern, getChannel } from "../project.ts";
 import { energize } from "./assistant.ts";
@@ -67,41 +68,6 @@ function findTargets(p: Project, t: string): Target[] {
 // --- sounds --------------------------------------------------------------------------------
 
 /** Words → sound library id (first match wins; specific words before generic ones). */
-const SOUND_WORDS: [RegExp, string][] = [
-  [/\bguitare? (espagnole|nylon|classique)|spanish guitar|nylon\b/, "guitar-nylon"],
-  [/\bguitare? (electrique|clean)|electric guitar\b/, "guitar-electric"],
-  [/\bguitare? afro|highlife\b/, "afro-guitar"],
-  [/\bguitare?s?|guitar\b/, "guitar-acoustic"],
-  [/\bpiano droit|upright\b/, "upright"],
-  [/\b(dark|sombre) piano|piano (dark|sombre)\b/, "dark-piano"],
-  [/\bpiano\b/, "grand"],
-  [/\bwurli(tzer)?\b/, "wurli"],
-  [/\b(rhodes|piano electrique|e-?piano)\b/, "rnb-rhodes"],
-  [/\borgue|organ\b/, "organ"],
-  [/\bviolon ?celles?|cellos?\b/, "cello"],
-  [/\bviolons?|violins?\b/, "violin"],
-  [/\bcordes?|strings?\b/, "strings"],
-  [/\bflute|flûte\b/, "flute"],
-  [/\bsax(ophone)?\b/, "sax"],
-  [/\btrompette|trumpet\b/, "trumpet"],
-  [/\b(cuivres?|cor|horns?|brass)\b/, "horns"],
-  [/\bkalimba\b/, "kalimba"],
-  [/\bmarimba\b/, "marimba"],
-  [/\bbalafon\b/, "balafon"],
-  [/\bvibraphone|vibes\b/, "vibes"],
-  [/\bharpe|harp\b/, "harp"],
-  [/\b(cloches?|bells?)\b/, "bells"],
-  [/\bglockenspiel|glock\b/, "glock"],
-  [/\bchoeurs?|choir\b/, "choir"],
-  [/\bpad\b/, "warm-pad"],
-  [/\bwhistle|sifflement\b/, "whistle"],
-  [/\bcowbell\b/, "cowbell"],
-  [/\blog ?drum\b/, "log-drum"],
-  [/\bbasse electrique|electric bass\b/, "bass-electric"],
-  [/\b808 distordue|808 dist|distorted 808\b/, "808-dist"],
-  [/\b808 drill\b/, "808-drill"],
-];
-
 function soundIn(t: string): string | null {
   for (const [re, id] of SOUND_WORDS) if (re.test(t)) return id;
   return null;

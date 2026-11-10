@@ -29,6 +29,7 @@ export const SOUND_LIBRARY: LibrarySound[] = [
   { id: "organ", name: "Orgue (gospel, réel)", category: "Keys", preset: "sampler", sample: "organ", synth: { attack: 0.01, release: 0.15 } },
   // Guitars (recorded)
   { id: "guitar-acoustic", name: "Guitare acoustique (réelle)", category: "Guitars", preset: "sampler", sample: "guitar-acoustic", synth: { release: 0.3 } },
+  { id: "dark-guitar", name: "Guitare sombre (drill, nylon réelle)", category: "Guitars", preset: "sampler", sample: "guitar-nylon", synth: { cutoff: 1900, resonance: 0.7, release: 0.45, octave: -1 } },
   { id: "guitar-nylon", name: "Guitare espagnole / nylon (drill, afro)", category: "Guitars", preset: "sampler", sample: "guitar-nylon", synth: { release: 0.3 } },
   { id: "guitar-electric", name: "Guitare électrique clean (R&B)", category: "Guitars", preset: "sampler", sample: "guitar-electric", synth: { release: 0.25 } },
   { id: "afro-guitar", name: "Guitare afro (highlife, sèche et brillante)", category: "Guitars", preset: "sampler", sample: "guitar-electric", synth: { decay: 0.35, sustain: 0.25, release: 0.12 } },

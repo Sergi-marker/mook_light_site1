@@ -70,3 +70,21 @@ test("sound change on a track that plays nothing warns and names the tracks that
   assert.match(r.done[0], /ne joue aucune note/);
   assert.match(r.done[0], /« Melody »/);
 });
+
+test("instruments named in a beat request are used (« drill avec une guitare sombre »)", async () => {
+  const { parseBeatPrompt } = await import("../../src/core/ai/prompt.ts");
+  const { melodicSoundsIn } = await import("../../src/core/ai/soundWords.ts");
+  const r = parseBeatPrompt("Fais-moi un beat drill FR, sombre, avec une guitare sombre et un piano", "trap", 5);
+  assert.equal(r.style, "drill-fr");
+  assert.equal(r.leadSound, "dark-guitar");
+  assert.equal(r.chordsSound, "grand");
+  assert.equal(parseBeatPrompt("UK drill avec guitare", "trap", 5).leadSound, "dark-guitar", "drill context: a plain guitar is the dark one");
+  assert.equal(parseBeatPrompt("afrobeats joyeux avec une guitare afro", "trap", 5).leadSound, "afro-guitar");
+  assert.equal(parseBeatPrompt("trap atlanta", "trap", 5).leadSound, undefined, "nothing named: the style's sounds");
+  assert.deepEqual(melodicSoundsIn("violon puis piano sombre et une 808 drill"), ["violin", "dark-piano"]);
+  const p0 = createDefaultProject();
+  for (const variant of [0, 1, 2]) {
+    const song = generateSong(p0, r, 4, variant);
+    assert.match(song.summary.join(" "), /Guitare sombre/, `version ${variant + 1} keeps the asked guitar`);
+  }
+});

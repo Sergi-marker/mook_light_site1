@@ -115,7 +115,7 @@ Dans l'arrangement : S = couper au curseur · Ctrl+C / Ctrl+V = copier / coller 
 | Commande | Contenu | Résultat |
 |---|---|---|
 | `npm run typecheck` | TypeScript strict sur tout `src/` | ✅ |
-| `npm test` | 173 tests unitaires (Node) | ✅ 173/173 |
+| `npm test` | 174 tests unitaires (Node) | ✅ 174/174 |
 | `npm run test:browser` | 16 tests du moteur audio dans Chromium | ✅ 16/16 |
 | `npm run test:e2e` | 29 étapes pilotant l'interface comme un utilisateur | ✅ 29/29 |
 | `npm run test:electron` | 20 vérifications de l'application desktop réelle (Electron) | ✅ 20/20 (Linux) |

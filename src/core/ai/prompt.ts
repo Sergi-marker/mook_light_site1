@@ -1,5 +1,7 @@
 // Understands a free-text beat request, e.g. "Dark trap beat, 140 BPM, F minor, melancholic,
 // heavy 808". Works offline (keyword parsing in French and English).
+import { melodicSoundsIn } from "./soundWords.ts";
+import { SOUND_LIBRARY } from "../soundLibrary.ts";
 
 import { parseNoteName, type Key, type ScaleId } from "../music.ts";
 import { detectStyle, styleById, styleForGenre } from "./styles.ts";
@@ -20,6 +22,9 @@ export interface BeatRequest {
   complexity: number;
   heavy808: boolean;
   swing: number;
+  /** Sounds asked for in the text (« avec une guitare sombre »): lead, then chords. */
+  leadSound?: string;
+  chordsSound?: string;
   /** What was understood, for display. */
   understood: string[];
 }
@@ -107,5 +112,16 @@ export function parseBeatPrompt(text: string, fallbackStyle?: string, defaultRoo
   let complexity = style.complexity;
   if (/\b(simple|minimal|minimaliste|sparse)\b/.test(t)) { complexity = 0.25; understood.push("simple"); }
   if (/\b(complex|complexe|busy|technique|crazy)\b/.test(t)) { complexity = 0.85; understood.push("complexe"); }
-  return { style: style.id, genre, bpm, key, mood, energy: Math.max(0.2, Math.min(1, energy)), complexity, heavy808: heavy808 || !!style.heavy808, swing: style.swing, understood };
+  // Instruments named in the text win over the style's own sounds.
+  const named = melodicSoundsIn(text, mood === "dark" || mood === "sad" || genre === "drill" || genre === "trap");
+  const sounds: Pick<BeatRequest, "leadSound" | "chordsSound"> = {};
+  if (named[0]) {
+    sounds.leadSound = named[0];
+    understood.push(`mélodie : ${SOUND_LIBRARY.find((x) => x.id === named[0])?.name ?? named[0]}`);
+  }
+  if (named[1]) {
+    sounds.chordsSound = named[1];
+    understood.push(`accords : ${SOUND_LIBRARY.find((x) => x.id === named[1])?.name ?? named[1]}`);
+  }
+  return { ...sounds, style: style.id, genre, bpm, key, mood, energy: Math.max(0.2, Math.min(1, energy)), complexity, heavy808: heavy808 || !!style.heavy808, swing: style.swing, understood };
 }

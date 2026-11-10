@@ -62,9 +62,10 @@ export function generateSong(p: Project, reqIn: BeatRequest, seed = Date.now() %
   const style = styleById(reqIn.style);
   const learned = variant === 0 && prefs ? prefs : undefined;
   const req: BeatRequest = learned?.bpmOffset ? { ...reqIn, bpm: Math.round(Math.max(50, Math.min(200, reqIn.bpm + learned.bpmOffset))) } : reqIn;
+  // Sounds named in the request win (every version), then what the memory learnt, then the style.
   const sounds: Record<SoundRole, string> = {
-    lead: learned?.sounds.lead ?? style.sounds.lead,
-    chords: learned?.sounds.chords ?? style.sounds.chords,
+    lead: req.leadSound ?? learned?.sounds.lead ?? style.sounds.lead,
+    chords: req.chordsSound ?? learned?.sounds.chords ?? style.sounds.chords,
     bass: learned?.sounds.bass ?? style.sounds.bass,
   };
   const summary: string[] = [];
@@ -102,7 +103,7 @@ export function generateSong(p: Project, reqIn: BeatRequest, seed = Date.now() %
     bass = { ...bass, bass808: { ...bass.bass808, saturation: Math.max(bass.bass808.saturation, 0.7), distortion: Math.max(bass.bass808.distortion, 0.3), lowBoostDb: Math.max(bass.bass808.lowBoostDb, 3), punch: Math.max(bass.bass808.punch, 0.6) } };
     instruments[instruments.findIndex((i) => i.id === bass.id)] = bass;
   }
-  const leadId = variant === 0 ? sounds.lead : altSound(style.sounds.lead, variant);
+  const leadId = variant === 0 || req.leadSound ? sounds.lead : altSound(style.sounds.lead, variant);
   const lead = ensureSound(leadId, "Melody", leadPreset(req.genre, req.mood, seed));
   const chords = ensureSound(sounds.chords, "Chords", chordPreset(req.genre, req.mood));
   const bassId = bass.id;
