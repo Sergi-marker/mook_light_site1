@@ -3,7 +3,8 @@ import { keyLabel } from "../../core/music.ts";
 import { currentPattern, getChannel, SYNTH_PRESETS } from "../../core/project.ts";
 import { SOUND_LIBRARY, soundParams } from "../../core/soundLibrary.ts";
 import { SAMPLE_CATEGORY_LABELS, SAMPLED_INSTRUMENTS, sampledInstrument, type SampleCategory } from "../../core/sampleLibrary.ts";
-import type { Bass808Params, InstrumentTrack, Project, SynthParams, SynthPreset, Waveform } from "../../core/types.ts";
+import type { Bass808Params, InstrumentTrack, Project, StepCount, SynthParams, SynthPreset, Waveform } from "../../core/types.ts";
+import { ALL_STEP_COUNTS } from "../../core/constants.ts";
 import type { App, View } from "../app.ts";
 import { confirmDialog, h, toast } from "../dom.ts";
 import { fmtDb, fmtHz, fmtMs, fmtPct, reactive, select, slider, toggle } from "../widgets.ts";
@@ -58,9 +59,23 @@ export function createMelodyView(app: App): View {
     toast(`${notes.length} notes générées en ${keyLabel(p.key)} — toutes éditables.`, "ok");
   };
 
+  // Pattern length in bars: long patterns for melodies that develop instead of repeating.
+  const lenSel = h("select", { "aria-label": "Longueur du pattern", title: "Longueur du pattern en cours (une mélodie de 8 ou 16 mesures ne se répète pas toutes les 4 mesures)", onchange: async () => {
+    const steps = Number(lenSel.value) as StepCount;
+    const p = store.getState();
+    const pat = currentPattern(p);
+    const lost = Object.values(pat.notes).flat().filter((n) => n.start >= steps).length;
+    if (lost && !(await confirmDialog("Raccourcir le pattern ?", `${lost} note(s) après la mesure ${steps / 16} seront supprimées (annulable avec Ctrl+Z).`, "Raccourcir", "Annuler", true))) {
+      lenSel.value = String(pat.stepCount);
+      return;
+    }
+    app.dispatch({ type: "setStepCount", stepCount: steps });
+  } }, ...ALL_STEP_COUNTS.map((n) => h("option", { value: n }, `${n / 16} mesure${n > 16 ? "s" : ""}`))) as HTMLSelectElement;
   const toolbar = h("div", { class: "toolbar" },
     h("h1", {}, "MELODY"),
     keyInfo,
+    h("label", { class: "field" }, h("span", { class: "slider-label" }, "LONGUEUR"), lenSel),
+    h("button", { class: "btn btn-sm", title: "Doubler la longueur du pattern en recopiant son contenu (pour ensuite varier la 2e moitié)", onclick: () => app.dispatch({ type: "duplicatePattern" }) }, "×2"),
     midiRecBtn,
     h("button", { class: "btn btn-ai", title: "Génère des notes pour l'instrument sélectionné (mélodie, accords ou ligne de 808), dans la tonalité du projet", onclick: () => void aiFill() }, "✨ Générer (IA)"),
     h("button", { class: "btn", title: "Fredonnez ou chantez une mélodie au micro : elle devient des notes pour l'instrument sélectionné (dans la gamme, calées sur le tempo)", onclick: () => void humMelody() }, "🎤 Fredonner"),
@@ -250,6 +265,7 @@ export function createMelodyView(app: App): View {
     el,
     update(p) {
       pbar.update(p);
+      if (document.activeElement !== lenSel) lenSel.value = String(currentPattern(p).stepCount);
       keyInfo.textContent = `KEY : ${keyLabel(p.key)} — les rangées violettes sont dans la gamme`;
       renderList(p);
       const ins = sel();

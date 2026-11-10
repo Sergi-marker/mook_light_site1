@@ -6,7 +6,7 @@ import { secondsToSteps, songLengthBars, stepsPerBarOf, stepsToSeconds, newId } 
 import type { Action } from "../../core/reducer.ts";
 import type { AudioClip, PatternClip, Project } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
-import { h, toast } from "../dom.ts";
+import { h, promptDialog, toast } from "../dom.ts";
 import { drawWaveform, fmtDb, slider } from "../widgets.ts";
 
 const SECTION_PRESETS: [string, string][] = [
@@ -31,6 +31,22 @@ export function createArrangementView(app: App): View {
   const sectionSel = h("select", { "aria-label": "Section à ajouter" }, ...SECTION_PRESETS.map(([n]) => h("option", { value: n }, n)), h("option", { value: "__custom" }, "Personnalisée…"));
   const loopBtn = h("button", { class: "btn btn-toggle btn-sm", title: "Lecture en boucle de la région (aussi utilisée pour le punch in/out)", onclick: () => app.dispatch({ type: "setLoop", loop: { enabled: !store.getState().arrangement.loop.enabled } }) }, "⟳ LOOP");
   const lengthEl = h("span", { class: "hint" });
+  /**
+   * Copies (Ctrl+V, Dupliquer, Alt+glisser) are independent by default: editing a copy never changes
+   * the original. Linked copies (same pattern, edited together) stay one click away.
+   */
+  let linkedCopies = false;
+  const copiesBtn = h("button", { class: "btn btn-toggle btn-sm", onclick: () => {
+    linkedCopies = !linkedCopies;
+    renderCopiesBtn();
+    toast(linkedCopies ? "Copies liées : modifier une copie modifie aussi l'original (pratique pour un refrain qui revient identique)." : "Copies indépendantes : chaque copie a son propre pattern, la modifier ne change pas l'original.", "info", 5000);
+  } });
+  const renderCopiesBtn = () => {
+    copiesBtn.textContent = linkedCopies ? "Copies : liées" : "Copies : indépendantes";
+    copiesBtn.title = "Ctrl+V, Dupliquer et Alt+glisser : indépendantes = chaque copie a son propre pattern ; liées = toutes jouent le même pattern";
+    copiesBtn.classList.toggle("on", linkedCopies);
+  };
+  renderCopiesBtn();
   const palette = h("div", { class: "palette" });
   const inspector = h("div", { class: "tl-inspector" });
   const autoSel = h("select", { "aria-label": "Automation", onchange: () => {
@@ -52,8 +68,9 @@ export function createArrangementView(app: App): View {
       toast(`${r.placed.length} effet(s) de transition placés sur la piste « FX / Transitions »${r.drops ? `, et la batterie coupée sur le dernier temps avant ${r.drops} refrain(s)` : ""}. Ctrl+Z pour annuler.`, "ok", 8000);
     } }, "✨ Transitions"),
     sectionSel,
-    h("button", { class: "btn btn-sm", title: "Ajoute la section à la fin du morceau", onclick: () => addSection() }, "+ Section"),
+    h("button", { class: "btn btn-sm", title: "Ajoute la section à la fin du morceau", onclick: () => void addSection() }, "+ Section"),
     loopBtn,
+    copiesBtn,
     h("label", { class: "field" }, h("span", { class: "slider-label" }, "GRILLE"), snapSel),
     h("button", { class: "btn btn-sm", title: "Couper les clips sélectionnés (ou ceux sous le curseur) au curseur (S)", onclick: () => split() }, "✂ Couper"),
     h("button", { class: "btn btn-sm", title: "Mute / unmute des clips sélectionnés", onclick: () => toggleMute() }, "Mute clip"),
@@ -98,16 +115,16 @@ export function createArrangementView(app: App): View {
     render();
   }
 
-  function addSection(): void {
-    const p = store.getState();
+  async function addSection(): Promise<void> {
     let name = sectionSel.value;
     let color = SECTION_PRESETS.find(([n]) => n === name)?.[1] ?? "#7c5cff";
     if (name === "__custom") {
-      const n = window.prompt("Nom de la section :", "Hook");
+      const n = await promptDialog("Nom de la section", "Hook");
       if (!n) return;
       name = n;
       color = "#9333ea";
     }
+    const p = store.getState();
     const end = p.arrangement.sections.reduce((m, s) => Math.max(m, s.start + s.length), 0);
     const len = /chorus|refrain|hook|bridge/i.test(name) ? 8 : /intro|outro/i.test(name) ? 4 : 16;
     app.dispatch({ type: "addSection", section: { name, start: end, length: len, color } });
@@ -130,7 +147,7 @@ export function createArrangementView(app: App): View {
   function duplicate(): void {
     const p = store.getState();
     const ids = p.arrangement.clips.filter((c) => selected.has(c.id)).map((c) => c.id);
-    if (ids.length) app.dispatch({ type: "duplicateClips", ids });
+    if (ids.length) app.dispatch({ type: "duplicateClips", ids, unique: !linkedCopies });
   }
 
   function split(): void {
@@ -188,7 +205,7 @@ export function createArrangementView(app: App): View {
     if (!clipboard) return;
     const s = spb();
     const dBar = Math.round(cursorBar() * 4) / 4 - clipboard.originBar;
-    const actions: Action[] = clipboard.pattern.map((c) => ({ type: "addClip", clip: { ...c, start: c.start + dBar } }));
+    const actions: Action[] = clipboard.pattern.map((c) => ({ type: "addClip", clip: { ...c, start: c.start + dBar }, unique: !linkedCopies }));
     const byTrack = new Map<string, Omit<AudioClip, "id">[]>();
     for (const a of clipboard.audio) byTrack.set(a.trackId, [...(byTrack.get(a.trackId) ?? []), { ...a.clip, start: a.clip.start + dBar * s }]);
     for (const [trackId, clips] of byTrack) actions.push({ type: "addAudioClips", trackId, clips });
@@ -319,7 +336,18 @@ export function createArrangementView(app: App): View {
         h("span", { class: "hint" }, `mesures ${pc.start + 1} → ${pc.start + pc.length + 1} · ${pc.length} mes.${pc.offset ? ` · démarre ${pc.offset} mes. dans le pattern` : ""}`),
         h("button", { class: `btn btn-toggle btn-sm ${pc.muted ? "on" : ""}`, onclick: () => app.dispatch({ type: "updateClip", clipId: pc.id, patch: { muted: !pc.muted } }) }, pc.muted ? "MUTED" : "Mute"),
         h("button", { class: "btn btn-sm", title: "Remettre le clip au début du pattern", disabled: !pc.offset, onclick: () => app.dispatch({ type: "updateClip", clipId: pc.id, patch: { offset: 0 } }) }, "Réinitialiser le départ"),
-        h("button", { class: "btn btn-sm", onclick: () => { app.dispatch({ type: "selectPattern", patternId: pc.patternId }); toast("Pattern sélectionné : éditez-le dans BEAT ou MELODY.", "info"); } }, "Éditer le pattern")));
+        h("button", { class: "btn btn-sm", onclick: () => { app.dispatch({ type: "selectPattern", patternId: pc.patternId }); toast("Pattern sélectionné : éditez-le dans BEAT ou MELODY.", "info"); } }, "Éditer le pattern"),
+        ...(() => {
+          // Clips playing the same pattern change together: say so, and offer to separate this one.
+          const others = p.arrangement.clips.filter((c) => c.patternId === pc.patternId && c.id !== pc.id).length;
+          return others ? [
+            h("span", { class: "hint linked-hint" }, `🔗 Lié à ${others} autre(s) clip(s) : les modifier change aussi celui-ci.`),
+            h("button", { class: "btn btn-sm btn-primary", title: "Ce clip reçoit sa propre copie du pattern : le modifier ne changera plus les autres", onclick: () => {
+              app.dispatch({ type: "makeClipsUnique", ids: [pc.id] });
+              toast("Clip séparé : il a maintenant son propre pattern.", "ok");
+            } }, "Rendre unique"),
+          ] : [];
+        })()));
       return;
     }
     for (const v of p.vocals) {
@@ -411,8 +439,8 @@ export function createArrangementView(app: App): View {
     for (const sec of p.arrangement.sections) {
       const b = h("div", { class: `tl-section ${selected.has(sec.id) ? "selected" : ""}`, style: `left:${HEAD_W + sec.start * barW}px;width:${sec.length * barW - 1}px;background:${sec.color}`, title: `${sec.name} — mesures ${sec.start + 1} à ${sec.start + sec.length} (clic = régler le nombre de mesures, double-clic = renommer)` }, `${sec.name} · ${sec.length}`);
       b.addEventListener("contextmenu", (e) => { e.preventDefault(); app.dispatch({ type: "removeSection", sectionId: sec.id }); });
-      b.addEventListener("dblclick", () => {
-        const n = window.prompt("Nom de la section :", sec.name);
+      b.addEventListener("dblclick", async () => {
+        const n = await promptDialog("Nom de la section", sec.name);
         if (n) app.dispatch({ type: "updateSection", sectionId: sec.id, patch: { name: n } });
       });
       b.addEventListener("click", (e) => select1(sec.id, e));
@@ -429,8 +457,8 @@ export function createArrangementView(app: App): View {
     for (let lane = 0; lane < p.arrangement.lanes; lane++) {
       const laneName = p.arrangement.laneNames?.[lane] || `Patterns ${lane + 1}`;
       const head = h("div", { class: "tl-head", title: "Double-clic = renommer la piste" }, laneName);
-      head.addEventListener("dblclick", () => {
-        const n = window.prompt("Nom de la piste :", laneName);
+      head.addEventListener("dblclick", async () => {
+        const n = await promptDialog("Nom de la piste", laneName);
         if (n !== null) app.dispatch({ type: "setLaneName", lane, name: n });
       });
       const row = h("div", { class: "tl-row tl-lane", style: `height:${LANE_H}px`, "data-lane": lane }, head);
@@ -469,7 +497,7 @@ export function createArrangementView(app: App): View {
             if (mode === "resize") return app.dispatch({ type: "updateClip", clipId: c.id, patch: { length: Math.max(0.25, snapBar(c.length + dB) || 0.25) } });
             const target = { start: snapBar(c.start + dB), lane: Math.max(0, c.lane + dL) };
             // Alt+drag = copy (the original stays in place).
-            if (alt) app.dispatch({ type: "addClip", clip: { patternId: c.patternId, length: c.length, offset: c.offset, muted: c.muted, ...target } });
+            if (alt) app.dispatch({ type: "addClip", clip: { patternId: c.patternId, length: c.length, offset: c.offset, muted: c.muted, ...target }, unique: !linkedCopies });
             else app.dispatch({ type: "updateClip", clipId: c.id, patch: target });
           },
         });

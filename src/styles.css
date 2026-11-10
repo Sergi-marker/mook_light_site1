@@ -429,3 +429,4 @@ label.check { display: inline-flex; align-items: center; gap: 6px; cursor: point
 .live-key.on.black { background: var(--accent); }
 .live-key-name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #52525b; pointer-events: none; }
 .live-rec-info { color: var(--danger); font-weight: 600; min-height: 1.2em; }
+.prompt-input { width: 100%; margin: 8px 0 4px; font-size: 15px; padding: 8px; }

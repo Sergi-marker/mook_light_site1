@@ -67,12 +67,19 @@ await context.addInitScript(() => {
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-let nextPrompt = null;
+// Native dialogs must never appear: the desktop app (Electron) cannot show window.prompt.
 page.on("dialog", (d) => {
-  const v = nextPrompt ?? (d.defaultValue() || "OK");
-  nextPrompt = null;
-  void d.accept(v);
+  // « Leave the page? » on reload is expected; any other native dialog is a bug.
+  if (d.type() === "beforeunload") return void d.accept();
+  errors.push(`native dialog: ${d.type()} « ${d.message()} »`);
+  void d.dismiss();
 });
+/** Type into the app's own text dialog (promptDialog) and confirm. */
+async function answerPrompt(text) {
+  await page.waitForSelector(".prompt-input", { timeout: 5000 });
+  await page.fill(".prompt-input", text);
+  await page.keyboard.press("Enter");
+}
 
 let failed = 0;
 async function step(name, fn) {
@@ -130,6 +137,8 @@ await step("5. drums: AI drum generator + manual edits, rolls; PLAY is audible",
   const st = p2.patterns[0].drums[p2.tracks.find((t) => t.instrument === "closedHat").id][5];
   assert.ok(st.on && st.roll >= 2, "alt-click roll");
   await page.click(".btn-play");
+  // First play: the instruments load completely before the music starts (no gaps later).
+  await page.waitForFunction(() => window.__app.engine.isPlaying, null, { timeout: 15000 });
   assert.ok((await maxPeak(1200)) > 0.05, "drums audible");
   await page.click(".btn-play");
 });
@@ -297,8 +306,8 @@ await step("ARRANGEMENT editing: split at cursor (S), mute clip, insert bars, la
   const p2 = await state();
   assert.equal(Math.min(...p2.arrangement.clips.map((x) => x.start)), Math.min(...p1.arrangement.clips.map((x) => x.start)) + 4, `bars inserted (${len0})`);
   await page.keyboard.press("Control+z");
-  nextPrompt = "Drums A";
   await page.locator(".tl-lane .tl-head").first().dblclick();
+  await answerPrompt("Drums A");
   assert.equal((await state()).arrangement.laneNames?.[0], "Drums A");
 });
 
@@ -431,8 +440,8 @@ await step("MIXER: routing a track to another bus, effect preset, rename, peak r
   await page.selectOption('.fx-presets[aria-label="Presets Saturation"]', { label: "Tape" });
   const sat = (await state()).channels.find((c) => c.id === "bus_drums").inserts.find((e) => e.type === "saturation");
   assert.equal(sat.params.drive, 0.35);
-  nextPrompt = "Big Kick";
   await page.locator(`.strip[data-channel="${kick}"] .strip-name`).dblclick();
+  await answerPrompt("Big Kick");
   assert.equal((await state()).tracks.find((t) => t.id === kick).name, "Big Kick", "rename syncs the drum lane");
   await page.keyboard.press("Control+z");
   assert.ok((await page.locator(".peak-readout").count()) >= 15);

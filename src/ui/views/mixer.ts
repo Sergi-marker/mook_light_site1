@@ -7,7 +7,7 @@ import { isChannelAudible, MASTER } from "../../core/project.ts";
 import type { Action } from "../../core/reducer.ts";
 import type { Channel, Effect, EffectType, Project } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
-import { h, toast } from "../dom.ts";
+import { h, promptDialog, toast } from "../dom.ts";
 import { fmtGain, fmtPan, meter } from "../widgets.ts";
 import { ADDABLE, EFFECT_LABELS, effectEditor, updateEffectMeters } from "./effectEditor.ts";
 
@@ -37,8 +37,8 @@ export function createMixerView(app: App): View {
   /** Peak hold (linear) per channel since the last reset. */
   const peaks = new Map<string, number>();
 
-  function rename(ch: Channel): void {
-    const n = window.prompt("Nom de la piste :", ch.name)?.trim();
+  async function rename(ch: Channel): Promise<void> {
+    const n = await promptDialog("Nom de la piste", ch.name);
     if (!n || n === ch.name) return;
     const p = store.getState();
     const actions: Action[] = [{ type: "updateChannel", channelId: ch.id, patch: { name: n } }];

@@ -83,3 +83,39 @@ export function confirmDialog(
     ok.focus();
   });
 }
+
+/**
+ * Text input dialog (window.prompt does not exist in the desktop app: Electron never shows it).
+ * Resolves with the trimmed text, or null when cancelled / empty.
+ */
+export function promptDialog(title: string, value = "", okLabel = "OK"): Promise<string | null> {
+  return new Promise((resolve) => {
+    const input = h("input", { type: "text", value, maxlength: 60, "aria-label": title, class: "prompt-input" }) as HTMLInputElement;
+    const done = (v: string | null) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey, true);
+      resolve(v && v.trim() ? v.trim() : null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        done(null);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        done(input.value);
+      } else e.stopPropagation(); // typing here never triggers the app's shortcuts
+    };
+    const overlay = h("div", { class: "modal-overlay", role: "dialog", "aria-modal": "true", "aria-label": title },
+      h("div", { class: "modal" },
+        h("h2", {}, title),
+        input,
+        h("div", { class: "modal-actions" },
+          h("button", { class: "btn", onclick: () => done(null) }, "Annuler"),
+          h("button", { class: "btn btn-primary", onclick: () => done(input.value) }, okLabel))));
+    document.addEventListener("keydown", onKey, true);
+    document.body.append(overlay);
+    input.focus();
+    input.select();
+  });
+}

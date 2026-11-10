@@ -131,6 +131,12 @@ export function createShell(app: App, root: HTMLElement): void {
     route = r;
     for (const [k, b] of navButtons) b.classList.toggle("active", k === r);
     view?.dispose?.();
+    // The play button follows the page: BEAT / MELODY loop the pattern being edited (you hear
+    // every change right away), ARRANGEMENT plays the song. Never while something plays.
+    if (!engine.isPlaying && !app.recorder.isRecording) {
+      if (r === "beat" || r === "melody") engine.setMode("pattern");
+      else if (r === "arrangement") engine.setMode("song");
+    }
     main.textContent = "";
     view = createView(app, r, navigate);
     main.append(view.el);

@@ -1,4 +1,4 @@
-import { ALL_STEP_COUNTS, PITCH_RANGE, STEP_COUNTS, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
+import { ALL_STEP_COUNTS, PITCH_RANGE, SWING_MAX, VELOCITY_MAX, VELOCITY_MIN, VOLUME_MAX } from "./constants.ts";
 import type { Key } from "./music.ts";
 import { isSampledInstrument } from "./sampleLibrary.ts";
 import { drumKit, isDrumSample } from "./drumSamples.ts";
@@ -88,10 +88,13 @@ export type Action =
   | { type: "removeNotes"; trackId: string; ids: string[]; patternId?: string }
   | { type: "setNotes"; trackId: string; notes: Omit<Note, "id">[]; patternId?: string }
   // Arrangement
-  | { type: "addClip"; clip: Omit<PatternClip, "id"> }
+  /** `unique`: the clip gets its own copy of the pattern (editing it changes only this clip). */
+  | { type: "addClip"; clip: Omit<PatternClip, "id">; unique?: boolean }
   | { type: "updateClip"; clipId: string; patch: Partial<Omit<PatternClip, "id">> }
   | { type: "removeClips"; ids: string[] }
-  | { type: "duplicateClips"; ids: string[] }
+  | { type: "duplicateClips"; ids: string[]; unique?: boolean }
+  /** Give each clip its own copy of its pattern (no longer linked to the other clips). */
+  | { type: "makeClipsUnique"; ids: string[] }
   | { type: "addSection"; section: Omit<Section, "id"> }
   | { type: "updateSection"; sectionId: string; patch: Partial<Omit<Section, "id">> }
   | { type: "removeSection"; sectionId: string }
@@ -296,7 +299,7 @@ export function reduce(p: Project, a: Action): Project {
     case "duplicatePattern":
       // Doubles the current pattern length by repeating its content (16→32→64).
       return withPattern(p, undefined, (pat) => {
-        const next = STEP_COUNTS[STEP_COUNTS.indexOf(pat.stepCount) + 1];
+        const next = ALL_STEP_COUNTS[ALL_STEP_COUNTS.indexOf(pat.stepCount) + 1];
         if (!next) return pat;
         return {
           ...pat,
@@ -643,7 +646,8 @@ export function reduce(p: Project, a: Action): Project {
       if (a.clip.offset) clip.offset = Math.max(0, Math.round(a.clip.offset * 4) / 4);
       if (a.clip.muted) clip.muted = true;
       const lanes = Math.max(p.arrangement.lanes, clip.lane + 1);
-      return { ...p, arrangement: { ...p.arrangement, lanes, clips: [...p.arrangement.clips, clip] } };
+      const q = { ...p, arrangement: { ...p.arrangement, lanes, clips: [...p.arrangement.clips, clip] } };
+      return a.unique ? makeUnique(q, [clip.id]) : q;
     }
     case "updateClip": {
       const clips = mapArr(p.arrangement.clips, a.clipId, (c) => {
@@ -672,8 +676,11 @@ export function reduce(p: Project, a: Action): Project {
       const end = Math.max(...src.map((c) => c.start + c.length));
       const begin = Math.min(...src.map((c) => c.start));
       const copies = src.map((c) => ({ ...c, id: newId("clip"), start: c.start + (end - begin) }));
-      return { ...p, arrangement: { ...p.arrangement, clips: [...p.arrangement.clips, ...copies] } };
+      const q = { ...p, arrangement: { ...p.arrangement, clips: [...p.arrangement.clips, ...copies] } };
+      return a.unique ? makeUnique(q, copies.map((c) => c.id)) : q;
     }
+    case "makeClipsUnique":
+      return makeUnique(p, a.ids);
     case "addSection": {
       const s: Section = { id: newId("sec"), ...a.section, start: Math.max(0, Math.round(a.section.start)), length: Math.max(1, Math.round(a.section.length)) };
       return { ...p, arrangement: { ...p.arrangement, sections: [...p.arrangement.sections, s].sort((x, y) => x.start - y.start) } };
@@ -897,6 +904,33 @@ export { PATTERN_COLORS };
 
 
 // --- time insertion / deletion (arrangement) --------------------------------------------
+
+/**
+ * Each clip of `ids` whose pattern is also played by another clip gets its own copy of the pattern
+ * (« Refrain (2) »…): editing it then changes only that clip.
+ */
+function makeUnique(p: Project, ids: string[]): Project {
+  let patterns = p.patterns;
+  const clips = p.arrangement.clips.map((c) => {
+    if (!ids.includes(c.id)) return c;
+    const shared = p.arrangement.clips.some((o) => o.id !== c.id && o.patternId === c.patternId);
+    const src = patterns.find((x) => x.id === c.patternId);
+    if (!shared || !src) return c;
+    const base = src.name.replace(/ \(\d+\)$/, "");
+    let n = 2;
+    while (patterns.some((x) => x.name === `${base} (${n})`)) n++;
+    const copy: Pattern = {
+      ...src,
+      id: newId("pat"),
+      name: `${base} (${n})`.slice(0, 40),
+      drums: Object.fromEntries(Object.entries(src.drums).map(([k, v]) => [k, v.map((st) => ({ ...st }))])),
+      notes: Object.fromEntries(Object.entries(src.notes).map(([k, v]) => [k, v.map((x) => ({ ...x, id: newId("n") }))])),
+    };
+    patterns = [...patterns, copy];
+    return { ...c, patternId: copy.id };
+  });
+  return patterns === p.patterns ? p : { ...p, patterns, arrangement: { ...p.arrangement, clips } };
+}
 
 function insertTime(p: Project, at: number, n: number): Project {
   const spb = stepsPerBarOf(p);

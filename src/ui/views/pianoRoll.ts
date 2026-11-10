@@ -280,11 +280,15 @@ export function createPianoRoll(app: App, o: PianoRollOptions) {
       selected.delete(hit.note.id);
     }
   });
+  /** Notes created by the last click: the 2nd click of a double-click must not delete them. */
+  let justCreated: { ids: Set<string>; at: number } = { ids: new Set(), at: 0 };
   canvas.addEventListener("dblclick", (e) => {
     const { x, y } = pos(e);
     const hit = noteAt(x, y);
     const id = tid();
-    if (hit && id) app.dispatch({ type: "removeNotes", trackId: id, ids: [hit.note.id] });
+    if (!hit || !id) return;
+    if (justCreated.ids.has(hit.note.id) && performance.now() - justCreated.at < 700) return;
+    app.dispatch({ type: "removeNotes", trackId: id, ids: [hit.note.id] });
   });
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
@@ -319,6 +323,7 @@ export function createPianoRoll(app: App, o: PianoRollOptions) {
     const created = notes().filter((n) => !before.has(n.id));
     for (const q of pitches) void app.engine.previewNote(id, q, 100, 0.25);
     if (created.length) {
+      justCreated = { ids: new Set(created.map((n) => n.id)), at: performance.now() };
       selected = new Set(created.map((n) => n.id));
       drag = { kind: "resize", startX: x, startY: y, orig: new Map(created.map((n) => [n.id, { ...n }])) };
       canvas.setPointerCapture(e.pointerId);

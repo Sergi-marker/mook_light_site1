@@ -15,7 +15,7 @@ import { effect, getChannel, secondsToSteps, stepsPerBarOf, stepsToSeconds } fro
 import type { Action } from "../../core/reducer.ts";
 import type { AudioClip, Effect, Project, VocalRole, VocalTrack } from "../../core/types.ts";
 import type { App, View } from "../app.ts";
-import { confirmDialog, h, toast } from "../dom.ts";
+import { confirmDialog, h, promptDialog, toast } from "../dom.ts";
 import { drawWaveform, fmtDb, fmtPct, meter, reactive, slider } from "../widgets.ts";
 import { effectEditor, updateEffectMeters } from "./effectEditor.ts";
 import { writingPanel } from "./writingPanel.ts";
@@ -435,8 +435,8 @@ export function createVocalsView(app: App): View {
             h("span", { class: "hint" }, `${data ? (data.data.length / data.sampleRate).toFixed(1) : "?"} s${tk.score !== undefined ? ` · score ${tk.score}` : ""}${tk.processedAssetId ? " · STUDIO ✓" : ""}${inUse ? " · sur la timeline" : ""}`),
             h("button", { class: "btn btn-sm", title: "Écouter (à travers la chaîne de la piste)", onclick: () => playTake(t.id, tk.id) }, "▶"),
             h("button", { class: "btn btn-sm", title: "Comparer : utiliser cette prise sur la timeline", onclick: () => useTake(t, tk.id) }, "Utiliser"),
-            h("button", { class: "btn btn-sm", title: "Renommer", onclick: () => {
-              const n = window.prompt("Nom de la prise :", tk.name);
+            h("button", { class: "btn btn-sm", title: "Renommer", onclick: async () => {
+              const n = await promptDialog("Nom de la prise", tk.name);
               if (n) app.dispatch({ type: "renameTake", trackId: t.id, takeId: tk.id, name: n });
             } }, "Renommer"),
             h("button", { class: "btn btn-icon btn-sm", title: "Supprimer la prise", onclick: async () => {

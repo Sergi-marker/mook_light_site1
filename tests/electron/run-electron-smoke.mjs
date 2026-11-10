@@ -551,6 +551,49 @@ await step("one-click update: SETTINGS button checks GitHub for a new version of
   assert.match(status, /déjà la dernière version|nouveauté/);
 });
 
+await step("editing comfort: rename by double-click (no window.prompt), independent copies, MELODY loops the pattern, play past the end restarts", async () => {
+  // Rename a pattern with the in-app dialog (window.prompt does nothing in Electron).
+  await page.click('.nav-item:has-text("MELODY")');
+  const chip = page.locator(".pattern-chip.active");
+  const before = await chip.textContent();
+  await chip.dblclick();
+  await page.waitForSelector(".prompt-input");
+  await page.fill(".prompt-input", "Mélodie du refrain");
+  await page.keyboard.press("Enter");
+  const renamed = await page.locator(".pattern-chip.active").textContent();
+  // MELODY plays the pattern being edited, in a loop (it no longer stops at the end of the song).
+  const mode = await evalApp(() => window.__app.engine.mode);
+  // Pattern length up to 32 bars.
+  await page.selectOption('select[aria-label="Longueur du pattern"]', "128");
+  const steps = await evalApp(() => { const p = window.__app.store.getState(); return p.patterns.find((x) => x.id === p.currentPatternId).stepCount; });
+  // ARRANGEMENT: a pasted copy is independent; editing it leaves the original alone.
+  const r = await evalApp(() => {
+    const app = window.__app;
+    let p = app.store.getState();
+    const pat = p.currentPatternId;
+    app.dispatch({ type: "addClip", clip: { patternId: pat, lane: 0, start: 200, length: 4 } });
+    app.dispatch({ type: "addClip", clip: { patternId: pat, lane: 0, start: 204, length: 4 }, unique: true });
+    p = app.store.getState();
+    const copy = p.arrangement.clips.find((c) => c.start === 204);
+    return { orig: pat, copy: copy.patternId, copyName: p.patterns.find((x) => x.id === copy.patternId).name };
+  });
+  await page.click('.nav-item:has-text("ARRANGEMENT")');
+  const songMode = await evalApp(() => window.__app.engine.mode);
+  // Cursor after the end of the song: play starts from the beginning instead of stopping at once.
+  await evalApp(() => { window.__app.store.dispatch({ type: "setLoop", loop: { enabled: false } }); window.__app.engine.cursor = 100000; });
+  await page.click(".btn-play");
+  await page.waitForTimeout(1500);
+  const playing = await evalApp(() => ({ on: window.__app.engine.isPlaying, pos: window.__app.engine.currentPosition() }));
+  await page.click(".btn-play");
+  console.log(`  # renommé « ${before} » → « ${renamed} » · MELODY en mode ${mode}, pattern ${steps / 16} mesures · copie « ${r.copyName} » (propre pattern : ${r.copy !== r.orig}) · ARRANGEMENT en mode ${songMode}, lecture ${JSON.stringify(playing)}`);
+  assert.equal(renamed, "Mélodie du refrain");
+  assert.equal(mode, "pattern");
+  assert.equal(steps, 128);
+  assert.notEqual(r.copy, r.orig);
+  assert.equal(songMode, "song");
+  assert.ok(playing.on && playing.pos < 200, "plays from the start");
+});
+
 await step("no page errors during the run", async () => assert.deepEqual(errors, []));
 
 // Skip the "unsaved changes" prompt on close: quit the main process directly.

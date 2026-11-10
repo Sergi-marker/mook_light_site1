@@ -222,7 +222,13 @@ export class AudioEngine {
     if (!this.ctx) await this.init();
     if (this.ctx!.state === "suspended") await this.ctx!.resume();
     if (this.isPlaying) return;
-    const start = from ?? this.pausedAt ?? (this.mode === "song" ? this.cursor : 0);
+    let start = from ?? this.pausedAt ?? (this.mode === "song" ? this.cursor : 0);
+    // Cursor at / after the end of the song: play from the start instead of stopping at once.
+    if (from === undefined && this.mode === "song" && !this.holdAtSongEnd && !this.getProject().arrangement.loop.enabled && start >= songEndStep(this.getProject())) {
+      start = 0;
+      this.cursor = 0;
+      this.pausedAt = null;
+    }
     // Nothing may be computed during playback: prepare every note first (instant when cached).
     await this.prepare();
     if (this.isPlaying) return;

@@ -134,3 +134,45 @@ test("live take: one long pattern (not a loop) holding the notes as played, plac
   assert.equal(back.patterns.find((x) => x.id === "pat_live")!.stepCount, 256);
   assert.equal(reduce(p, { type: "addLiveTake", instrumentId: ins.id, startBar: 0, bars: 4, notes: [], name: "x" }), p, "no notes: nothing added");
 });
+
+test("copies in the arrangement can be independent: editing a copy never changes the original", () => {
+  let p = createEmptyProject("copies");
+  const pat = p.patterns[0].id;
+  p = reduce(p, { type: "addInstrument", preset: "piano" });
+  const ins = p.instruments.at(-1)!.id;
+  p = reduce(p, { type: "addNotes", trackId: ins, notes: [{ pitch: 60, start: 0, length: 4, velocity: 100 }] });
+  p = reduce(p, { type: "addClip", clip: { patternId: pat, lane: 0, start: 0, length: 4 } });
+  const orig = p.arrangement.clips[0];
+  // Linked (old behaviour, still available): same pattern.
+  const linked = reduce(p, { type: "duplicateClips", ids: [orig.id] });
+  assert.equal(new Set(linked.arrangement.clips.map((c) => c.patternId)).size, 1);
+  // Independent: the copy plays its own pattern, a real copy of the notes.
+  const indep = reduce(p, { type: "duplicateClips", ids: [orig.id], unique: true });
+  const copy = indep.arrangement.clips.find((c) => c.id !== orig.id)!;
+  assert.notEqual(copy.patternId, pat);
+  const copyPat = indep.patterns.find((x) => x.id === copy.patternId)!;
+  assert.equal(copyPat.name, `${p.patterns[0].name} (2)`);
+  const edited = reduce({ ...indep, currentPatternId: copy.patternId }, { type: "updateNotes", trackId: ins, updates: [{ id: copyPat.notes[ins][0].id, pitch: 67 }] });
+  assert.equal(edited.patterns.find((x) => x.id === pat)!.notes[ins][0].pitch, 60, "original untouched");
+  assert.equal(edited.patterns.find((x) => x.id === copy.patternId)!.notes[ins][0].pitch, 67);
+  // Alt+drag / paste with unique, and « Rendre unique » on a linked clip.
+  const pasted = reduce(p, { type: "addClip", clip: { patternId: pat, lane: 0, start: 8, length: 4 }, unique: true });
+  assert.equal(new Set(pasted.arrangement.clips.map((c) => c.patternId)).size, 2);
+  const freed = reduce(linked, { type: "makeClipsUnique", ids: [linked.arrangement.clips[1].id] });
+  assert.equal(new Set(freed.arrangement.clips.map((c) => c.patternId)).size, 2);
+  assert.equal(reduce(p, { type: "makeClipsUnique", ids: [orig.id] }), p, "a clip alone on its pattern stays as it is");
+});
+
+test("pattern length up to 32 bars, ×2 repeats the content up to 512 steps", () => {
+  let p = createEmptyProject("len");
+  p = reduce(p, { type: "addInstrument", preset: "piano" });
+  const ins = p.instruments.at(-1)!.id;
+  p = reduce(p, { type: "setStepCount", stepCount: 64 });
+  p = reduce(p, { type: "addNotes", trackId: ins, notes: [{ pitch: 60, start: 2, length: 4, velocity: 100 }] });
+  p = reduce(p, { type: "duplicatePattern" });
+  assert.equal(p.patterns[0].stepCount, 128);
+  assert.deepEqual(p.patterns[0].notes[ins].map((n) => n.start), [2, 66]);
+  p = reduce(p, { type: "setStepCount", stepCount: 512 });
+  assert.equal(p.patterns[0].stepCount, 512);
+  assert.equal(reduce(p, { type: "duplicatePattern" }).patterns[0].stepCount, 512, "32 bars is the maximum");
+});
